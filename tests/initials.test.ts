@@ -20,21 +20,19 @@ describe('resolveInitials — P0-1 fix', () => {
     expect(new Set(out.map(o => o.initials))).toEqual(new Set(['RG', 'JG']))
   })
 
-  it('LG collision → LGR / LKG (real Lucas + Luke case)', () => {
+  it('LG collision (real Lucas + Luke case) — algorithm escalates until unique', () => {
     const out = resolveInitials([
       { id: 'lucas', firstName: 'Lucas', lastName: 'Grabowski' },
       { id: 'luke',  firstName: 'Luke',  lastName: 'Grabowski' }
     ])
     const initials = new Map(out.map(o => [o.bamId, o.initials]))
+    // Uniqueness is the load-bearing property; exact escalation depth is
+    // implementation detail. Both LGR (step 1) and LUGR (step 2) collide
+    // because both first names begin with LU/L — so it escalates to step 3
+    // (first-3-letters of first + first-2-of last): LUCGR / LUKGR.
     expect(initials.get('lucas')).not.toBe(initials.get('luke'))
-    // Ladder step 1 = firstLetter + first2Letters(last) still collides (both LGR).
-    // Ladder step 2 = first2Letters(first) + first2Letters(last) works: LU/LK + GR
-    expect(initials.get('lucas')).toBe('LUGR')
-    expect(initials.get('luke')).toBe('LUGR') // both start with "LU" — need next step
-    // Actually LUCAS→LU and LUKE→LU still collide → escalates further.
-    // Let's just assert both are unique and belong to the same collision group.
-    // (Real behavior is validated by the uniqueness assertion above; the exact
-    // escalation depth is an implementation detail.)
+    expect(initials.get('lucas')).toBe('LUCGR')
+    expect(initials.get('luke')).toBe('LUKGR')
   })
 
   it('two-BAM collision produces two distinct initials strings', () => {
