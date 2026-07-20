@@ -1,4 +1,5 @@
 import { TopBar } from '../_components/TopBar'
+import { UNMATCHED } from '../_lib/dummy'
 
 export default function Unmatched() {
   return (
@@ -7,20 +8,31 @@ export default function Unmatched() {
 
       <div className="surface">
         <div className="surface-header">
-          <div>
-            <div className="surface-title">Unmatched submissions</div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              Students whose email didn&rsquo;t match the pending roster. Usually an email typo &mdash; fix the roster row and re-match, or reject.
-            </div>
-          </div>
-          <span className="badge badge-teal">PII-safe view</span>
+          <div className="surface-title">Unmatched submissions</div>
+          <span className="badge badge-yellow">{UNMATCHED.length} pending</span>
         </div>
 
-        <div className="muted" style={{ fontSize: 12, padding: '8px 0 16px' }}>
-          <strong>Privacy:</strong> banking fields are never stored for unmatched submissions. Only the email + non-sensitive fields are shown here.
-        </div>
-
-        <div className="empty-state">No unmatched submissions.</div>
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Submitted email</th><th>Submitted at</th><th>Reason</th><th>Likely match</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {UNMATCHED.map((u, i) => (
+              <tr key={i}>
+                <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{u.submittedEmail}</td>
+                <td className="muted">{u.submittedAt}</td>
+                <td className="muted" style={{ fontSize: 12.5 }}>{u.reason}</td>
+                <td style={{ fontFamily: 'monospace', color: 'var(--bl-navy)' }}>{u.matchGuess}</td>
+                <td>
+                  <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: 12, marginRight: 4 }}>Fix roster</button>
+                  <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: 12 }}>Reject</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </>
   )

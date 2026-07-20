@@ -2,34 +2,31 @@ import { TopBar } from './_components/TopBar'
 import { KpiCell } from './_components/StatCard'
 import { LineChartPlaceholder } from './_components/LineChartPlaceholder'
 import { HeatmapPlaceholder } from './_components/Heatmap'
+import { DASHBOARD_STATS } from './_lib/dummy'
 
 export default function AdminDashboard() {
+  const s = DASHBOARD_STATS
   return (
     <>
       <TopBar crumbs={['Dashboard', 'Overview']} />
 
-      {/* Hero KPI surface */}
       <div className="surface">
         <div className="surface-header">
           <div className="surface-title">Program summary</div>
           <button className="btn-navy">View details ↗</button>
         </div>
         <div className="kpi-row">
-          <KpiCell label="Active BAMs"       value="58"       delta="0.9%" trend="up" />
-          <KpiCell label="Receipts this period" value="42"    delta="3.4%" trend="down" />
-          <KpiCell label="Review queue"      value="6"        hint="Robin action" trend="neutral" />
-          <KpiCell label="Budget used"       value="$3.2K"    delta="2.5%" trend="up" />
-          <KpiCell label="Invoices sent"     value="0"        hint="cycle: Sept 16" />
+          <KpiCell label="Active BAMs"       value={String(s.activeBams)}      delta="0.9%" trend="up" />
+          <KpiCell label="Receipts this period" value={String(s.receiptsSubmitted)} delta="3.4%" trend="down" />
+          <KpiCell label="Review queue"      value={String(s.reviewQueue)}     hint="Robin action" trend="neutral" />
+          <KpiCell label="Budget used"       value={s.budgetUsed}              delta="2.5%" trend="up" />
+          <KpiCell label="Invoices sent"     value={String(s.invoicesSent)}    hint="cycle: Sept 16" />
         </div>
       </div>
 
-      {/* Main chart */}
       <div className="surface">
         <div className="surface-header">
-          <div>
-            <div className="chart-headline">Monthly reimbursement <span className="badge-teal badge">accumulate</span></div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Total paid across cohort per period, incl. carryover.</div>
-          </div>
+          <div className="chart-headline">Monthly reimbursement <span className="badge-blue badge">accumulate</span></div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div className="chart-tabs">
               <button className="chart-tab">Today</button>
@@ -42,7 +39,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--ink)', letterSpacing: '-0.02em', marginBottom: 4 }}>
+        <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--bl-navy)', letterSpacing: '-0.02em', marginBottom: 4 }}>
           72% <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--midgray)' }}>of monthly cap</span>
         </div>
         <div className="trend-up" style={{ fontSize: 12, fontWeight: 600, marginBottom: 16 }}>▲ 0.9% vs last period</div>
@@ -50,35 +47,27 @@ export default function AdminDashboard() {
         <LineChartPlaceholder />
       </div>
 
-      {/* Bottom grid */}
       <div className="grid-2">
         <div className="surface" style={{ marginBottom: 0 }}>
           <div className="surface-header">
-            <div>
-              <div className="surface-title">Spending heatmap</div>
-              <div className="muted" style={{ fontSize: 12 }}>BAM × month, current cohort</div>
-            </div>
+            <div className="surface-title">Spending heatmap</div>
             <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }}>Monthly ▾</button>
           </div>
           <div style={{ marginBottom: 12 }}>
-            <span style={{ fontSize: 24, fontWeight: 700 }}>120</span>
-            <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>Records &middot; usage frequency over cohort</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--bl-navy)' }}>120</span>
+            <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>records</span>
           </div>
           <HeatmapPlaceholder />
         </div>
 
         <div className="surface" style={{ marginBottom: 0 }}>
           <div className="surface-header">
-            <div>
-              <div className="surface-title">Invoice volume</div>
-              <div className="muted" style={{ fontSize: 12 }}>Sent to AP per month</div>
-            </div>
+            <div className="surface-title">Invoice volume</div>
             <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }}>Monthly ▾</button>
           </div>
           <div style={{ marginBottom: 12 }}>
-            <span style={{ fontSize: 24, fontWeight: 700 }}>0</span>
-            <span className="badge badge-teal" style={{ marginLeft: 8 }}>first cycle</span>
-            <div className="muted" style={{ fontSize: 12 }}>Cycle starts Sept 16</div>
+            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--bl-navy)' }}>0</span>
+            <span className="badge badge-blue" style={{ marginLeft: 8 }}>first cycle</span>
           </div>
           <BarChartPlaceholder />
         </div>
