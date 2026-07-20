@@ -12,7 +12,7 @@ export default function AdminDashboard() {
       <div className="surface">
         <div className="surface-header">
           <div className="surface-title">Program summary</div>
-          <button className="btn-teal">View details ↗</button>
+          <button className="btn-navy">View details ↗</button>
         </div>
         <div className="kpi-row">
           <KpiCell label="Active BAMs"       value="58"       delta="0.9%" trend="up" />
@@ -98,7 +98,7 @@ function BarChartPlaceholder() {
           style={{
             flex: 1,
             height: `${(v / max) * 100}%`,
-            background: i === bars.length - 1 ? 'var(--teal-sub)' : 'var(--teal-tint)',
+            background: i === bars.length - 1 ? 'var(--bl-navy)' : 'var(--bl-sky)',
             borderRadius: '6px 6px 0 0',
             minHeight: 4
           }}

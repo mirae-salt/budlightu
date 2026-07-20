@@ -39,10 +39,10 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <div className="sidebar-brand-mark">B</div>
+        <div className="sidebar-brand-mark">BLU</div>
         <div>
-          <div className="sidebar-brand-name">BLU Admin</div>
-          <div className="muted" style={{ fontSize: 11 }}>Bud Light U</div>
+          <div className="sidebar-brand-name">Bud Light U</div>
+          <div className="muted" style={{ fontSize: 11 }}>Admin console</div>
         </div>
       </div>
 

@@ -4,7 +4,7 @@
  */
 export function HeatmapPlaceholder() {
   const cells = 20 * 6
-  const shades = ['#F0F0F0', '#D4EAE7', '#9BD1CC', '#5DB8B1', '#0BA599', '#006F6C']
+  const shades = ['#EAEEF3', '#CDE5F4', '#8FC9EA', '#4DA9DB', '#0088CE', '#003D6B']
 
   return (
     <>

@@ -16,12 +16,12 @@ export function LineChartPlaceholder() {
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
         <defs>
           <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="#0BA599" stopOpacity="0.20" />
-            <stop offset="100%" stopColor="#0BA599" stopOpacity="0.02" />
+            <stop offset="0%"   stopColor="#0088CE" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#0088CE" stopOpacity="0.02" />
           </linearGradient>
         </defs>
         <path d={area} fill="url(#chart-fill)" />
-        <path d={path} fill="none" stroke="#215250" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+        <path d={path} fill="none" stroke="#003D6B" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
       </svg>
       <div style={{ position: 'absolute', right: 8, top: 4, bottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: 10, color: 'var(--midgray)', pointerEvents: 'none' }}>
         <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
