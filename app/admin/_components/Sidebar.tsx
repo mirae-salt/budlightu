@@ -38,11 +38,10 @@ export function Sidebar() {
   const path = usePathname()
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div className="sidebar-brand-mark">BLU</div>
-        <div>
-          <div className="sidebar-brand-name">Bud Light U</div>
-          <div className="muted" style={{ fontSize: 11 }}>Admin console</div>
+      <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, paddingBottom: 16 }}>
+        <img src="/brand/bud-light-wordmark.svg" alt="Bud Light" style={{ height: 42, width: 'auto' }} />
+        <div className="muted" style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2 }}>
+          U · Admin console
         </div>
       </div>
 

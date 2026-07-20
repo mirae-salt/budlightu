@@ -172,14 +172,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   border-bottom: 1px solid var(--bl-fog);
   margin-bottom: 12px;
 }
-.sidebar-brand-mark {
-  width: 36px; height: 36px; border-radius: 50%;
-  background: var(--bl-blue); color: var(--paper);
-  display: grid; place-items: center;
-  font-weight: 800; font-size: 12px;
-  letter-spacing: 0.05em;
-  box-shadow: 0 2px 8px rgba(0,136,206,0.3);
-}
+.sidebar-brand img { display: block; }
 .sidebar-brand-name {
   font-weight: 800; font-size: 15px;
   color: var(--bl-navy);
