@@ -7,8 +7,8 @@
  * 3) Parse strict JSON. On failure → status='ocr_failed', increment attempts.
  * 4) Persist ocr_json to receipts row (status left 'pending' for classifyReceipt).
  *
- * Note: v1 uses Claude Haiku 4.5 for cost. Dev/testing may swap to Gemini via
- * a feature flag (`LLM_PROVIDER=gemini`).
+ * Note: v1 uses Claude Haiku 4.5 for cost. Dev testing uses the same key
+ * (Anthropic issues personal keys instantly; a few cents covers dev).
  */
 import Anthropic from '@anthropic-ai/sdk'
 import { serviceClient } from '../_shared/supabase-admin'
