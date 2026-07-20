@@ -66,7 +66,7 @@ export async function handler(req: Req): Promise<{ ok: boolean; status: string; 
   let text = ''
   try {
     const resp = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-5', // Sonnet for first cohort safety; downgrade to Haiku after 3-month accuracy data
       max_tokens: 1024,
       messages: [{
         role: 'user',

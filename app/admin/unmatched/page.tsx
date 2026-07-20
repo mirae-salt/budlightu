@@ -1,19 +1,27 @@
+import { TopBar } from '../_components/TopBar'
+
 export default function Unmatched() {
   return (
-    <main className="container">
-      <p className="eyebrow">ONBOARDING · TRIAGE</p>
-      <h1>Unmatched submissions</h1>
-      <p className="subtle">
-        Students whose email didn&rsquo;t match the pending roster. Usually an email typo &mdash; fix the roster row and re-match, or reject.
-      </p>
+    <>
+      <TopBar crumbs={['Roster', 'Unmatched onboarding']} />
 
-      <p className="muted" style={{ marginTop: 16, fontSize: 13 }}>
-        <strong>Privacy:</strong> banking fields are never stored for unmatched submissions. Only the email + non-sensitive fields are shown here.
-      </p>
+      <div className="surface">
+        <div className="surface-header">
+          <div>
+            <div className="surface-title">Unmatched submissions</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Students whose email didn&rsquo;t match the pending roster. Usually an email typo &mdash; fix the roster row and re-match, or reject.
+            </div>
+          </div>
+          <span className="badge badge-teal">PII-safe view</span>
+        </div>
 
-      <p className="muted" style={{ marginTop: 16 }}>
-        Placeholder — table of onboarding_submissions_summary (super-admin view has the full record, program-admin sees this summary only).
-      </p>
-    </main>
+        <div className="muted" style={{ fontSize: 12, padding: '8px 0 16px' }}>
+          <strong>Privacy:</strong> banking fields are never stored for unmatched submissions. Only the email + non-sensitive fields are shown here.
+        </div>
+
+        <div className="empty-state">No unmatched submissions.</div>
+      </div>
+    </>
   )
 }

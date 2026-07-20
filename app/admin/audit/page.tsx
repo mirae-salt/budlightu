@@ -1,13 +1,23 @@
+import { TopBar } from '../_components/TopBar'
+
 export default function AuditLog() {
   return (
-    <main className="container">
-      <p className="eyebrow">SUPER ADMIN · AUDIT</p>
-      <h1>Audit log</h1>
-      <p className="subtle">Every write action on money- or PII-adjacent tables. Read-only.</p>
+    <>
+      <TopBar crumbs={['System', 'Audit log']} />
 
-      <p className="muted" style={{ marginTop: 16 }}>
-        Placeholder — filterable table of audit_log rows (entity / actor / action / diff).
-      </p>
-    </main>
+      <div className="surface">
+        <div className="surface-header">
+          <div>
+            <div className="surface-title">Audit log</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Every write action on money- or PII-adjacent tables. Read-only, super-admin only.
+            </div>
+          </div>
+          <button className="btn-ghost">Export CSV</button>
+        </div>
+
+        <div className="empty-state">Empty log — no activity yet.</div>
+      </div>
+    </>
   )
 }

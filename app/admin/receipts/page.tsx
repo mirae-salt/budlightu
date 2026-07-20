@@ -1,21 +1,29 @@
+import { TopBar } from '../_components/TopBar'
+
 export default function ReceiptsQueue() {
   return (
-    <main className="container">
-      <p className="eyebrow">HUMAN TOUCHPOINT 1</p>
-      <h1>Receipt review queue</h1>
-      <p className="subtle">
-        These receipts need your eyes. Auto-approved and cleanly rejected ones aren&rsquo;t shown.
-      </p>
+    <>
+      <TopBar crumbs={['Receipts', 'Review queue']} />
 
-      <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
-        <span className="badge badge-yellow">REVIEW (0)</span>
-        <span className="badge badge-red">OCR FAILED (0)</span>
-        <span className="badge badge-teal">RECENTLY DECIDED (0)</span>
+      <div className="surface">
+        <div className="surface-header">
+          <div>
+            <div className="surface-title">Human touchpoint 1 · receipt review</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              These receipts need your eyes. Auto-approved and cleanly rejected ones aren&rsquo;t shown.
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <span className="badge badge-yellow">REVIEW · 0</span>
+            <span className="badge badge-red">OCR FAILED · 0</span>
+            <span className="badge badge-green">DECIDED TODAY · 0</span>
+          </div>
+        </div>
+
+        <div className="empty-state">
+          No receipts waiting for review. When a BAM uploads a borderline or unclear receipt, it appears here.
+        </div>
       </div>
-
-      <p className="muted">
-        Placeholder — wire up a table of receipts filtered to status IN (&rsquo;review&rsquo;, &rsquo;ocr_failed&rsquo;) with approve/reject actions.
-      </p>
-    </main>
+    </>
   )
 }
