@@ -24,8 +24,8 @@ describe('formatInvoiceNumber', () => {
 describe('invoiceDisplayName', () => {
   it('formats "First Last - Month Year - Invoice #INV-XXn"', () => {
     const d = new Date(Date.UTC(2026, 6, 1)) // July 2026 (UTC-safe)
-    expect(invoiceDisplayName('Robin', 'Graham', d, 'INV-RG1'))
-      .toBe('Robin Graham - July 2026 - Invoice #INV-RG1')
+    expect(invoiceDisplayName('Alex', 'Kim', d, 'INV-AK1'))
+      .toBe('Alex Kim - July 2026 - Invoice #INV-AK1')
   })
 })
 

@@ -33,7 +33,9 @@ const styles = StyleSheet.create({
   col_unit:  { width: 80, textAlign: 'right' },
   col_total: { width: 80, textAlign: 'right' },
   totals: { marginTop: 8, alignItems: 'flex-end' },
-  totalsRow: { flexDirection: 'row', width: 220, justifyContent: 'space-between' },
+  totalsRow: { flexDirection: 'row', width: 360, justifyContent: 'space-between', marginBottom: 2 },
+  totalsLabel: { flex: 1, fontSize: 9 },
+  totalsValue: { width: 80, textAlign: 'right' as const },
   footerBox: { marginTop: 24, borderTop: '2 solid #000', paddingTop: 8 }
 })
 
@@ -83,14 +85,16 @@ export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
         {/* Totals */}
         <View style={styles.totals}>
           <View style={styles.totalsRow}>
-            <Text>SUBTOTAL</Text><Text>${payload.subtotal.toFixed(2)}</Text>
+            <Text style={styles.totalsLabel}>SUBTOTAL</Text>
+            <Text style={styles.totalsValue}>${payload.subtotal.toFixed(2)}</Text>
           </View>
           <View style={styles.totalsRow}>
-            <Text>TAX (must also share HST number if claiming tax)</Text>
-            <Text>${payload.tax.toFixed(2)}</Text>
+            <Text style={styles.totalsLabel}>TAX (must also share HST number if claiming tax)</Text>
+            <Text style={styles.totalsValue}>${payload.tax.toFixed(2)}</Text>
           </View>
-          <View style={styles.totalsRow}>
-            <Text>TOTAL</Text><Text>${payload.total.toFixed(2)}</Text>
+          <View style={{ ...styles.totalsRow, borderTop: '1 solid #000', paddingTop: 4, marginTop: 2 }}>
+            <Text style={{ ...styles.totalsLabel, fontWeight: 'bold', fontSize: 11 }}>TOTAL</Text>
+            <Text style={{ ...styles.totalsValue, fontWeight: 'bold', fontSize: 11 }}>${payload.total.toFixed(2)}</Text>
           </View>
         </View>
 

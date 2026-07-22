@@ -4,7 +4,7 @@ import { baseInitials, resolveInitials } from '../lib/initials'
 describe('baseInitials', () => {
   it('takes first letter of first + last name', () => {
     expect(baseInitials({ firstName: 'Lucas', lastName: 'Grabowski' })).toBe('LG')
-    expect(baseInitials({ firstName: 'Robin', lastName: 'Graham' })).toBe('RG')
+    expect(baseInitials({ firstName: 'Reese', lastName: 'Garcia' })).toBe('RG')
   })
   it('is uppercased', () => {
     expect(baseInitials({ firstName: 'sara', lastName: 'lee' })).toBe('SL')
@@ -14,8 +14,8 @@ describe('baseInitials', () => {
 describe('resolveInitials — P0-1 fix', () => {
   it('no collision → base initials', () => {
     const out = resolveInitials([
-      { id: '1', firstName: 'Robin', lastName: 'Graham' },
-      { id: '2', firstName: 'Jenna', lastName: 'Greenspoon' }
+      { id: '1', firstName: 'Reese', lastName: 'Garcia' },
+      { id: '2', firstName: 'Jamie', lastName: 'Green' }
     ])
     expect(new Set(out.map(o => o.initials))).toEqual(new Set(['RG', 'JG']))
   })

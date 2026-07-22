@@ -23,20 +23,36 @@ describe('lookupBank — seed integrity', () => {
     }
   })
 
-  const cases: Array<[string, string, string]> = [
-    ['RBC',              '003', 'RBC Royal Bank'],
-    ['TD Canada Trust',  '004', 'TD Canada Trust'],
-    ['BMO',              '001', 'BMO Bank of Montreal'],
-    ['Scotiabank',       '002', 'Scotiabank'],
-    ['CIBC',             '010', 'CIBC'],
-    ['Equitable Bank',   '623', 'Equitable Bank'],
-    ['EQ Bank',          '623', 'EQ Bank']
+  const cases: Array<[string, string]> = [
+    ['RBC',                    '003'],
+    ['TD Canada Trust',        '004'],
+    ['BMO',                    '001'],
+    ['Scotiabank',             '002'],
+    ['CIBC',                   '010'],
+    ['Desjardins',             '815'],
+    ['Tangerine',              '614'],
+    ['Simplii Financial',      '010'],
+    ['National Bank',          '006'],
+    ['ATB Financial',          '219'],
+    ['Coast Capital Savings',  '809'],
+    ['Vancity',                '809'],
+    ['Wealthsimple',           '703'],
+    ['Affinity Credit Union',  '839'],
+    ['Conexus Credit Union',   '839'],
+    ['Servus Credit Union',    '839'],
+    ['Meridian Credit Union',  '839'],
   ]
 
   it.each(cases)('%s → %s', (raw, expected) => {
     const b = lookupBank(raw)
     expect(b).not.toBeNull()
     expect(b!.institutionNo).toBe(expected)
+  })
+
+  it('strips "credit union" and "financial" during normalization', () => {
+    expect(normalizeBankName('Servus Credit Union')).toBe('servus')
+    expect(normalizeBankName('Simplii Financial')).toBe('simplii')
+    expect(normalizeBankName('Coast Capital Savings')).toBe('coast capital')
   })
 
   it('unknown bank returns null (caller must HARD FAIL)', () => {

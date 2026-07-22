@@ -34,15 +34,12 @@ const groups: NavGroup[] = [
   }
 ]
 
-export function Sidebar() {
+export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const path = usePathname()
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, paddingBottom: 16 }}>
-        <img src="/brand/bud-light-wordmark.svg" alt="Bud Light" style={{ height: 42, width: 'auto' }} />
-        <div className="muted" style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2 }}>
-          U · Admin console
-        </div>
+    <aside className={`sidebar${open ? ' open' : ''}`}>
+      <div className="sidebar-brand" style={{ justifyContent: 'center', paddingBottom: 12 }}>
+        <img src="/brand/download-removebg-preview.png" alt="Bud Light U" style={{ height: 56, width: 'auto' }} />
       </div>
 
       {groups.map(g => (
@@ -51,7 +48,7 @@ export function Sidebar() {
           {g.items.map(it => {
             const active = it.href === '/admin' ? path === '/admin' : path.startsWith(it.href)
             return (
-              <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`}>
+              <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`} onClick={onNavigate}>
                 {it.icon}
                 <span>{it.label}</span>
                 {it.badge && it.badge !== '0' && <span className="nav-badge">{it.badge}</span>}
@@ -61,8 +58,20 @@ export function Sidebar() {
         </div>
       ))}
 
-      <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid var(--stone-lt)' }}>
-        <div className="nav-item" style={{ fontSize: 12, color: 'var(--midgray)' }}>
+      <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%',
+            background: 'var(--bl-blue)', color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 700, flexShrink: 0
+          }}>M</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Mirae Lee</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>mirae.lee@ilovesalt.com</div>
+          </div>
+        </div>
+        <div className="nav-item" style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>
           <IconInfo />
           <span>v0.1.0 · scaffold</span>
         </div>

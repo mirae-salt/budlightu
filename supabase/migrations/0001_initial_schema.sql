@@ -26,8 +26,8 @@ create table cohorts (
   start_date                  date not null,
   end_date                    date not null,
   months                      int generated always as
-                              (extract(year from age(end_date, start_date))*12
-                               + extract(month from age(end_date, start_date))) stored,
+                              ((extract(year from end_date) - extract(year from start_date))*12
+                               + (extract(month from end_date) - extract(month from start_date))) stored,
   created_at                  timestamptz not null default now(),
   updated_at                  timestamptz not null default now()
 );

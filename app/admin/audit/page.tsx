@@ -1,12 +1,91 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
-import { AUDIT_LOG } from '../_lib/dummy'
+import { AUDIT_LOG, type AuditRow } from '../_lib/dummy'
+
+type RoleFilter = 'all' | AuditRow['role']
+
+type DbAuditLog = {
+  ts: string
+  actor_role: string | null
+  entity: string
+  entity_id: string | null
+  action: string
+  after_json: unknown
+}
+
+function normalizeRole(role: string | null): AuditRow['role'] {
+  if (role === 'super_admin' || role === 'program_admin' || role === 'system' || role === 'bam') return role
+  return 'system'
+}
+
+function mapDbAuditLog(e: DbAuditLog): AuditRow {
+  return {
+    ts: new Date(e.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+    actor: normalizeRole(e.actor_role) === 'system' ? 'system' : (e.actor_role || 'unknown'),
+    role: normalizeRole(e.actor_role),
+    entity: e.entity,
+    action: e.action,
+    target: e.entity_id || (e.after_json ? JSON.stringify(e.after_json).slice(0, 80) : '—')
+  }
+}
 
 export default function AuditLog() {
-  const roleBadge = (r: 'super_admin' | 'program_admin' | 'system' | 'bam') =>
+  const [log, setLog] = useState<AuditRow[]>([])
+  const [useDb, setUseDb] = useState(false)
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const [entityFilter, setEntityFilter] = useState<string>('all')
+
+  useEffect(() => {
+    fetch('/api/admin/data?table=audit')
+      .then(res => res.json())
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setLog((data as DbAuditLog[]).map(mapDbAuditLog))
+          setUseDb(true)
+        } else {
+          setLog(AUDIT_LOG)
+        }
+      })
+      .catch(() => {
+        setLog(AUDIT_LOG)
+      })
+  }, [])
+
+  const entities = useMemo(
+    () => Array.from(new Set(log.map(e => e.entity))).sort(),
+    [log]
+  )
+
+  const filtered = log.filter(e =>
+    (roleFilter === 'all' || e.role === roleFilter) &&
+    (entityFilter === 'all' || e.entity === entityFilter)
+  )
+
+  const roleBadge = (r: AuditRow['role']) =>
       r === 'super_admin'   ? <span className="badge badge-navy">SUPER</span>
     : r === 'program_admin' ? <span className="badge badge-blue">ADMIN</span>
     : r === 'system'        ? <span className="badge" style={{ background: 'var(--stone-lt)', color: 'var(--slate)' }}>SYSTEM</span>
                             : <span className="badge badge-green">BAM</span>
+
+  function exportCsv() {
+    const header = ['Time', 'Actor', 'Role', 'Entity', 'Action', 'Target']
+    const rows = filtered.map(e => [e.ts, e.actor, e.role, e.entity, e.action, e.target])
+    const csv = [header, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `blu-audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <>
@@ -14,8 +93,23 @@ export default function AuditLog() {
 
       <div className="surface">
         <div className="surface-header">
-          <div className="surface-title">Audit log</div>
-          <button className="btn-ghost">Export CSV</button>
+          <div className="surface-title">
+            Audit log
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select value={roleFilter} onChange={e => setRoleFilter(e.target.value as RoleFilter)} style={{ width: 'auto' }}>
+              <option value="all">All roles</option>
+              <option value="super_admin">super_admin</option>
+              <option value="program_admin">program_admin</option>
+              <option value="system">system</option>
+              <option value="bam">bam</option>
+            </select>
+            <select value={entityFilter} onChange={e => setEntityFilter(e.target.value)} style={{ width: 'auto' }}>
+              <option value="all">All entities</option>
+              {entities.map(en => <option key={en} value={en}>{en}</option>)}
+            </select>
+            <button className="btn-ghost" onClick={exportCsv}>Export CSV</button>
+          </div>
         </div>
 
         <table className="admin-table">
@@ -25,7 +119,7 @@ export default function AuditLog() {
             </tr>
           </thead>
           <tbody>
-            {AUDIT_LOG.map((e, i) => (
+            {filtered.map((e, i) => (
               <tr key={i}>
                 <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{e.ts}</td>
                 <td style={{ fontWeight: 600 }}>{e.actor}</td>
@@ -35,6 +129,13 @@ export default function AuditLog() {
                 <td className="muted" style={{ fontSize: 12.5 }}>{e.target}</td>
               </tr>
             ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6}>
+                  <div className="empty-state">No audit entries match these filters.</div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

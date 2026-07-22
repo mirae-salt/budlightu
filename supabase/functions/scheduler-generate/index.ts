@@ -6,7 +6,7 @@
  *   2. For each active BAM: generate invoice payload → insert invoices row (status=draft)
  *      → render PDF (calls renderInvoicePdf; not yet implemented here)
  *      → queue three sends (AP, SharePoint, BAM copy) — all in draft/dryrun by default
- *   3. Robin approves batch in admin UI → flips to sent
+ *   3. Program admin approves batch in admin UI → flips to sent
  *
  * Nothing goes live in this scheduler run — that's the batch-approve step.
  */

@@ -3,14 +3,17 @@
  * POST { storage_key: string, bam_id: string, cohort_id: string, period: string, receipt_id: string }
  *
  * 1) Load image bytes from Supabase Storage
- * 2) Call Claude Vision (Anthropic) with the prompt from ARCHITECTURE.md §A.4
+ * 2) Call a vision model with the prompt from ARCHITECTURE.md §A.4
  * 3) Parse strict JSON. On failure → status='ocr_failed', increment attempts.
  * 4) Persist ocr_json to receipts row (status left 'pending' for classifyReceipt).
  *
- * Note: v1 uses Claude Haiku 4.5 for cost. Dev testing uses the same key
- * (Anthropic issues personal keys instantly; a few cents covers dev).
+ * Provider: ANTHROPIC_API_KEY (Claude, production) preferred; falls back to
+ * GEMINI_API_KEY (Gemini 2.0 Flash, free tier) when Anthropic isn't configured —
+ * dev/local e2e testing only, no Salt billing impact. Same prompt + same strict
+ * JSON contract either way, so classifyReceipt downstream doesn't care which ran.
  */
 import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { serviceClient } from '../_shared/supabase-admin'
 
 const RECEIPT_PROMPT = `You are an audit assistant reading a Canadian retail receipt image. Return JSON only.
@@ -58,30 +61,20 @@ export async function handler(req: Req): Promise<{ ok: boolean; status: string; 
   const base64 = btoa(String.fromCharCode(...bytes))
   const mediaType = (file.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
-  // 2. Call Claude
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return await failReceipt(db, req.receipt_id, 'ANTHROPIC_API_KEY missing')
-  const client = new Anthropic({ apiKey })
+  // 2. Call a vision model (Anthropic if configured, else Gemini free-tier fallback for dev)
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!anthropicKey && !geminiKey) {
+    return await failReceipt(db, req.receipt_id, 'no OCR provider configured (ANTHROPIC_API_KEY or GEMINI_API_KEY)')
+  }
 
   let text = ''
   try {
-    const resp = await client.messages.create({
-      model: 'claude-sonnet-5', // Sonnet for first cohort safety; downgrade to Haiku after 3-month accuracy data
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-          { type: 'text', text: RECEIPT_PROMPT }
-        ]
-      }]
-    })
-    text = resp.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as { type: 'text'; text: string }).text)
-      .join('')
+    text = anthropicKey
+      ? await callAnthropic(anthropicKey, base64, mediaType)
+      : await callGemini(geminiKey!, base64, mediaType)
   } catch (e) {
-    return await failReceipt(db, req.receipt_id, `claude call failed: ${(e as Error).message}`)
+    return await failReceipt(db, req.receipt_id, `vision call failed: ${(e as Error).message}`)
   }
 
   // 3. Parse strict JSON
@@ -103,6 +96,37 @@ export async function handler(req: Req): Promise<{ ok: boolean; status: string; 
   if (upErr) return { ok: false, status: 'error', error: upErr.message }
 
   return { ok: true, status: 'ocr_complete' }
+}
+
+type MediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+
+async function callAnthropic(apiKey: string, base64: string, mediaType: MediaType): Promise<string> {
+  const client = new Anthropic({ apiKey })
+  const resp = await client.messages.create({
+    model: 'claude-sonnet-5', // Sonnet for first cohort safety; downgrade to Haiku after 3-month accuracy data
+    max_tokens: 1024,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+        { type: 'text', text: RECEIPT_PROMPT }
+      ]
+    }]
+  })
+  return resp.content
+    .filter(b => b.type === 'text')
+    .map(b => (b as { type: 'text'; text: string }).text)
+    .join('')
+}
+
+async function callGemini(apiKey: string, base64: string, mediaType: MediaType): Promise<string> {
+  const client = new GoogleGenerativeAI(apiKey)
+  const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const resp = await model.generateContent([
+    { inlineData: { data: base64, mimeType: mediaType } },
+    { text: RECEIPT_PROMPT }
+  ])
+  return resp.response.text()
 }
 
 async function failReceipt(db: ReturnType<typeof serviceClient>, receiptId: string, reason: string) {

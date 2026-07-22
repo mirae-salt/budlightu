@@ -29,7 +29,7 @@ insert into policy (key, value_json) values
   ('onboarding_soft_delete_days',          '30'::jsonb),
   ('onboarding_hard_purge_days',           '60'::jsonb),
 
-  -- PO default (⚠️ awaiting Robin confirmation — 250437 / 260814 / 260351)
+  -- PO default (⚠️ awaiting program manager confirmation — 250437 / 260814 / 260351)
   ('default_po_number',                    '"250437"'::jsonb)
 
 on conflict (key) do update set value_json = excluded.value_json, updated_at = now();

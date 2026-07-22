@@ -65,7 +65,7 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
           <div className="field">
             <label>Confirm your email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@school.edu" />
-            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>Must match the address Robin invited.</p>
+            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>Must match the address your program manager invited.</p>
           </div>
           <button onClick={() => setStep(2)} disabled={!email.includes('@')}>Continue</button>
         </div>
@@ -99,7 +99,7 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
               <select value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})}>
                 <option value="">Select…</option>
                 {BANK_SEED.map(b => <option key={b.normalized} value={b.displayName}>{b.displayName}</option>)}
-                <option value="Other">Other (contact Robin)</option>
+                <option value="Other">Other (contact your program manager)</option>
               </select>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12 }}>

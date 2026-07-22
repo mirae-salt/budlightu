@@ -3,48 +3,48 @@
    Salt XC tokens kept in :root for reference (cost estimate etc.
    still uses Salt XC).
    Rationale: this tool serves the Bud Light U program day-to-day.
-   Bud Light branding for BAMs + Robin/Jenna; Salt branding stays
+   Bud Light branding for BAMs + program admins; Salt branding stays
    for Salt→Labatt commercial artifacts (COST-ESTIMATE.html/PDF).
    ═══════════════════════════════════════════════════════════ */
 :root {
-  /* Bud Light — primary program colors */
-  --bl-blue:      #0088CE;
-  --bl-blue-dark: #006BA6;
-  --bl-navy:      #003D6B;
-  --bl-sky:       #E6F3FA;
-  --bl-silver:    #F5F7FA;
-  --bl-fog:       #EAEEF3;
-  --bl-red:       #E4002B;   /* AB heritage — small accents only */
+  /* Bud Light — matched to BLU logo sky blue */
+  --bl-blue:      #3AADD9;     /* sky blue (BLU logo) */
+  --bl-blue-dark: #2B90B8;     /* deeper sky for hover */
+  --bl-navy:      #0A0F1E;     /* near-black navy (headings, sidebar) */
+  --bl-sky:       #E8F5FC;     /* light sky tint */
+  --bl-silver:    #F2F4F7;     /* light page background */
+  --bl-fog:       #E4E7ED;     /* subtle dividers */
+  --bl-red:       #E4002B;     /* AB heritage — small accents only */
 
   /* Neutrals */
-  --ink:      #1A2332;      /* cool near-black, pairs with blue */
-  --charcoal: #2E3947;
+  --ink:      #0A0A0A;         /* true near-black (body on dark) */
+  --charcoal: #1A1F2E;         /* dark surface */
   --paper:    #FFFFFF;
-  --stone:    #DDE3EA;
-  --stone-lt: #EAEEF3;
-  --midgray:  #7B8494;
-  --slate:    #5A6473;
+  --stone:    #D4D8E0;
+  --stone-lt: #E4E7ED;
+  --midgray:  #6B7280;
+  --slate:    #4B5563;
 
-  /* Semantic (universal signals — same as Salt) */
-  --green:    #1B8B4F;      /* trend up */
-  --green-tint: #E1F5EE;
-  --yellow:   #F79124;      /* warn */
-  --yellow-tint: #FEEBD0;
-  --red:      #C41E1E;      /* down */
-  --red-tint: #FCE5E5;
+  /* Semantic */
+  --green:    #16A34A;
+  --green-tint: #DCFCE7;
+  --yellow:   #F59E0B;
+  --yellow-tint: #FEF3C7;
+  --red:      #DC2626;
+  --red-tint: #FEE2E2;
 
-  /* Legacy Salt tokens (unused here; kept for parity) */
+  /* Legacy Salt tokens */
   --teal:     #0BA599;
   --teal-sub: #215250;
   --seagreen: #006F6C;
 
-  --r-sm: 8px;
-  --r-md: 14px;
-  --r-lg: 20px;
-  --r-xl: 28px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
 
-  --shadow-sm: 0 1px 2px rgba(26,35,50,0.05);
-  --shadow-md: 0 4px 20px rgba(0,61,107,0.06);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
 }
 
 * { box-sizing: border-box; }
@@ -59,14 +59,14 @@ html, body {
 }
 
 /* ── Typography ─────────────────────────── */
-h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 6px; color: var(--bl-navy); }
-h2 { font-size: 18px; font-weight: 700; margin: 20px 0 12px; letter-spacing: -0.005em; color: var(--bl-navy); }
-h3 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; }
+h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px; color: var(--bl-navy); text-transform: uppercase; }
+h2 { font-size: 16px; font-weight: 700; margin: 20px 0 12px; letter-spacing: 0.02em; color: var(--bl-navy); text-transform: uppercase; }
+h3 { font-size: 14px; font-weight: 700; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.01em; }
 .eyebrow {
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   color: var(--bl-blue);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 11px;
   margin-bottom: 4px;
 }
@@ -76,9 +76,9 @@ h3 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; }
 /* ── Buttons ────────────────────────────── */
 button, .btn {
   font-family: inherit;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
-  padding: 9px 16px;
+  padding: 10px 20px;
   border-radius: var(--r-sm);
   border: none;
   cursor: pointer;
@@ -88,13 +88,15 @@ button, .btn {
   align-items: center;
   gap: 6px;
   transition: background 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 button:hover, .btn:hover { background: var(--bl-blue-dark); }
-button:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-ghost { background: transparent; color: var(--bl-navy); border: 1px solid var(--stone); }
-.btn-ghost:hover { background: var(--bl-sky); border-color: var(--bl-blue); }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-ghost { background: transparent; color: var(--bl-navy); border: 1.5px solid var(--stone); text-transform: none; letter-spacing: normal; }
+.btn-ghost:hover { background: var(--bl-silver); border-color: var(--bl-blue); }
 .btn-navy  { background: var(--bl-navy); }
-.btn-navy:hover  { background: #002647; }
+.btn-navy:hover  { background: #060A14; }
 
 /* ── Form ───────────────────────────────── */
 input, select, textarea {
@@ -106,26 +108,36 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--bl-blue);
-  box-shadow: 0 0 0 3px rgba(0,136,206,0.12);
+  box-shadow: 0 0 0 3px rgba(58,173,217,0.15);
 }
 label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; color: var(--charcoal); }
 .field { margin-bottom: 14px; }
 
 /* ── Portal (student-facing) simple container ────────── */
 .container {
-  max-width: 720px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 32px 40px;
   background: var(--paper);
   min-height: 100vh;
 }
+.container.container--narrow { max-width: 640px; }
+@media (max-width: 768px) {
+  .container { padding: 28px 24px; }
+}
+@media (max-width: 480px) {
+  .container { padding: 20px 16px; }
+}
 .stack > * + * { margin-top: 12px; }
 .hero-card {
-  background: var(--bl-sky);
+  background: var(--bl-blue);
   border-radius: var(--r-lg);
   padding: 22px 24px;
-  border: 1px solid rgba(0,136,206,0.12);
+  border: none;
+  color: var(--paper);
 }
+.hero-card .eyebrow { color: rgba(255,255,255,0.6); }
+.hero-card .muted { color: rgba(255,255,255,0.6); }
 .card {
   background: var(--paper);
   border: 1px solid var(--stone);
@@ -134,15 +146,58 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .badge {
   display: inline-block; padding: 3px 10px; border-radius: 999px;
-  font-size: 11px; font-weight: 600;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  letter-spacing: 0.02em;
 }
-.badge-blue   { background: var(--bl-sky);      color: var(--bl-navy); }
+.badge-blue   { background: rgba(58,173,217,0.12);  color: var(--bl-blue); }
 .badge-navy   { background: var(--bl-navy);     color: var(--paper); }
 .badge-yellow { background: var(--yellow-tint); color: #8B4A00; }
 .badge-red    { background: var(--red-tint);    color: #A31212; }
 .badge-green  { background: var(--green-tint);  color: var(--green); }
 /* alias so pre-existing .badge-teal usages still render */
 .badge-teal   { background: var(--bl-sky);      color: var(--bl-navy); }
+
+/* ── Drop zone ──────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed var(--stone);
+  border-radius: var(--r-lg);
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drop-zone:hover { border-color: var(--bl-blue); background: rgba(58,173,217,0.04); }
+.drop-zone--active { border-color: var(--bl-blue); background: rgba(58,173,217,0.08); }
+
+/* ── Portal (BAM-facing) sidebar shell ───────────────── */
+.portal-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+  background: var(--bl-silver);
+}
+.portal-sidebar { background: var(--bl-navy); }
+.portal-main { padding: 24px 32px 60px; min-width: 0; }
+.portal-mobile-header {
+  display: none;
+  align-items: center; gap: 12px;
+  padding: 10px 16px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--stone);
+}
+
+@media (max-width: 768px) {
+  .portal-shell { grid-template-columns: 1fr; }
+  .portal-main { padding: 20px 16px 60px; }
+  .portal-sidebar {
+    position: fixed; top: 0; z-index: 200;
+    width: 280px; left: -280px;
+    transition: left 0.25s ease;
+    box-shadow: var(--shadow-md);
+  }
+  .portal-sidebar.open { left: 0; }
+  .portal-mobile-header { display: flex; }
+}
 
 /* ═══════════════════════════════════════════════════════════
    ADMIN — sidebar layout (Bud Light branded)
@@ -155,8 +210,8 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 
 .sidebar {
-  background: var(--paper);
-  border-right: 1px solid var(--stone);
+  background: var(--bl-navy);
+  border-right: none;
   padding: 20px 14px;
   display: flex;
   flex-direction: column;
@@ -169,43 +224,43 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 .sidebar-brand {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 10px 20px 10px;
-  border-bottom: 1px solid var(--bl-fog);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
   margin-bottom: 12px;
 }
 .sidebar-brand img { display: block; }
 .sidebar-brand-name {
   font-weight: 800; font-size: 15px;
-  color: var(--bl-navy);
+  color: var(--paper);
   letter-spacing: 0.02em;
 }
 
 .nav-group-title {
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   font-size: 10px;
-  font-weight: 600;
-  color: var(--midgray);
+  font-weight: 700;
+  color: rgba(255,255,255,0.35);
   padding: 14px 10px 6px;
 }
 .nav-item {
   display: flex; align-items: center; gap: 12px;
   padding: 9px 12px;
   border-radius: var(--r-sm);
-  color: var(--slate);
+  color: rgba(255,255,255,0.6);
   text-decoration: none;
   font-size: 13.5px;
   font-weight: 500;
   transition: background 0.15s, color 0.15s;
 }
 .nav-item:hover {
-  background: var(--bl-sky);
-  color: var(--bl-navy);
+  background: rgba(255,255,255,0.06);
+  color: var(--paper);
 }
 .nav-item.active {
   background: var(--bl-blue);
   color: var(--paper);
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0,136,206,0.25);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(58,173,217,0.3);
 }
 .nav-item svg {
   width: 17px; height: 17px;
@@ -217,12 +272,54 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 999px;
-  background: var(--yellow-tint);
-  color: #8B4A00;
-  font-weight: 600;
+  background: rgba(245,158,11,0.2);
+  color: #FCD34D;
+  font-weight: 700;
 }
 
 .admin-main { padding: 24px 32px 60px; min-width: 0; }
+
+/* Mobile admin header bar (hidden on desktop) */
+.admin-mobile-header {
+  display: none;
+  align-items: center; gap: 12px;
+  padding: 10px 16px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--stone);
+}
+.admin-hamburger {
+  width: 38px; height: 38px; border-radius: var(--r-sm);
+  background: transparent; border: 1px solid var(--stone);
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; flex-shrink: 0;
+}
+.admin-hamburger svg { width: 20px; height: 20px; stroke: var(--bl-navy); }
+.admin-mobile-brand { display: flex; align-items: center; gap: 8px; }
+.admin-mobile-brand img { height: 28px; width: auto; }
+.admin-mobile-brand span { font-size: 11px; color: var(--midgray); letter-spacing: 0.06em; text-transform: uppercase; }
+.sidebar-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 199;
+  background: rgba(26,35,50,0.4);
+}
+
+@media (max-width: 768px) {
+  .admin-shell { grid-template-columns: 1fr; }
+  .admin-main { padding: 20px 16px 60px; }
+  .sidebar {
+    position: fixed; top: 0; z-index: 200;
+    width: 280px; left: -280px;
+    transition: left 0.25s ease;
+    box-shadow: var(--shadow-md);
+  }
+  .sidebar.open { left: 0; }
+  .admin-mobile-header { display: flex; }
+  .sidebar-backdrop.open { display: block; }
+  .topbar { flex-wrap: wrap; gap: 10px; }
+  .topbar .searchbar { max-width: 100%; order: 3; flex-basis: 100%; }
+  .grid-2 { grid-template-columns: 1fr; }
+  table.admin-table { font-size: 13px; }
+  table.admin-table th, table.admin-table td { padding: 10px 12px; }
+}
 
 /* Top bar */
 .topbar {
@@ -268,7 +365,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 .surface {
   background: var(--paper);
   border: 1px solid var(--stone);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   padding: 22px 24px;
   margin-bottom: 16px;
 }
@@ -276,7 +373,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 16px; gap: 12px;
 }
-.surface-title { font-weight: 700; font-size: 16px; color: var(--bl-navy); }
+.surface-title { font-weight: 700; font-size: 13px; color: var(--bl-navy); text-transform: uppercase; letter-spacing: 0.06em; }
 
 /* Hero KPI row */
 .kpi-row {
@@ -287,11 +384,19 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .kpi { text-align: center; }
 .kpi-label { color: var(--midgray); font-size: 12px; margin-bottom: 6px; font-weight: 500; }
-.kpi-value { font-size: 24px; font-weight: 700; color: var(--bl-navy); letter-spacing: -0.01em; line-height: 1.1; }
+.kpi-value { font-size: 28px; font-weight: 800; color: var(--bl-navy); letter-spacing: -0.02em; line-height: 1.1; }
 .kpi-trend { margin-top: 4px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
 .trend-up   { color: var(--green); }
 .trend-down { color: var(--red); }
 .trend-neutral { color: var(--midgray); }
+
+/* Print-only invoice view (portal "My Invoices" printable summary).
+   Shown inline on screen when toggled; isolated on the page when printing. */
+@media print {
+  body * { visibility: hidden; }
+  .print-only, .print-only * { visibility: visible; }
+  .print-only { position: absolute; top: 0; left: 0; }
+}
 
 /* Chart card */
 .chart-headline {
@@ -332,7 +437,8 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 .heatmap-scale span { width: 14px; height: 10px; border-radius: 2px; }
 
 /* Table for admin lists */
-table.admin-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.admin-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 600px; }
 table.admin-table th {
   text-align: left; padding: 12px 16px;
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;

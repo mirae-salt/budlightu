@@ -1,16 +1,20 @@
 -- BLU Invoice · at-rest encryption for banking PII
--- P0-3 fix: banking fields encrypted with pgsodium. Only Edge Functions with
--- service role can decrypt.
+-- P0-3 fix: banking fields encrypted via pgcrypto's pgp_sym_encrypt, keyed by a
+-- passphrase stored in Supabase Vault. Only Edge Functions with service role
+-- (or super_admin/program_admin, for the decrypt RPC) can decrypt.
 --
--- NOTE: Supabase Vault (pgsodium) is enabled on Pro plan by default.
--- If not available, alternative: use `pgp_sym_encrypt` with pgcrypto and a
--- server-side key stored in Vault or environment.
+-- NOTE: newer Supabase projects (Postgres 17 / vault 0.3+) don't expose the
+-- `pgsodium` schema for direct use — it's internal to Vault's own secret
+-- storage now. pgcrypto (already bundled) covers the same need: pgp_sym_encrypt
+-- takes a plain-text passphrase, so the vault secret can be used as-is with no
+-- byte-length requirements. Non-deterministic ciphertext (random IV per call)
+-- is fine here since nothing does equality lookups on encrypted banking fields.
 
 -- ============================================================================
 -- Store encryption key in Vault (skeleton — actual key added via Supabase dashboard)
 -- ============================================================================
 -- Vault entries are created out-of-band via:
---   SELECT vault.create_secret('<random 32-byte key base64>', 'blu_banking_key');
+--   SELECT vault.create_secret('<random passphrase>', 'blu_banking_key');
 -- Then referenced here by name.
 
 -- ============================================================================
@@ -29,10 +33,10 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v_key bytea;
+  v_key text;
 begin
   -- fetch key from vault
-  select decrypted_secret::bytea into v_key
+  select decrypted_secret into v_key
   from vault.decrypted_secrets
   where name = 'blu_banking_key'
   limit 1;
@@ -44,23 +48,19 @@ begin
   update bams set
     institution_no = case
       when p_institution_no is not null
-      then encode(pgsodium.crypto_aead_det_encrypt(
-        convert_to(p_institution_no, 'utf8'), convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'base64')
+      then encode(pgp_sym_encrypt(p_institution_no, v_key), 'base64')
       else institution_no end,
     transit_no = case
       when p_transit_no is not null
-      then encode(pgsodium.crypto_aead_det_encrypt(
-        convert_to(p_transit_no, 'utf8'), convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'base64')
+      then encode(pgp_sym_encrypt(p_transit_no, v_key), 'base64')
       else transit_no end,
     account_no = case
       when p_account_no is not null
-      then encode(pgsodium.crypto_aead_det_encrypt(
-        convert_to(p_account_no, 'utf8'), convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'base64')
+      then encode(pgp_sym_encrypt(p_account_no, v_key), 'base64')
       else account_no end,
     hst_number = case
       when p_hst_number is not null
-      then encode(pgsodium.crypto_aead_det_encrypt(
-        convert_to(p_hst_number, 'utf8'), convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'base64')
+      then encode(pgp_sym_encrypt(p_hst_number, v_key), 'base64')
       else hst_number end
   where id = p_bam_id;
 end $$;
@@ -77,7 +77,7 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v_key bytea;
+  v_key text;
   v_bam bams%rowtype;
 begin
   -- restrict to service_role callers
@@ -86,7 +86,7 @@ begin
     raise exception 'not authorized to decrypt banking';
   end if;
 
-  select decrypted_secret::bytea into v_key
+  select decrypted_secret into v_key
   from vault.decrypted_secrets
   where name = 'blu_banking_key'
   limit 1;
@@ -96,21 +96,13 @@ begin
   return query
   select
     case when v_bam.institution_no is null then null
-         else convert_from(pgsodium.crypto_aead_det_decrypt(
-           decode(v_bam.institution_no, 'base64'),
-           convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'utf8') end,
+         else pgp_sym_decrypt(decode(v_bam.institution_no, 'base64'), v_key) end,
     case when v_bam.transit_no is null then null
-         else convert_from(pgsodium.crypto_aead_det_decrypt(
-           decode(v_bam.transit_no, 'base64'),
-           convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'utf8') end,
+         else pgp_sym_decrypt(decode(v_bam.transit_no, 'base64'), v_key) end,
     case when v_bam.account_no is null then null
-         else convert_from(pgsodium.crypto_aead_det_decrypt(
-           decode(v_bam.account_no, 'base64'),
-           convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'utf8') end,
+         else pgp_sym_decrypt(decode(v_bam.account_no, 'base64'), v_key) end,
     case when v_bam.hst_number is null then null
-         else convert_from(pgsodium.crypto_aead_det_decrypt(
-           decode(v_bam.hst_number, 'base64'),
-           convert_to('bam:' || p_bam_id::text, 'utf8'), v_key), 'utf8') end;
+         else pgp_sym_decrypt(decode(v_bam.hst_number, 'base64'), v_key) end;
 end $$;
 
 comment on function encrypt_bam_banking is

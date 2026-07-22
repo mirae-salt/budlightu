@@ -8,13 +8,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const bamLinks: Array<[string, string]> = [
-  ['/',                              'Home'],
-  ['/portal/login',                  'Login'],
-  ['/portal/dashboard',              'Dashboard'],
-  ['/portal/upload',                 'Upload'],
-  ['/portal/support',                'Support'],
-  ['/portal/faq',                    'FAQ'],
-  ['/portal/onboarding/demo-token',  'Onboarding']
+  ['/portal/login',      'Login'],
+  ['/portal/dashboard',  'Dashboard'],
+  ['/portal/upload',     'Upload'],
+  ['/portal/invoices',   'Invoices'],
+  ['/portal/faq',        'FAQ'],
+  ['/portal/support',    'Support'],
 ]
 
 const adminLinks: Array<[string, string]> = [

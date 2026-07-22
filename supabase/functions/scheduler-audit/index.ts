@@ -7,7 +7,7 @@
  *      - Sum bud_light_total_incl_tax of APPROVED (+ auto_pass) receipts, EXCLUDING ocr_failed
  *      - Compute reimbursement via lib/reimbursement.ts (uses prior ledger for carryover)
  *      - Upsert reimbursement_ledger row
- *   3. Build shortfall list, email Robin.
+ *   3. Build shortfall list, email program admin.
  */
 import { serviceClient } from '../_shared/supabase-admin'
 import { computeMonthlyReimbursement } from '../../../lib/reimbursement'

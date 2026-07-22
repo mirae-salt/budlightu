@@ -44,7 +44,7 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
     '',
     `Your ${monthLong} invoice is attached for your records. Salt AP has also been notified and will process payment on net-15 terms via direct deposit.`,
     '',
-    'Questions? Reach out to Robin or Jenna, or use the support form in your portal.',
+    'Questions? Reach out to your program manager, or use the support form in your portal.',
     '',
     'Thanks,',
     'Bud Light U program'

@@ -15,7 +15,7 @@
  *  2. Rate limit check (3/IP/day, 3/token)
  *  3. Match email against pending BAM
  *     - Match: encrypt banking, upsert bams, create Supabase Auth user, send OTP, mark active
- *     - No match: park in onboarding_submissions (NO banking fields stored plaintext), notify Robin
+ *     - No match: park in onboarding_submissions (NO banking fields stored plaintext), notify program admin
  *  4. Return status
  *
  * P0-3 fix: banking fields never stored in onboarding_submissions plaintext.
@@ -119,9 +119,13 @@ export async function handler(req: {
   }
 
   // ── 5. Create Supabase Auth user ──────────────────────────────
+  // email_confirm: true — we already verified the email matches the roster
+  // above (step 3), so Supabase's own "confirm your signup" email would be
+  // redundant noise. Login still requires a fresh OTP code (signInWithOtp),
+  // this flag only skips the separate confirm-your-address step.
   const { data: authUser, error: authErr } = await db.auth.admin.createUser({
     email: normEmail,
-    email_confirm: false,                  // OTP flow on first login
+    email_confirm: true,
     user_metadata: { role: 'bam', bam_id: pendingBam.id }
   })
   if (authErr || !authUser?.user) {
@@ -155,20 +159,12 @@ export async function handler(req: {
   })
   if (encErr) return { ok: false, message: `Encrypt failed: ${encErr.message}` }
 
-  // ── 7. Send OTP for first login ───────────────────────────────
-  const { error: otpErr } = await db.auth.admin.generateLink({
-    type: 'magiclink',
-    email: normEmail
-  })
-  if (otpErr) {
-    // non-fatal — user can request OTP later
-    await db.from('audit_log').insert({
-      actor_role: 'system', entity: 'auth', entity_id: pendingBam.id,
-      action: 'otp_send_failed', after_json: { reason: otpErr.message }
-    })
-  }
+  // Note: no email is sent here. `admin.generateLink()` only returns a link/
+  // token without emailing it, so calling it added a DB round trip with no
+  // effect. The BAM gets their first real login code from the portal login
+  // page (`signInWithOtp`), which they're redirected to next.
 
-  return { ok: true, message: 'Onboarding complete. Check your email for a 6-digit login code.', bam_id: pendingBam.id }
+  return { ok: true, message: 'Onboarding complete. Sign in below to get your login code.', bam_id: pendingBam.id }
 }
 
 function hashUuid(s: string): string {

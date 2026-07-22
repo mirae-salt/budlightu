@@ -20,26 +20,35 @@ export default function SupportPage() {
 
   if (sent) {
     return (
-      <main className="container" style={{ maxWidth: 600 }}>
+      <>
+        <div className="topbar">
+          <div className="crumbs"><span className="now">Support</span></div>
+        </div>
         <h1>Thanks — we&rsquo;ll get back to you</h1>
-        <p className="subtle">Robin will reply by email within 1–2 business days.</p>
-      </main>
+        <p className="subtle">Your program manager will reply by email within 1–2 business days.</p>
+      </>
     )
   }
 
   return (
-    <main className="container" style={{ maxWidth: 600 }}>
-      <p className="eyebrow">SUPPORT</p>
-      <h1>Ask a question</h1>
-      <p className="subtle">
-        Can&rsquo;t submit this month? Not sure about a receipt? Type your question and Robin will get back to you.
-      </p>
-
-      <div className="hero-card stack" style={{ marginTop: 24 }}>
-        <textarea rows={6} value={question} onChange={e => setQuestion(e.target.value)} placeholder="What's going on?" />
-        <button onClick={submit} disabled={question.trim().length < 5}>Send</button>
+    <>
+      <div className="topbar">
+        <div className="crumbs"><span className="now">Support</span></div>
       </div>
-      {err && <p style={{ color: '#A31212', marginTop: 16 }}>{err}</p>}
-    </main>
+
+      <div style={{ maxWidth: 640 }}>
+        <p className="eyebrow">SUPPORT</p>
+        <h1>Ask a question</h1>
+        <p className="subtle">
+          Can&rsquo;t submit this month? Not sure about a receipt? Type your question and your program manager will get back to you.
+        </p>
+
+        <div className="surface stack" style={{ marginTop: 20 }}>
+          <textarea rows={6} value={question} onChange={e => setQuestion(e.target.value)} placeholder="What's going on?" />
+          <button onClick={submit} disabled={question.trim().length < 5}>Send</button>
+        </div>
+        {err && <p style={{ color: '#A31212', marginTop: 16 }}>{err}</p>}
+      </div>
+    </>
   )
 }

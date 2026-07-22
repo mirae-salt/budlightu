@@ -1,5 +1,5 @@
 -- P0-5b: when a SENT invoice is voided, auto-generate an AP cancellation email draft.
--- Robin/Jenna review and send the draft manually from admin/invoices/[id]/void.
+-- Program admins review and send the draft manually from admin/invoices/[id]/void.
 
 create or replace function generate_ap_cancellation_draft() returns trigger
 language plpgsql as $$
@@ -33,7 +33,7 @@ begin
     'Reason for cancellation: %s\n\n'
     'A corrected invoice will be re-sent under a new number. '
     'Reference: %s · PO# %s.\n\n'
-    'Thanks,\nRobin',
+    'Thanks,\nProgram Team',
     new.invoice_number, v_bam_name, v_period_month, new.void_reason,
     v_program_label, v_po
   );
@@ -49,4 +49,4 @@ create trigger invoices_void_creates_cancellation
   for each row execute function generate_ap_cancellation_draft();
 
 comment on function generate_ap_cancellation_draft is
-  'P0-5b: SENT→void produces an AP cancellation email draft. Robin sends it manually.';
+  'P0-5b: SENT→void produces an AP cancellation email draft. The program admin sends it manually.';

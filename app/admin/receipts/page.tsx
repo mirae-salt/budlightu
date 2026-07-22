@@ -1,47 +1,339 @@
+'use client'
+
+import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
-import { REVIEW_QUEUE } from '../_lib/dummy'
+import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
+
+type Row = ReceiptRow & { id: string }
+
+type DbReceipt = {
+  id: string
+  status: 'pending' | 'review' | 'ocr_failed' | 'approved' | 'rejected' | 'auto_pass'
+  uploaded_at: string
+  bud_light_total_incl_tax: number | null
+  ambiguous_flags: unknown
+  decided_at: string | null
+  decision_reason: string | null
+  bams: { first_name: string; last_name: string } | null
+}
+
+function reasonFor(r: DbReceipt): string {
+  if (r.status === 'pending') return 'Awaiting OCR processing'
+  if (r.status === 'ocr_failed') return 'OCR failed — needs manual review or retry'
+  if (r.status === 'auto_pass') return 'Auto-approved — meets all criteria'
+  const flags = r.ambiguous_flags
+  if (Array.isArray(flags) && flags.length > 0) {
+    return flags.map(f => String(f)).join('; ')
+  }
+  return 'Flagged for review'
+}
+
+function mapDbReceipt(r: DbReceipt): Row {
+  return {
+    id: r.id,
+    bam: r.bams ? `${r.bams.first_name} ${r.bams.last_name}` : '—',
+    uploadedAt: new Date(r.uploaded_at).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    }),
+    total: r.bud_light_total_incl_tax != null ? `$${Number(r.bud_light_total_incl_tax).toFixed(2)}` : '—',
+    reason: reasonFor(r),
+    status: r.status,
+    decidedAt: r.decided_at ? new Date(r.decided_at).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    }) : undefined,
+    decidedReason: r.decision_reason ?? undefined
+  }
+}
+
+type Tab = 'queue' | 'history'
 
 export default function ReceiptsQueue() {
-  const reviewCount    = REVIEW_QUEUE.filter(r => r.status === 'review').length
-  const ocrFailedCount = REVIEW_QUEUE.filter(r => r.status === 'ocr_failed').length
+  const [queue, setQueue] = useState<Row[]>([])
+  const [history, setHistory] = useState<Row[]>([])
+  const [useDb, setUseDb] = useState(false)
+  const [tab, setTab] = useState<Tab>('queue')
+  const [openIdx, setOpenIdx] = useState<number | null>(null)
+  const [confirming, setConfirming] = useState<'approve' | 'reject' | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    fetch('/api/admin/data?table=receipts')
+      .then(res => res.json())
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const all = (data as DbReceipt[]).map(mapDbReceipt)
+          setQueue(all.filter(r => r.status === 'pending' || r.status === 'review' || r.status === 'ocr_failed'))
+          setHistory(all.filter(r => r.status === 'approved' || r.status === 'rejected' || r.status === 'auto_pass'))
+          setUseDb(true)
+        } else {
+          setQueue(REVIEW_QUEUE.map((r, i) => ({ ...r, id: `dummy-${i}` })))
+          setHistory(DECIDED_RECEIPTS.map((r, i) => ({ ...r, id: `decided-${i}` })))
+        }
+      })
+      .catch(() => {
+        setQueue(REVIEW_QUEUE.map((r, i) => ({ ...r, id: `dummy-${i}` })))
+        setHistory(DECIDED_RECEIPTS.map((r, i) => ({ ...r, id: `decided-${i}` })))
+      })
+  }, [])
+
+  const pendingCount   = queue.filter(r => r.status === 'pending').length
+  const reviewCount    = queue.filter(r => r.status === 'review').length
+  const ocrFailedCount = queue.filter(r => r.status === 'ocr_failed').length
+  const approvedCount  = history.filter(r => r.status === 'approved' || r.status === 'auto_pass').length
+  const rejectedCount  = history.filter(r => r.status === 'rejected').length
+
+  function toggleOpen(i: number) {
+    setOpenIdx(openIdx === i ? null : i)
+    setConfirming(null)
+    setReason('')
+  }
+
+  function decide(action: 'approve' | 'reject') {
+    setConfirming(action)
+    setReason(action === 'approve' ? 'Meets Bud Light reimbursement criteria' : 'Not a Bud Light purchase')
+  }
+
+  async function confirmDecision(i: number, action: 'approve' | 'reject') {
+    const row = queue[i]
+    try {
+      const res = await fetch('/api/admin/receipts/decide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receipt_id: row.id,
+          decision: action === 'approve' ? 'approved' : 'rejected',
+          reason: reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
+        })
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.ok === false) {
+        setMessage(json.message || json.error || 'Decision failed')
+        setTimeout(() => setMessage(null), 5000)
+        return
+      }
+      const decided: Row = {
+        ...row,
+        status: action === 'approve' ? 'approved' : 'rejected',
+        decidedAt: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+        decidedReason: reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
+      }
+      setQueue(q => q.filter((_, idx) => idx !== i))
+      setHistory(h => [decided, ...h])
+      setOpenIdx(null)
+      setConfirming(null)
+      setMessage(
+        action === 'approve'
+          ? 'Approved — reimbursement confirmed'
+          : 'Rejected — BAM will be notified'
+      )
+      setTimeout(() => setMessage(null), 4000)
+    } catch {
+      setMessage('Network error — decision not saved')
+      setTimeout(() => setMessage(null), 5000)
+    }
+  }
+
+  function revertToReview(row: Row) {
+    setHistory(h => h.filter(r => r.id !== row.id))
+    const reverted: Row = { ...row, status: 'review', decidedAt: undefined, decidedReason: undefined }
+    setQueue(q => [...q, reverted])
+    setMessage(`${row.bam} reverted to review queue`)
+    setTimeout(() => setMessage(null), 4000)
+  }
+
+  const activeList = tab === 'queue' ? queue : history
 
   return (
     <>
-      <TopBar crumbs={['Receipts', 'Review queue']} />
+      <TopBar crumbs={['Receipts', tab === 'queue' ? 'Review queue' : 'History']} />
 
       <div className="surface">
         <div className="surface-header">
-          <div className="surface-title">Review queue · touchpoint 1</div>
+          <div style={{ display: 'flex', gap: 0 }}>
+            <button
+              className={tab === 'queue' ? 'btn-navy' : 'btn-ghost'}
+              style={{ borderRadius: '8px 0 0 8px', fontSize: 13 }}
+              onClick={() => { setTab('queue'); setOpenIdx(null); setConfirming(null) }}
+            >
+              Review queue ({queue.length})
+            </button>
+            <button
+              className={tab === 'history' ? 'btn-navy' : 'btn-ghost'}
+              style={{ borderRadius: '0 8px 8px 0', fontSize: 13 }}
+              onClick={() => { setTab('history'); setOpenIdx(null); setConfirming(null) }}
+            >
+              History ({history.length})
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <span className="badge badge-yellow">REVIEW · {reviewCount}</span>
-            <span className="badge badge-red">OCR FAILED · {ocrFailedCount}</span>
-            <span className="badge badge-green">DECIDED TODAY · 2</span>
+            {tab === 'queue' ? (
+              <>
+                {pendingCount > 0 && <span className="badge badge-blue">PENDING · {pendingCount}</span>}
+                <span className="badge badge-yellow">REVIEW · {reviewCount}</span>
+                <span className="badge badge-red">OCR FAILED · {ocrFailedCount}</span>
+              </>
+            ) : (
+              <>
+                <span className="badge badge-green">APPROVED · {approvedCount}</span>
+                <span className="badge badge-red">REJECTED · {rejectedCount}</span>
+              </>
+            )}
           </div>
         </div>
+
+        {message && (
+          <div className="badge badge-green" style={{ marginBottom: 12, display: 'inline-block' }}>{message}</div>
+        )}
 
         <table className="admin-table">
           <thead>
             <tr>
-              <th>BAM</th><th>Uploaded</th><th>Total</th><th>Reason</th><th>Status</th><th></th>
+              <th>BAM</th>
+              <th>Uploaded</th>
+              <th>Total</th>
+              <th>{tab === 'queue' ? 'Reason' : 'Original reason'}</th>
+              <th>Status</th>
+              {tab === 'history' && <th>Decided</th>}
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {REVIEW_QUEUE.map((r, i) => (
-              <tr key={i}>
-                <td style={{ fontWeight: 600 }}>{r.bam}</td>
-                <td className="muted">{r.uploadedAt}</td>
-                <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{r.total}</td>
-                <td className="muted" style={{ fontSize: 12.5, maxWidth: 320 }}>{r.reason}</td>
-                <td>
-                  {r.status === 'review'
-                    ? <span className="badge badge-yellow">REVIEW</span>
-                    : <span className="badge badge-red">OCR FAILED</span>}
-                </td>
-                <td>
-                  <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }}>Open</button>
+            {activeList.map((r, i) => (
+              <Fragment key={r.id}>
+                <tr>
+                  <td style={{ fontWeight: 600 }}>{r.bam}</td>
+                  <td className="muted">{r.uploadedAt}</td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{r.total}</td>
+                  <td className="muted" style={{ fontSize: 12.5, maxWidth: 320 }}>{r.reason}</td>
+                  <td>
+                    {r.status === 'pending'
+                      ? <span className="badge badge-blue">PENDING</span>
+                      : r.status === 'review'
+                      ? <span className="badge badge-yellow">REVIEW</span>
+                      : r.status === 'ocr_failed'
+                      ? <span className="badge badge-red">OCR FAILED</span>
+                      : r.status === 'approved'
+                      ? <span className="badge badge-green">APPROVED</span>
+                      : r.status === 'auto_pass'
+                      ? <span className="badge badge-green">AUTO PASS</span>
+                      : <span className="badge badge-red">REJECTED</span>}
+                  </td>
+                  {tab === 'history' && (
+                    <td className="muted" style={{ fontSize: 12 }}>{r.decidedAt || '—'}</td>
+                  )}
+                  <td>
+                    <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => toggleOpen(i)}>
+                      {openIdx === i ? 'Close' : 'Open'}
+                    </button>
+                  </td>
+                </tr>
+                {openIdx === i && (
+                  <tr>
+                    <td colSpan={tab === 'history' ? 7 : 6} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+                        <div
+                          style={{
+                            width: 160, height: 120, background: 'var(--stone-lt)',
+                            border: '1px dashed var(--stone)', borderRadius: 8,
+                            display: 'grid', placeItems: 'center', color: 'var(--midgray)', fontSize: 12, flexShrink: 0
+                          }}
+                        >
+                          Receipt image
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.bam} — {r.total}</div>
+                          <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>{r.reason}</div>
+
+                          {/* History tab: show decision details + revert */}
+                          {tab === 'history' && (
+                            <div style={{ marginBottom: 14 }}>
+                              <div style={{ fontSize: 12, marginBottom: 2 }}>
+                                <span style={{ fontWeight: 600, color: r.status === 'approved' ? 'var(--green)' : 'var(--red)' }}>
+                                  {r.status === 'approved' ? 'Approved' : 'Rejected'}
+                                </span>
+                                <span className="muted"> — {r.decidedAt}</span>
+                              </div>
+                              {r.decidedReason && (
+                                <div className="muted" style={{ fontSize: 12, fontStyle: 'italic' }}>
+                                  &ldquo;{r.decidedReason}&rdquo;
+                                </div>
+                              )}
+                              <button
+                                className="btn-ghost"
+                                style={{ marginTop: 10, fontSize: 12, color: 'var(--bl-blue)', borderColor: 'var(--bl-blue)' }}
+                                onClick={() => revertToReview(r)}
+                              >
+                                Revert to review queue
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Queue tab: approve/reject flow */}
+                          {tab === 'queue' && confirming === null && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                              <button
+                                style={{ background: 'var(--green)' }}
+                                onClick={() => decide('approve')}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                style={{ background: 'var(--red)' }}
+                                onClick={() => decide('reject')}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+
+                          {tab === 'queue' && confirming === 'approve' && (
+                            <div className="card" style={{ maxWidth: 420, marginTop: 8 }}>
+                              <div style={{ marginBottom: 10, fontSize: 13 }}>
+                                Confirm approve reimbursement for <strong>{r.bam}</strong> ({r.total})?
+                              </div>
+                              <div className="field">
+                                <label>Reason</label>
+                                <input value={reason} onChange={e => setReason(e.target.value)} />
+                              </div>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button style={{ background: 'var(--green)' }} onClick={() => confirmDecision(i, 'approve')}>Confirm approve</button>
+                                <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
+                              </div>
+                            </div>
+                          )}
+
+                          {tab === 'queue' && confirming === 'reject' && (
+                            <div className="card" style={{ maxWidth: 420, marginTop: 8 }}>
+                              <div style={{ marginBottom: 10, fontSize: 13 }}>
+                                Confirm reject this receipt for <strong>{r.bam}</strong>? BAM will be notified.
+                              </div>
+                              <div className="field">
+                                <label>Reason</label>
+                                <input value={reason} onChange={e => setReason(e.target.value)} />
+                              </div>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button style={{ background: 'var(--red)' }} onClick={() => confirmDecision(i, 'reject')}>Confirm reject</button>
+                                <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+            {activeList.length === 0 && (
+              <tr>
+                <td colSpan={tab === 'history' ? 7 : 6}>
+                  <div className="empty-state">
+                    {tab === 'queue' ? 'No receipts pending review.' : 'No decided receipts yet.'}
+                  </div>
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

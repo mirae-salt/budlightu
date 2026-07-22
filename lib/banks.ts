@@ -1,30 +1,35 @@
 /**
  * Canadian bank institution number lookup.
  * All values are strings — leading zeros are load-bearing.
+ * Bank list sourced from Interac Sign-In partners (2026).
  * Seed data mirrored in supabase/migrations/0005_seed_banks.sql.
  */
 
 export type BankLookup = { normalized: string; institutionNo: string; displayName: string }
 
 export const BANK_SEED: BankLookup[] = [
-  { normalized: 'rbc',              institutionNo: '003', displayName: 'RBC Royal Bank' },
-  { normalized: 'td',               institutionNo: '004', displayName: 'TD Canada Trust' },
-  { normalized: 'bmo',              institutionNo: '001', displayName: 'BMO Bank of Montreal' },
-  { normalized: 'scotiabank',       institutionNo: '002', displayName: 'Scotiabank' },
-  { normalized: 'cibc',             institutionNo: '010', displayName: 'CIBC' },
-  { normalized: 'national',         institutionNo: '006', displayName: 'National Bank of Canada' },
-  { normalized: 'hsbc',             institutionNo: '016', displayName: 'HSBC Canada' },
-  { normalized: 'desjardins',       institutionNo: '815', displayName: 'Desjardins' },
-  { normalized: 'tangerine',        institutionNo: '614', displayName: 'Tangerine' },
-  { normalized: 'simplii',          institutionNo: '010', displayName: 'Simplii Financial' },
-  { normalized: 'eq',               institutionNo: '623', displayName: 'EQ Bank' },
-  { normalized: 'equitable',        institutionNo: '623', displayName: 'Equitable Bank' },
-  { normalized: 'atb',              institutionNo: '219', displayName: 'ATB Financial' },
-  { normalized: 'laurentian',       institutionNo: '039', displayName: 'Laurentian Bank' },
-  { normalized: 'manulife',         institutionNo: '540', displayName: 'Manulife Bank' },
-  { normalized: 'canadian western', institutionNo: '030', displayName: 'Canadian Western Bank' },
-  { normalized: 'coast capital',    institutionNo: '809', displayName: 'Coast Capital Savings' },
-  { normalized: 'vancity',          institutionNo: '809', displayName: 'Vancity' }
+  { normalized: 'affinity',          institutionNo: '839', displayName: 'Affinity Credit Union' },
+  { normalized: 'atb',               institutionNo: '219', displayName: 'ATB Financial' },
+  { normalized: 'bmo',               institutionNo: '001', displayName: 'BMO Bank of Montreal' },
+  { normalized: 'caisse alliance',   institutionNo: '815', displayName: 'Caisse Alliance' },
+  { normalized: 'cibc',              institutionNo: '010', displayName: 'CIBC' },
+  { normalized: 'coast capital',     institutionNo: '809', displayName: 'Coast Capital Savings' },
+  { normalized: 'conexus',           institutionNo: '839', displayName: 'Conexus Credit Union' },
+  { normalized: 'connectfirst',      institutionNo: '839', displayName: 'connectFirst Credit Union' },
+  { normalized: 'desjardins',        institutionNo: '815', displayName: 'Desjardins' },
+  { normalized: 'libro',             institutionNo: '839', displayName: 'Libro Credit Union' },
+  { normalized: 'meridian',          institutionNo: '839', displayName: 'Meridian Credit Union' },
+  { normalized: 'national',          institutionNo: '006', displayName: 'National Bank of Canada' },
+  { normalized: 'rbc',               institutionNo: '003', displayName: 'RBC Royal Bank' },
+  { normalized: 'scotiabank',        institutionNo: '002', displayName: 'Scotiabank' },
+  { normalized: 'scu',               institutionNo: '839', displayName: 'SCU (Steinbach Credit Union)' },
+  { normalized: 'servus',            institutionNo: '839', displayName: 'Servus Credit Union' },
+  { normalized: 'simplii',           institutionNo: '010', displayName: 'Simplii Financial' },
+  { normalized: 'tangerine',         institutionNo: '614', displayName: 'Tangerine' },
+  { normalized: 'td',                institutionNo: '004', displayName: 'TD Canada Trust' },
+  { normalized: 'uni',               institutionNo: '815', displayName: 'UNI Financial Cooperation' },
+  { normalized: 'vancity',           institutionNo: '809', displayName: 'Vancity' },
+  { normalized: 'wealthsimple',      institutionNo: '703', displayName: 'Wealthsimple' },
 ]
 
 /**
@@ -38,6 +43,9 @@ export function normalizeBankName(raw: string): string {
     .replace(/\bcanada trust\b/g, '')
     .replace(/\bbank of canada\b/g, '')
     .replace(/\bbank\b/g, '')
+    .replace(/\bcredit union\b/g, '')
+    .replace(/\bfinancial\b/g, '')
+    .replace(/\bsavings\b/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }

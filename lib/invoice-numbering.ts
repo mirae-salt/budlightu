@@ -14,7 +14,7 @@ export function formatInvoiceNumber(initialsResolved: string, seq: number): stri
   return `INV-${initialsResolved}${seq}`
 }
 
-/** "Robin Graham - July 2026 - Invoice #INV-RG1" */
+/** "Alex Kim - July 2026 - Invoice #INV-AK1" */
 export function invoiceDisplayName(firstName: string, lastName: string, period: Date, invoiceNumber: string): string {
   const month = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
   const year = period.getUTCFullYear()
@@ -38,7 +38,7 @@ export function apEmailBody(month: string, programLabel: string, poNumber: strin
     `This is from ${programLabel} - PO# ${poNumber}.`,
     '',
     'Thanks,',
-    'Robin'
+    'Program Team'
   ].join('\n')
 }
 

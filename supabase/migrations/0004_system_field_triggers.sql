@@ -88,16 +88,25 @@ language plpgsql as $$
 declare
   v_actor uuid;
   v_role text;
+  v_entity_id uuid;
 begin
   v_actor := auth.uid();
   v_role  := current_role_claim();
+
+  -- policy's primary key is `key` (text), not `id` (uuid); audit_log.entity_id
+  -- stays null for those rows rather than referencing a column that doesn't exist.
+  if TG_TABLE_NAME = 'policy' then
+    v_entity_id := null;
+  else
+    v_entity_id := coalesce(new.id, old.id);
+  end if;
 
   insert into audit_log (actor_id, actor_role, entity, entity_id, action, before_json, after_json)
   values (
     v_actor,
     v_role,
     TG_TABLE_NAME,
-    coalesce(new.id, old.id),
+    v_entity_id,
     lower(TG_OP),
     case when TG_OP <> 'INSERT' then row_to_json(old)::jsonb else null end,
     case when TG_OP <> 'DELETE' then row_to_json(new)::jsonb else null end
