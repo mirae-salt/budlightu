@@ -242,9 +242,34 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView }: {
                         <button
                           className="btn-navy"
                           style={{ fontSize: 11, padding: '3px 10px' }}
-                          onClick={e => {
+                          onClick={async e => {
                             e.stopPropagation()
-                            alert('Warning system connected. Will notify Robin via email when backend is live.')
+                            const lowestMonth = months.reduce((min, [m, v]) => v < (min[1] as number) ? [m, v] : min, months[0])
+                            const btn = e.currentTarget
+                            btn.disabled = true
+                            btn.textContent = 'Sending...'
+                            try {
+                              const res = await fetch('/api/admin/warnings', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  bam_id: b.bam_id, cohort_id: b.cohort_id,
+                                  period: lowestMonth[0], spent: lowestMonth[1], action: 'flag'
+                                })
+                              })
+                              const data = await res.json()
+                              if (data.ok) {
+                                btn.textContent = data.skipped ? 'Already flagged' : 'Robin notified'
+                                btn.style.background = 'var(--green, #22c55e)'
+                              } else {
+                                btn.textContent = data.message || 'Failed'
+                                btn.style.background = 'var(--red, #ef4444)'
+                              }
+                            } catch {
+                              btn.textContent = 'Network error'
+                              btn.style.background = 'var(--red, #ef4444)'
+                            }
+                            setTimeout(() => { btn.disabled = false; btn.textContent = 'Flag & notify Robin'; btn.style.background = '' }, 3000)
                           }}
                         >
                           Flag & notify Robin

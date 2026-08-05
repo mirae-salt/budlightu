@@ -30,6 +30,7 @@ function TabNav() {
     { id: 'bam-ux', label: 'What BAMs see' },
     { id: 'patterns', label: 'What counts as BL' },
     { id: 'flags', label: 'What gets flagged' },
+    { id: 'emails', label: 'Emails & alerts' },
   ] as const
   const [active, setActive] = useState<string>('setup')
 
@@ -77,6 +78,7 @@ function TabNav() {
       {active === 'bam-ux' && <BamUxPanel />}
       {active === 'patterns' && <PatternsPanel />}
       {active === 'flags' && <FlagsPanel />}
+      {active === 'emails' && <EmailsPanel />}
 
 
       {/* b·m·l */}
@@ -619,5 +621,69 @@ function StoreRow({ region, stores }: { region: string; stores: string }) {
       <td style={{ fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{region}</td>
       <td style={{ lineHeight: 1.7 }}>{stores}</td>
     </tr>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 5: Emails & alerts — what gets sent, to whom, when
+   ═══════════════════════════════════════════════════════════════════ */
+function EmailsPanel() {
+  const emails: { trigger: string; to: string; cc?: string; subject: string; auto: boolean; note?: string }[] = [
+    { trigger: 'Receipt rejected by admin', to: 'BAM', subject: 'Receipt not accepted for [month]', auto: true, note: 'Includes the rejection reason so the BAM knows why.' },
+    { trigger: 'Receipt approved but below $140 (shortfall)', to: 'BAM', subject: 'Receipt shortfall notice for [month]', auto: true, note: 'Encourages uploading additional receipts before deadline.' },
+    { trigger: 'Admin clicks "Flag & notify Robin" on dashboard', to: 'Robin', cc: 'Nathan', subject: 'Low-spend alert: [BAM] — [month]', auto: false, note: 'Warning #2+ triggers reevaluation notice.' },
+    { trigger: 'Admin sends warning to BAM (from dashboard)', to: 'BAM', cc: 'Robin', subject: 'Spending reminder for [month]', auto: false, note: 'Friendly nudge about using the full $150 allowance.' },
+    { trigger: 'BAM submits a support question', to: 'Robin', subject: 'BLU Portal — Support question from [BAM]', auto: true },
+    { trigger: 'Invoice sent to AP', to: 'AP', cc: 'Robin, Nathan, BAM', subject: 'Invoice [INV-XX#] for [BAM]', auto: false, note: 'Triggered by admin batch-approve. 1 PDF per email.' },
+    { trigger: 'BAM requests invoice copy', to: 'BAM', subject: 'Your BLU invoice copy', auto: true, note: 'Self-service from portal. Only works after email is verified.' },
+    { trigger: 'BAM invited to cohort', to: 'BAM', subject: 'Welcome to Bud Light U', auto: false, note: 'Contains one-time onboarding link. Triggered by admin import.' },
+  ]
+
+  return (
+    <>
+      <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20, color: 'var(--text)' }}>
+        Every email the system can send, who receives it, and what triggers it.
+      </p>
+
+      <div className="table-scroll" style={{ marginBottom: 24 }}>
+        <table className="admin-table" style={{ fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th>Trigger</th>
+              <th>To</th>
+              <th>CC</th>
+              <th>Subject</th>
+              <th>Auto?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {emails.map((e, i) => (
+              <tr key={i}>
+                <td style={{ fontWeight: 600, maxWidth: 240 }}>{e.trigger}</td>
+                <td>{e.to}</td>
+                <td className="muted">{e.cc ?? '—'}</td>
+                <td><code style={{ fontSize: 11 }}>{e.subject}</code></td>
+                <td>
+                  {e.auto
+                    ? <span className="pill pill-blue">Automatic</span>
+                    : <span className="pill pill-yellow">Admin action</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="info-box info-auto" style={{ marginBottom: 16 }}>
+        <strong>Automatic</strong> = fires on its own when the condition is met (no button click needed).
+        <br />
+        <strong>Admin action</strong> = you click a button to trigger it.
+      </div>
+
+      <div className="info-box info-you">
+        <strong>Email provider:</strong> All emails go through Resend (budlightu.com domain).
+        AP invoices use MS Graph (Outlook) in production.
+      </div>
+    </>
   )
 }

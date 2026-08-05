@@ -116,12 +116,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Fire-and-forget OCR — don't block the upload response
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = req.nextUrl.origin
   const ocrHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
   if (process.env.INTERNAL_API_SECRET) {
     ocrHeaders['x-internal-secret'] = process.env.INTERNAL_API_SECRET
   }
-  fetch(`${appUrl}/api/receipts/ocr`, {
+  fetch(`${baseUrl}/api/receipts/ocr`, {
     method: 'POST',
     headers: ocrHeaders,
     body: JSON.stringify({ receipt_id: inserted.id, storage_key: storageKey })

@@ -6,6 +6,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
+import { browserClient } from '@/lib/supabase-browser'
 
 type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
 type NavGroup = { title: string; items: NavItem[] }
@@ -62,23 +63,36 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
         </div>
       ))}
 
-      <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
+      <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+        <div style={{ padding: '0 10px', marginBottom: 10 }}>
+          <Link href="/portal/dashboard" onClick={onNavigate} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 12px', borderRadius: 8,
+            background: 'rgba(0,163,224,0.1)', border: '1px solid rgba(0,163,224,0.2)',
+            color: 'rgba(0,163,224,0.9)', fontSize: 13, fontWeight: 600,
+            textDecoration: 'none', transition: 'background 0.15s'
+          }}>
+            <svg {...iconProps} style={{ width: 16, height: 16 }}><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            <span>Switch to BAM Portal</span>
+          </Link>
+        </div>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 12px 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 32, height: 32, borderRadius: '50%',
+            width: 28, height: 28, borderRadius: '50%',
             background: 'var(--bl-blue)', color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 700, flexShrink: 0
+            fontSize: 11, fontWeight: 700, flexShrink: 0
           }}>M</div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Mirae Lee</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>mirae.lee@ilovesalt.com</div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Mirae Lee</div>
           </div>
+          <button onClick={async () => { const sb = browserClient(); await sb.auth.signOut(); window.location.href = '/portal/login' }} style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'rgba(255,255,255,0.3)', padding: 4, display: 'flex'
+          }} title="Log out">
+            <svg {...iconProps} style={{ width: 15, height: 15 }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
         </div>
-        <Link href="/portal/dashboard" className="nav-item" onClick={onNavigate} style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-          <svg {...iconProps} style={{ width: 15, height: 15 }}><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-          <span>BAM Portal</span>
-        </Link>
       </div>
     </aside>
   )

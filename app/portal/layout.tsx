@@ -123,22 +123,32 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </div>
             ))}
 
-            <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              {name && (
-                <div style={{ padding: '6px 12px', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>
-                  {name}
+            <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+              {isAdmin && (
+                <div style={{ padding: '0 10px', marginBottom: 12 }}>
+                  <Link href="/admin" onClick={close} style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 12px', borderRadius: 8,
+                    background: 'rgba(0,163,224,0.1)', border: '1px solid rgba(0,163,224,0.2)',
+                    color: 'rgba(0,163,224,0.9)', fontSize: 13, fontWeight: 600,
+                    textDecoration: 'none', transition: 'background 0.15s'
+                  }}>
+                    <svg {...ip} style={{ width: 16, height: 16 }}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/></svg>
+                    <span>Switch to Admin</span>
+                  </Link>
                 </div>
               )}
-              {isAdmin && (
-                <Link href="/admin" className="nav-item" onClick={close} style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-                  <svg {...ip} style={{ width: 17, height: 17 }}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/></svg>
-                  <span>Admin</span>
-                </Link>
-              )}
-              <button className="nav-item" onClick={logout} style={{ width: '100%', background: 'transparent', color: 'rgba(255,255,255,0.4)', border: 'none', cursor: 'pointer', fontSize: 13 }}>
-                <IcoLogout />
-                <span>Log out</span>
-              </button>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 0 4px' }}>
+                {name && (
+                  <div style={{ padding: '4px 12px', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>
+                    {name}
+                  </div>
+                )}
+                <button className="nav-item" onClick={logout} style={{ width: '100%', background: 'transparent', color: 'rgba(255,255,255,0.35)', border: 'none', cursor: 'pointer', fontSize: 12 }}>
+                  <IcoLogout />
+                  <span>Log out</span>
+                </button>
+              </div>
             </div>
           </aside>
         </>

@@ -8,6 +8,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
 import { DEFAULT_POLICY, softFloorFor } from '../../../../../lib/policy'
+import { sendEmail } from '../../../../../lib/send-email'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -50,6 +51,37 @@ export async function POST(req: NextRequest) {
     decision_reason: reason
   }).eq('id', receipt_id)
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+
+  if (decision === 'rejected') {
+    const { data: bam } = await admin.from('bams')
+      .select('first_name, email').eq('id', receipt.bam_id).single()
+    if (bam?.email) {
+      const period = new Date(receipt.period + 'T00:00:00')
+      const monthLabel = period.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      sendEmail({
+        to: bam.email,
+        subject: `Bud Light U — Receipt not accepted for ${monthLabel}`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
+            <p style="font-size: 16px; color: #1a1a2e;">Hi ${bam.first_name},</p>
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              A receipt you submitted for <strong>${monthLabel}</strong> was not accepted during review.
+            </p>
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              <strong>Reason:</strong> ${reason}
+            </p>
+            <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+              If you have a different Bud Light receipt for this month, you can still upload it
+              through the BAM Portal before the review deadline. If you think this was a mistake,
+              please reach out to your program manager.
+            </p>
+            <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">— Bud Light U Program</p>
+          </div>
+        `,
+        text: `Hi ${bam.first_name},\n\nA receipt you submitted for ${monthLabel} was not accepted.\n\nReason: ${reason}\n\nIf you have a different Bud Light receipt, you can upload it before the deadline. If you think this was a mistake, reach out to your program manager.\n\n— Bud Light U Program`
+      }).catch(() => {})
+    }
+  }
 
   let softFloorBreach = false
 

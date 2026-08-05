@@ -14,12 +14,19 @@ export async function POST(req: NextRequest) {
 
   await admin.from('receipts').update({ status: 'pending', ocr_attempts: 0 }).eq('id', receipt_id)
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 3000}`
-  fetch(`${appUrl}/api/receipts/ocr`, {
+  const baseUrl = req.nextUrl.origin
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (process.env.INTERNAL_API_SECRET) {
+    headers['x-internal-secret'] = process.env.INTERNAL_API_SECRET
+  }
+
+  // Fire-and-forget: Next.js dev server is single-threaded, so awaiting
+  // a self-call would deadlock. We return immediately and let OCR run async.
+  fetch(`${baseUrl}/api/receipts/ocr`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ receipt_id: receipt.id, storage_key: receipt.storage_key })
   }).catch(() => {})
 
-  return NextResponse.json({ ok: true, message: 'OCR retry queued' })
+  return NextResponse.json({ ok: true, message: 'OCR retry queued — refresh in a few seconds' })
 }
