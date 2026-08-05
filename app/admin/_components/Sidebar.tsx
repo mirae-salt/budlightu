@@ -75,10 +75,10 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>mirae.lee@ilovesalt.com</div>
           </div>
         </div>
-        <div className="nav-item" style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>
-          <IconInfo />
-          <span>v0.1.0 · scaffold</span>
-        </div>
+        <Link href="/portal/dashboard" className="nav-item" onClick={onNavigate} style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
+          <svg {...iconProps} style={{ width: 15, height: 15 }}><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          <span>BAM Portal</span>
+        </Link>
       </div>
     </aside>
   )

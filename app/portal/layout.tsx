@@ -60,6 +60,7 @@ const publicGroups: NavGroup[] = [
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname()
   const [name, setName] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const close = useCallback(() => setSidebarOpen(false), [])
 
@@ -73,7 +74,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       const sb = browserClient()
       const { data: userRes } = await sb.auth.getUser()
       if (!userRes.user) return
-      const meta = userRes.user.user_metadata as { first_name?: string }
+      const meta = userRes.user.user_metadata as { first_name?: string; role?: string }
+      if (!cancelled && meta?.role && ['super_admin', 'program_admin'].includes(meta.role)) setIsAdmin(true)
       if (meta?.first_name && !cancelled) { setName(meta.first_name); return }
       const { data: bam } = await sb.from('bams').select('first_name').eq('auth_user_id', userRes.user.id).single()
       if (!cancelled && bam?.first_name) setName(bam.first_name)
@@ -124,6 +126,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 <div style={{ padding: '6px 12px', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>
                   {name}
                 </div>
+              )}
+              {isAdmin && (
+                <Link href="/admin" className="nav-item" onClick={close} style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+                  <svg {...ip} style={{ width: 17, height: 17 }}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h6"/></svg>
+                  <span>Admin</span>
+                </Link>
               )}
               <button className="nav-item" onClick={logout} style={{ width: '100%', background: 'transparent', color: 'rgba(255,255,255,0.4)', border: 'none', cursor: 'pointer', fontSize: 13 }}>
                 <IcoLogout />
