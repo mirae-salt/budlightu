@@ -65,15 +65,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const close = useCallback(() => setSidebarOpen(false), [])
 
   const isLogin = path === '/portal/login'
-  const isPreAuth = isLogin || path === '/portal/faq'
+  const [loggedIn, setLoggedIn] = useState(false)
 
   useEffect(() => {
-    if (isPreAuth) return
+    if (isLogin) return
     let cancelled = false
     ;(async () => {
       const sb = browserClient()
       const { data: userRes } = await sb.auth.getUser()
       if (!userRes.user) return
+      if (!cancelled) setLoggedIn(true)
       const meta = userRes.user.user_metadata as { first_name?: string; role?: string }
       if (!cancelled && meta?.role && ['super_admin', 'program_admin'].includes(meta.role)) setIsAdmin(true)
       if (meta?.first_name && !cancelled) { setName(meta.first_name); return }
@@ -81,8 +82,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       if (!cancelled && bam?.first_name) setName(bam.first_name)
     })()
     return () => { cancelled = true }
-  }, [path, isPreAuth])
+  }, [path, isLogin])
 
+  const isPreAuth = isLogin || (!loggedIn && path === '/portal/faq')
   const groups = isPreAuth ? publicGroups : authGroups
 
   async function logout() {
