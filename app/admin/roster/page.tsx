@@ -472,16 +472,16 @@ export default function Roster() {
             <div style={{ display: 'flex', gap: 12 }}>
               <div className="field" style={{ flex: 1 }}>
                 <label>First name</label>
-                <input value={addForm.firstName} onChange={e => setAddForm(f => ({ ...f, firstName: e.target.value }))} placeholder="Robin" />
+                <input value={addForm.firstName} onChange={e => setAddForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First name" />
               </div>
               <div className="field" style={{ flex: 1 }}>
                 <label>Last name</label>
-                <input value={addForm.lastName} onChange={e => setAddForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Graham" />
+                <input value={addForm.lastName} onChange={e => setAddForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Last name" />
               </div>
             </div>
             <div className="field">
               <label>Email</label>
-              <input type="email" value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} placeholder="robin@school.edu" />
+              <input type="email" value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} placeholder="bam@school.edu" />
             </div>
             <div style={{ display: 'flex', gap: 12 }}>
               <div className="field" style={{ flex: 1 }}>

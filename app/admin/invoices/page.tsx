@@ -63,13 +63,9 @@ export default function InvoiceBatch() {
         if (data && data.length > 0) {
           setInvoices((data as DbInvoice[]).map(mapDbInvoice))
           setUseDb(true)
-        } else {
-          setInvoices(DRAFT_INVOICES.map((inv, i) => ({ ...inv, id: `dummy-${i}`, cohort_id: null, period: '2026-09-01' })))
         }
       })
-      .catch(() => {
-        setInvoices(DRAFT_INVOICES.map((inv, i) => ({ ...inv, id: `dummy-${i}`, cohort_id: null, period: '2026-09-01' })))
-      })
+      .catch(() => {})
   }, [])
 
   const draftInvoices = invoices.filter(inv => inv.status === 'draft')
@@ -294,11 +290,46 @@ export default function InvoiceBatch() {
     setTimeout(() => setRowMessage(null), 5000)
   }
 
+  const now = new Date()
+  const currentMonth = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+  const day = now.getDate()
+  const deadlineDay = 15
+  const generateDay = 16
+  const daysLeft = deadlineDay - day
+
   return (
     <>
       <TopBar crumbs={['Invoices', 'Batch approval']} />
 
       <div className="surface">
+        {/* Cycle cadence banner */}
+        <div style={{
+          padding: '12px 16px', marginBottom: 16, borderRadius: 8,
+          background: day < deadlineDay ? 'rgba(0,163,224,0.08)' : day === deadlineDay ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.08)',
+          border: `1px solid ${day < deadlineDay ? 'rgba(0,163,224,0.2)' : day === deadlineDay ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.2)'}`,
+          display: 'flex', alignItems: 'center', gap: 12, fontSize: 13,
+        }}>
+          <span style={{ fontSize: 18 }}>{day < deadlineDay ? '📋' : day <= generateDay ? '⏳' : '✅'}</span>
+          <div>
+            {day < deadlineDay ? (
+              <>
+                <strong>{currentMonth} cycle</strong> — Receipt deadline: <strong>{deadlineDay}th</strong> ({daysLeft} day{daysLeft !== 1 ? 's' : ''} left).
+                Invoices will be generated on the <strong>{generateDay}th</strong> after all receipts are reviewed.
+              </>
+            ) : day <= generateDay ? (
+              <>
+                <strong>{currentMonth} cycle</strong> — Receipt deadline passed. Ready to generate invoices.
+                Each BAM gets <strong>1 invoice</strong> (salary + approved receipts capped at $150).
+              </>
+            ) : (
+              <>
+                <strong>{currentMonth} cycle</strong> — Invoice generation window open.
+                Each BAM × 1 month = <strong>1 invoice</strong> combining salary ($218.75) + reimbursement (up to $150).
+              </>
+            )}
+          </div>
+        </div>
+
         <div className="surface-header">
           <div className="surface-title">
             Batch approval
@@ -478,7 +509,14 @@ export default function InvoiceBatch() {
             {invoices.length === 0 && (
               <tr>
                 <td colSpan={9}>
-                  <div className="empty-state">No draft or sent invoices for this cycle.</div>
+                  <div className="empty-state" style={{ padding: '32px 16px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 8 }}>No invoices yet for this cycle</div>
+                    <div style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.6, maxWidth: 440, margin: '0 auto' }}>
+                      Invoices are generated on the <strong>16th</strong> after the receipt deadline (15th).
+                      Each BAM gets <strong>1 invoice per month</strong> — all approved receipts are automatically
+                      summed and capped at $150 for reimbursement, plus salary.
+                    </div>
+                  </div>
                 </td>
               </tr>
             )}

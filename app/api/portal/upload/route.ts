@@ -82,9 +82,9 @@ export async function POST(req: NextRequest) {
   const buf = Buffer.from(await file.arrayBuffer())
   const { error: upErr } = await admin.storage
     .from('receipts')
-    .upload(storageKey, buf, { contentType: file.type, upsert: isTestReceipt })
+    .upload(storageKey, buf, { contentType: file.type, upsert: true })
 
-  if (upErr && !/duplicate/i.test(upErr.message)) {
+  if (upErr) {
     return NextResponse.json({ ok: false, message: upErr.message }, { status: 500 })
   }
 

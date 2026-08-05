@@ -5,7 +5,6 @@
  * P0-2 fix: uses ledger.spendable_cap (not raw max) for the REVIEW band.
  */
 
-import { isInReviewBand } from './reimbursement'
 import type { Policy } from './reimbursement'
 
 export type OcrLine = {
@@ -92,23 +91,12 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
       return { status: 'review', reason: `bud_light line confidence ${l.confidence} < 0.80 (${l.desc})`, budLightTotalInclTax: total, confidence: conf }
     }
   }
-  // HIGH fix: total at/over the spendable cap ALWAYS goes to review — no auto_pass
-  // above the cap, no matter how high the confidence. The cap is $150; claiming
-  // $150+ means Robin looks at it.
+  // $150+ always goes to review — Robin confirms any at-or-over-cap receipt.
+  // No review band below cap; underspend threshold is a separate admin decision.
   if (total >= spendableCap) {
     return {
       status: 'review',
-      reason: `total ${total} >= spendable_cap ${spendableCap} — always flagged for review regardless of confidence`,
-      budLightTotalInclTax: total,
-      confidence: conf
-    }
-  }
-
-  // Rolling cap AND fresh max bands (near-cap, below the cap itself)
-  if (isInReviewBand(total, spendableCap, policy.reimbursementMax, policy.reviewBandPaddingCad)) {
-    return {
-      status: 'review',
-      reason: `total ${total} falls in review band (spendable_cap=${spendableCap}, max=${policy.reimbursementMax}, ±${policy.reviewBandPaddingCad})`,
+      reason: `total ${total} >= spendable_cap ${spendableCap} — flagged for review`,
       budLightTotalInclTax: total,
       confidence: conf
     }

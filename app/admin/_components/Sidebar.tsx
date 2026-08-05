@@ -5,7 +5,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 
 type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
@@ -40,6 +40,17 @@ const groups: NavGroup[] = [
 
 export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const path = usePathname()
+  const [profile, setProfile] = useState<{ name: string; initial: string }>({ name: '', initial: '' })
+  useEffect(() => {
+    const sb = browserClient()
+    sb.auth.getUser().then(({ data }) => {
+      const meta = data.user?.user_metadata as { first_name?: string; last_name?: string; name?: string } | undefined
+      const name = meta?.first_name && meta?.last_name
+        ? `${meta.first_name} ${meta.last_name}`
+        : meta?.name || data.user?.email?.split('@')[0] || ''
+      setProfile({ name, initial: name.charAt(0).toUpperCase() || '?' })
+    })
+  }, [])
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px' }}>
@@ -82,9 +93,9 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
             background: 'var(--bl-blue)', color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 11, fontWeight: 700, flexShrink: 0
-          }}>M</div>
+          }}>{profile.initial}</div>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Mirae Lee</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.name}</div>
           </div>
           <button onClick={async () => { const sb = browserClient(); await sb.auth.signOut(); window.location.href = '/portal/login' }} style={{
             background: 'transparent', border: 'none', cursor: 'pointer',

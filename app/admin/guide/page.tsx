@@ -25,6 +25,7 @@ export default function GuidePage() {
 
 function TabNav() {
   const tabs = [
+    { id: 'open', label: 'Open items' },
     { id: 'setup', label: 'Getting started' },
     { id: 'flow', label: 'How it works' },
     { id: 'bam-ux', label: 'What BAMs see' },
@@ -32,7 +33,7 @@ function TabNav() {
     { id: 'flags', label: 'What gets flagged' },
     { id: 'emails', label: 'Emails & alerts' },
   ] as const
-  const [active, setActive] = useState<string>('setup')
+  const [active, setActive] = useState<string>('open')
 
   return (
     <div>
@@ -73,6 +74,7 @@ function TabNav() {
         ))}
       </div>
 
+      {active === 'open' && <OpenItemsPanel />}
       {active === 'setup' && <SetupPanel />}
       {active === 'flow' && <FlowPanel />}
       {active === 'bam-ux' && <BamUxPanel />}
@@ -88,6 +90,74 @@ function TabNav() {
         </p>
       </div>
     </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB: Open items — pending decisions & action items
+   ═══════════════════════════════════════════════════════════════════ */
+function OpenItemsPanel() {
+  const items = [
+    {
+      priority: 'high' as const,
+      title: 'Float card info — who takes over from Jenna?',
+      detail: 'Jenna is leaving. Need to confirm who will manage the float card and ad-hoc expense tracking going forward. Ask Robin.',
+      owner: 'Robin',
+      due: 'ASAP',
+    },
+    {
+      priority: 'high' as const,
+      title: 'Final BAM roster for Fall 2026',
+      detail: 'Confirmed list of ~58 BAMs needed by Aug 10 to set up cohort, onboarding invites, and portal accounts before Sept 1 launch.',
+      owner: 'Robin',
+      due: 'Aug 10',
+    },
+    {
+      priority: 'medium' as const,
+      title: 'Underspend threshold — what counts as "too low"?',
+      detail: 'Receipts $150+ are flagged for Robin\'s review. But what\'s the minimum spend to trigger a warning? Old docs suggested $140 (soft floor) but this was never confirmed. Robin to decide: at what dollar amount should BAMs get a low-spend warning? (e.g. under $100? $50? Any amount under $150?)',
+      owner: 'Robin',
+      due: 'Before Sept 1',
+    },
+  ]
+
+  const priorityStyle = {
+    high: { background: 'rgba(239,68,68,0.1)', color: '#dc2626', label: 'Urgent' },
+    medium: { background: 'rgba(245,158,11,0.12)', color: '#d97706', label: 'Medium' },
+    low: { background: 'rgba(128,128,128,0.1)', color: '#6b7280', label: 'Low' },
+  }
+
+  return (
+    <>
+      <p style={{ fontSize: 13, color: 'var(--midgray)', marginBottom: 16, lineHeight: 1.5 }}>
+        Decisions and info needed before the system goes live. Resolved items will be removed.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {items.map((item, i) => {
+          const ps = priorityStyle[item.priority]
+          return (
+            <div key={i} style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 8, borderLeft: `3px solid ${ps.color}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span className="pill" style={{ background: ps.background, color: ps.color }}>{ps.label}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)' }}>{item.title}</span>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5, margin: '0 0 8px' }}>{item.detail}</p>
+              <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--midgray)' }}>
+                <span><strong>Owner:</strong> {item.owner}</span>
+                <span><strong>Due:</strong> {item.due}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {items.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--midgray)', fontSize: 14 }}>
+          All clear — no open items.
+        </div>
+      )}
+    </>
   )
 }
 
