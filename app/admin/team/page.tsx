@@ -17,7 +17,7 @@ export default function TeamPage() {
   const [admins, setAdmins] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ email: '', first_name: '', last_name: '', role: 'program_admin' as const })
+  const [form, setForm] = useState<{ email: string; first_name: string; last_name: string; role: 'program_admin' | 'super_admin' }>({ email: '', first_name: '', last_name: '', role: 'program_admin' })
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
