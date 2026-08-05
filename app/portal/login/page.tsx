@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 
 export default function LoginPage() {
@@ -9,6 +9,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const emailRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => { emailRef.current?.focus() }, [])
 
   async function sendOtp() {
     setBusy(true); setError(null)
@@ -70,18 +73,46 @@ export default function LoginPage() {
     setBusy(true); setError(null)
 
     const sb = browserClient()
-    const { error: verifyErr } = await sb.auth.verifyOtp({
+    let { error: verifyErr } = await sb.auth.verifyOtp({
       email,
       token: code,
       type: 'email'
     })
-
-    setBusy(false)
     if (verifyErr) {
-      setError('Invalid or expired code. Please try again.')
+      const fallback = await sb.auth.verifyOtp({
+        email,
+        token: code,
+        type: 'magiclink'
+      })
+      if (!fallback.error) verifyErr = null
+    }
+
+    if (verifyErr) {
+      setBusy(false)
+      const msg = verifyErr.message || 'Verification failed'
+      setError(msg.includes('expired') ? 'Code expired. Click "Resend code" to get a new one.' : msg)
       setOtp(['', '', '', '', '', ''])
       inputRefs.current[0]?.focus()
       return
+    }
+
+    const { data: userRes } = await sb.auth.getUser()
+    const bamId = (userRes.user?.user_metadata as { bam_id?: string } | undefined)?.bam_id
+
+    if (bamId) {
+      const { data: bam } = await sb
+        .from('bams')
+        .select('bank_name, street')
+        .eq('id', bamId)
+        .maybeSingle()
+
+      setBusy(false)
+      if (!bam?.bank_name || !bam?.street) {
+        window.location.href = '/portal/onboarding'
+        return
+      }
+    } else {
+      setBusy(false)
     }
 
     window.location.href = '/portal/dashboard'
@@ -89,76 +120,274 @@ export default function LoginPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="crumbs"><span className="now">Sign in</span></div>
-      </div>
+      <style>{`
+        .login-split {
+          display: grid; grid-template-columns: 1fr 1fr;
+          min-height: 100vh; width: 100%;
+        }
+        @media (max-width: 860px) {
+          .login-split { grid-template-columns: 1fr; }
+          .login-hero { display: none; }
+        }
 
-      <div style={{ maxWidth: 420 }}>
-        <p className="eyebrow">BUD LIGHT U</p>
-        <h1>Sign in to the portal</h1>
+        /* ── Hero panel ── */
+        .login-hero {
+          background: var(--bl-navy);
+          display: flex; flex-direction: column;
+          justify-content: center; align-items: center;
+          padding: 60px 48px; position: relative; overflow: hidden;
+        }
+        .login-hero::before {
+          content: ''; position: absolute; inset: 0;
+          background:
+            radial-gradient(ellipse 80% 60% at 30% 80%, rgba(58,173,217,0.15), transparent),
+            radial-gradient(ellipse 60% 50% at 70% 20%, rgba(58,173,217,0.08), transparent);
+          pointer-events: none;
+        }
+        .hero-logo { width: 200px; margin-bottom: 40px; position: relative; z-index: 1; }
+        .hero-tagline {
+          font-size: 28px; font-weight: 800; color: #fff;
+          text-align: center; letter-spacing: -0.02em;
+          line-height: 1.25; position: relative; z-index: 1;
+          max-width: 320px;
+        }
+        .hero-tagline span { color: var(--bl-blue); }
+        .hero-sub {
+          font-size: 14px; color: rgba(255,255,255,0.45);
+          margin-top: 16px; text-align: center;
+          position: relative; z-index: 1;
+          letter-spacing: 0.04em;
+        }
+        .hero-can {
+          position: absolute; bottom: -20px; right: -30px;
+          width: 240px; opacity: 0.12; pointer-events: none;
+          transform: rotate(-15deg);
+        }
 
-        {phase === 'email' && (
-          <div className="surface stack" style={{ marginTop: 24 }}>
-            <div className="field">
-              <label htmlFor="email">Your email</label>
-              <input
-                id="email" type="email" value={email}
-                onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && email.includes('@') && sendOtp()}
-                placeholder="you@school.edu"
-              />
-            </div>
-            <button onClick={sendOtp} disabled={busy || !email.includes('@')}>
-              {busy ? 'Sending...' : 'Send verification code'}
-            </button>
-            <p className="muted" style={{ fontSize: 13 }}>
-              We&rsquo;ll email you a 6-digit code to sign in &mdash; no password needed.
-            </p>
+        /* ── Form panel ── */
+        .login-form-panel {
+          display: flex; flex-direction: column;
+          justify-content: center; align-items: center;
+          padding: 48px 40px; background: #fff;
+        }
+        .login-form-inner { width: 100%; max-width: 400px; }
+        .login-form-inner h1 {
+          font-size: 22px; margin-bottom: 4px;
+          text-transform: none; letter-spacing: -0.01em;
+        }
+        .login-subtitle {
+          font-size: 14px; color: var(--midgray);
+          margin-bottom: 28px;
+        }
+
+        /* ── Email field ── */
+        .login-email-field { margin-bottom: 20px; }
+        .login-email-field label {
+          display: block; font-size: 13px; font-weight: 600;
+          color: var(--bl-navy); margin-bottom: 6px;
+        }
+        .login-email-field input {
+          width: 100%; padding: 12px 14px; font-size: 15px;
+          border: 1.5px solid var(--stone); border-radius: 10px;
+          background: var(--bl-silver); color: var(--bl-navy);
+          transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .login-email-field input:focus {
+          border-color: var(--bl-blue); outline: none;
+          box-shadow: 0 0 0 3px rgba(58,173,217,0.12);
+          background: #fff;
+        }
+
+        .login-submit {
+          width: 100%; padding: 13px 0; font-size: 15px;
+          font-weight: 700; border-radius: 10px;
+          background: var(--bl-navy); color: #fff;
+          border: none; cursor: pointer;
+          transition: background 0.15s, transform 0.1s;
+        }
+        .login-submit:hover:not(:disabled) { background: #141c2e; }
+        .login-submit:active:not(:disabled) { transform: scale(0.985); }
+        .login-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .login-divider {
+          display: flex; align-items: center; gap: 12px;
+          margin: 24px 0 20px; color: var(--midgray); font-size: 12px;
+        }
+        .login-divider::before, .login-divider::after {
+          content: ''; flex: 1; height: 1px;
+          background: var(--stone);
+        }
+
+        /* ── Info cards ── */
+        .login-info-card {
+          display: flex; align-items: flex-start; gap: 10px;
+          padding: 12px 14px; border-radius: 10px;
+          font-size: 13px; line-height: 1.5;
+        }
+        .login-info-card.blue {
+          background: rgba(58,173,217,0.06);
+          border: 1px solid rgba(58,173,217,0.1);
+          color: var(--bl-navy);
+        }
+        .login-info-card.muted {
+          background: var(--bl-silver);
+          color: var(--midgray); margin-top: 8px;
+          font-size: 12.5px;
+        }
+        .login-info-icon {
+          flex-shrink: 0; width: 18px; height: 18px; margin-top: 1px;
+        }
+
+        /* ── OTP ── */
+        .otp-grid {
+          display: flex; gap: 10px;
+          justify-content: center; margin: 24px 0 20px;
+        }
+        .otp-input {
+          width: 48px; height: 56px; text-align: center;
+          font-size: 24px; font-weight: 700; letter-spacing: 0;
+          border-radius: 10px; border: 2px solid var(--stone);
+          color: var(--bl-navy); background: var(--bl-silver);
+          flex: 1 1 0; min-width: 0; max-width: 52px;
+          transition: border-color 0.15s, background 0.15s;
+        }
+        .otp-input:focus {
+          border-color: var(--bl-blue); outline: none;
+          box-shadow: 0 0 0 3px rgba(58,173,217,0.12);
+          background: #fff;
+        }
+        .otp-sent {
+          text-align: center; font-size: 14px; color: var(--bl-navy);
+          padding: 12px 16px; border-radius: 10px;
+          background: rgba(58,173,217,0.06);
+        }
+        .login-actions {
+          display: flex; justify-content: space-between;
+          align-items: center; margin-top: 20px;
+        }
+        .link-btn {
+          font-size: 13px; padding: 6px 0; background: none; border: none;
+          color: var(--midgray); cursor: pointer; text-decoration: underline;
+          text-underline-offset: 3px;
+        }
+        .link-btn:hover { color: var(--bl-navy); }
+        .resend-btn {
+          font-size: 13px; padding: 8px 18px; background: var(--bl-silver);
+          border: 1.5px solid var(--stone); border-radius: 8px;
+          color: var(--bl-navy); cursor: pointer; font-weight: 600;
+        }
+        .resend-btn:hover { border-color: var(--bl-blue); }
+        .resend-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .login-error {
+          margin-top: 16px; padding: 10px 14px; border-radius: 10px;
+          font-size: 13px; line-height: 1.5;
+          background: rgba(163,18,18,0.06); border: 1px solid rgba(163,18,18,0.12);
+          color: #A31212;
+        }
+      `}</style>
+
+      <div className="login-split">
+        {/* ── Left: branding hero ── */}
+        <div className="login-hero">
+          <img className="hero-logo" src="/brand/BudLightU-logo.png" alt="Bud Light U" />
+          <div className="hero-tagline">
+            Welcome to the<br /><span>BAM Portal</span>
           </div>
-        )}
+          <div className="hero-sub">Campus Ambassador Program</div>
+          <img className="hero-can" src="/brand/hero-can.png" alt="" />
+        </div>
 
-        {phase === 'otp' && (
-          <div className="surface stack" style={{ marginTop: 24 }}>
-            <p style={{ fontSize: 14, color: 'var(--bl-navy)', marginBottom: 4 }}>
-              Enter the 6-digit code sent to <strong>{email}</strong>
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', margin: '16px 0' }} onPaste={handleOtpPaste}>
-              {otp.map((d, i) => (
-                <input
-                  key={i}
-                  ref={el => { inputRefs.current[i] = el }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={d}
-                  onChange={e => handleOtpChange(i, e.target.value)}
-                  onKeyDown={e => handleOtpKeyDown(i, e)}
-                  style={{
-                    width: 48, height: 56, textAlign: 'center',
-                    fontSize: 24, fontWeight: 700, letterSpacing: 0,
-                    borderRadius: 8, border: '2px solid var(--border)',
-                    color: 'var(--bl-navy)'
-                  }}
-                />
-              ))}
-            </div>
-            <button onClick={verifyOtp} disabled={busy || otp.join('').length !== 6}>
-              {busy ? 'Verifying...' : 'Sign in'}
-            </button>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-              <button className="btn-ghost" onClick={() => { setPhase('email'); setOtp(['', '', '', '', '', '']); setError(null) }}
-                style={{ fontSize: 13, padding: '4px 0' }}>
-                Use a different email
-              </button>
-              <button className="btn-ghost" onClick={sendOtp} disabled={busy}
-                style={{ fontSize: 13, padding: '4px 0' }}>
-                Resend code
-              </button>
-            </div>
+        {/* ── Right: form ── */}
+        <div className="login-form-panel">
+          <div className="login-form-inner">
+            {phase === 'email' && (
+              <>
+                <h1>Sign in</h1>
+                <div className="login-subtitle">Enter your email to receive a verification code.</div>
+
+                <div className="login-email-field">
+                  <label htmlFor="login-email">Email address</label>
+                  <input
+                    ref={emailRef}
+                    id="login-email" type="email" value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && email.includes('@') && sendOtp()}
+                    placeholder="you@school.edu"
+                    autoComplete="email"
+                  />
+                </div>
+
+                <button
+                  className="login-submit"
+                  onClick={sendOtp}
+                  disabled={busy || !email.includes('@')}
+                >
+                  {busy ? 'Sending...' : 'Send verification code'}
+                </button>
+
+                <div className="login-divider">How it works</div>
+
+                <div className="login-info-card blue">
+                  <svg className="login-info-icon" viewBox="0 0 24 24" fill="none" stroke="var(--bl-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+                  </svg>
+                  <p style={{ margin: 0 }}>We&rsquo;ll email you a <strong>6-digit code</strong> to sign in. No password needed.</p>
+                </div>
+                <div className="login-info-card muted">
+                  <svg className="login-info-icon" style={{ color: 'var(--midgray)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <p style={{ margin: 0 }}>First time? Use the <strong>same email</strong> you applied to BLU with.</p>
+                </div>
+              </>
+            )}
+
+            {phase === 'otp' && (
+              <>
+                <h1>Enter your code</h1>
+                <div className="login-subtitle">Check your inbox for the 6-digit code.</div>
+
+                <div className="otp-sent">
+                  Sent to <strong>{email}</strong>
+                </div>
+                <div className="otp-grid" onPaste={handleOtpPaste}>
+                  {otp.map((d, i) => (
+                    <input
+                      key={i}
+                      ref={el => { inputRefs.current[i] = el }}
+                      className="otp-input"
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={d}
+                      onChange={e => handleOtpChange(i, e.target.value)}
+                      onKeyDown={e => handleOtpKeyDown(i, e)}
+                      autoFocus={i === 0}
+                    />
+                  ))}
+                </div>
+                <button
+                  className="login-submit"
+                  onClick={verifyOtp}
+                  disabled={busy || otp.join('').length !== 6}
+                >
+                  {busy ? 'Verifying...' : 'Sign in'}
+                </button>
+                <div className="login-actions">
+                  <button className="link-btn" onClick={() => { setPhase('email'); setOtp(['', '', '', '', '', '']); setError(null) }}>
+                    &#8592; Different email
+                  </button>
+                  <button className="resend-btn" onClick={sendOtp} disabled={busy}>
+                    {busy ? 'Sending...' : 'Resend code'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {error && <div className="login-error">{error}</div>}
           </div>
-        )}
-
-        {error && <p style={{ color: '#A31212', marginTop: 16, fontSize: 14 }}>{error}</p>}
+        </div>
       </div>
     </>
   )

@@ -157,7 +157,17 @@ export async function handler(req: {
     p_account_no: req.form.account_no,
     p_hst_number: req.form.hst_number ?? null
   })
-  if (encErr) return { ok: false, message: `Encrypt failed: ${encErr.message}` }
+  if (encErr) {
+    // Rollback: delete the auth user we just created to avoid orphaned account
+    await db.auth.admin.deleteUser(authUser.user.id).catch(() => {})
+    // Revert BAM row to pending
+    await db.from('bams').update({
+      status: 'pending',
+      auth_user_id: null,
+      invite_token_hash: tokenHash
+    }).eq('id', pendingBam.id)
+    return { ok: false, message: `Encrypt failed: ${encErr.message}` }
+  }
 
   // Note: no email is sent here. `admin.generateLink()` only returns a link/
   // token without emailing it, so calling it added a DB round trip with no

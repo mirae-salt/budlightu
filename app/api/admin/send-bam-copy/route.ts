@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   }
 
   // --- auth: admin only, skip in dev ---
-  const isDev = process.env.NODE_ENV === 'development'
+  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
   if (!isDev) {
     const cookieStore = await cookies()
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!

@@ -12,7 +12,7 @@ import { cookies } from 'next/headers'
 export async function POST(req: NextRequest) {
   const { invoice_id, reason } = await req.json()
   if (!invoice_id || !reason || reason.length < 5) {
-    return NextResponse.json({ ok: false, message: 'invoice_id + reason (>=5 chars) required' }, { status: 400 })
+    return NextResponse.json({ ok: false, message: 'Please provide a void reason (at least 5 characters).' }, { status: 400 })
   }
 
   const cookieStore = await cookies()
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
   })
   const { data: user } = await supa.auth.getUser()
-  const isDev = process.env.NODE_ENV === 'development'
+  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
   if (!isDev) {
     if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
     const role = (user.user.user_metadata as { role?: string }).role

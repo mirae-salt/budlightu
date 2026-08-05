@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/send-ap  { invoice_id } or { invoice_ids: string[] }
  *
- * Sends invoice(s) to Salt AP (accounts.payable@ilovesalt.com), CC Jenna/Robin.
+ * Sends invoice(s) to Salt AP (accounts.payable@ilovesalt.com), CC Robin/Nathan.
  * Provider is picked automatically by lib/send-email.ts (Resend by default,
  * MS Graph once creds land). 1 PDF per email — AP does not accept batching.
  *
@@ -17,7 +17,7 @@ import { sendEmail } from '../../../../lib/send-email'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../../lib/invoice-numbering'
 
 const AP_TO = process.env.AP_EMAIL || 'accounts.payable@ilovesalt.com'
-const AP_CC = (process.env.AP_CC_EMAILS || 'Jenna.Greenspoon@ilovesalt.com,robin.graham@ilovesalt.com')
+const AP_CC = (process.env.AP_CC_EMAILS || 'robin.graham@ilovesalt.com,nb@ilovesalt.com')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean)
@@ -32,12 +32,13 @@ interface SendOutcome {
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const invoiceIds: string[] = body.invoice_ids ?? (body.invoice_id ? [body.invoice_id] : [])
+  const testEmail: string | undefined = body.test_email
   if (!invoiceIds.length) {
     return NextResponse.json({ ok: false, message: 'invoice_id or invoice_ids required' }, { status: 400 })
   }
 
   // --- auth: admin only, skip in dev ---
-  const isDev = process.env.NODE_ENV === 'development'
+  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
   if (!isDev) {
     const cookieStore = await cookies()
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
   const outcomes: SendOutcome[] = []
 
   for (const invoiceId of invoiceIds) {
-    outcomes.push(await sendOneInvoiceToAp(admin, invoiceId))
+    outcomes.push(await sendOneInvoiceToAp(admin, invoiceId, testEmail))
   }
 
   const sent = outcomes.filter(o => o.ok).length
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: failed === 0, sent, failed, results: outcomes })
 }
 
-async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoiceId: string): Promise<SendOutcome> {
+async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoiceId: string, testEmail?: string): Promise<SendOutcome> {
   const { data: inv, error: invErr } = await admin
     .from('invoices')
     .select('*, bams(first_name, last_name, email), cohorts(po_number, program_label)')
@@ -77,24 +78,30 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
     return { invoice_id: invoiceId, ok: false, error: `invoice not found: ${invErr?.message ?? 'unknown'}` }
   }
 
+  if (inv.status === 'void') {
+    return { invoice_id: invoiceId, ok: false, error: 'invoice is voided — cannot send to AP' }
+  }
+
   const bam = (inv as { bams?: { first_name: string; last_name: string; email: string } }).bams
   const cohort = (inv as { cohorts?: { po_number: string | null; program_label: string } }).cohorts
   if (!bam) return { invoice_id: invoiceId, ok: false, error: 'bam not found for invoice' }
   if (!cohort) return { invoice_id: invoiceId, ok: false, error: 'cohort not found for invoice' }
   if (!cohort.po_number) {
-    // ⚠️ PO number unconfirmed (250437/260814/260351) — never guess, hard block instead.
+    // PO confirmed: 260351 (Robin 7/15). Hard block if cohort PO missing.
     return { invoice_id: invoiceId, ok: false, error: 'cohort.po_number missing — HARD BLOCK, confirm PO before sending' }
   }
 
-  // duplicate-send guard (P0-5a): skip if already recorded as sent to AP
-  const { data: existingSend } = await admin
-    .from('invoice_sends')
-    .select('id')
-    .eq('invoice_id', invoiceId)
-    .eq('target', 'ap')
-    .maybeSingle()
-  if (existingSend) {
-    return { invoice_id: invoiceId, ok: false, error: 'already sent to AP for this invoice (invoice_sends dupe guard)' }
+  // duplicate-send guard (P0-5a): skip if already recorded as sent to AP (bypass for test sends)
+  if (!testEmail) {
+    const { data: existingSend } = await admin
+      .from('invoice_sends')
+      .select('id')
+      .eq('invoice_id', invoiceId)
+      .eq('target', 'ap')
+      .maybeSingle()
+    if (existingSend) {
+      return { invoice_id: invoiceId, ok: false, error: 'already sent to AP for this invoice (invoice_sends dupe guard)' }
+    }
   }
 
   const period = new Date(inv.period)
@@ -121,29 +128,39 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
     attached: Boolean(attachments)
   })
 
+  const actualTo = testEmail || AP_TO
+  const ccList = testEmail ? [] : [...AP_CC]
+  if (!testEmail && bam.email && !ccList.some(e => e.toLowerCase() === bam.email.toLowerCase())) {
+    ccList.push(bam.email)
+  }
+
+  const actualSubject = testEmail ? `[TEST] ${subject}` : subject
+
   const result = await sendEmail({
-    to: AP_TO,
-    cc: AP_CC,
-    subject,
+    to: actualTo,
+    cc: ccList.length > 0 ? ccList : undefined,
+    subject: actualSubject,
     html,
     text: bodyText,
     attachments
   })
 
-  // record send attempt (idempotent via invoice_sends UNIQUE(invoice_id,target,mode))
-  await admin.from('invoice_sends').insert({
-    invoice_id: invoiceId,
-    target: 'ap',
-    mode: result.sent ? 'live' : 'dryrun',
-    address: AP_TO,
-    message_id: result.messageId ?? null,
-    attempts: 1,
-    last_error: result.error ?? null,
-    sent_at: result.sent ? new Date().toISOString() : null
-  })
+  // record send attempt (skip recording for test sends)
+  if (!testEmail) {
+    await admin.from('invoice_sends').insert({
+      invoice_id: invoiceId,
+      target: 'ap',
+      mode: result.sent ? 'live' : 'dryrun',
+      address: AP_TO,
+      message_id: result.messageId ?? null,
+      attempts: 1,
+      last_error: result.error ?? null,
+      sent_at: result.sent ? new Date().toISOString() : null
+    })
 
-  if (result.sent) {
-    await admin.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', invoiceId)
+    if (result.sent) {
+      await admin.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', invoiceId)
+    }
   }
 
   return { invoice_id: invoiceId, ok: result.sent, provider: result.provider, error: result.error }

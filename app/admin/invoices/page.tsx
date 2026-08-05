@@ -24,8 +24,7 @@ function periodLabel(period: string): string {
 }
 
 function mapReceiptStatus(s: string | null): InvoiceRow['receiptStatus'] {
-  if (s === 'auto_pass') return 'pass'
-  if (s === 'approved' || s === 'review' || s === 'rejected' || s === 'fail' || s === 'pass' || s === 'none') return s
+  if (s === 'auto_pass' || s === 'approved' || s === 'review' || s === 'rejected' || s === 'none') return s
   if (s === 'ocr_failed') return 'review'
   if (s === 'pending') return 'review'
   return undefined
@@ -55,6 +54,7 @@ export default function InvoiceBatch() {
   const [voidingNumber, setVoidingNumber] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [rowMessage, setRowMessage] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetch('/api/admin/data?table=invoices')
@@ -72,14 +72,31 @@ export default function InvoiceBatch() {
       })
   }, [])
 
+  const draftInvoices = invoices.filter(inv => inv.status === 'draft')
   const total = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount.replace(/[$,]/g, '') || '0'), 0)
+  const selectedDrafts = draftInvoices.filter(inv => selected.has(inv.id))
+  const allDraftsSelected = draftInvoices.length > 0 && draftInvoices.every(inv => selected.has(inv.id))
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (allDraftsSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(draftInvoices.map(inv => inv.id)))
+    }
+  }
 
   async function confirmBatchApprove() {
     setBatchConfirming(false)
-    const draftInvoices = invoices.filter(inv => inv.status === 'draft')
-    const first = draftInvoices[0]
-    if (!useDb || !first?.cohort_id) {
-      setBatchMessage(`${invoices.length} invoices approved. AP emails queued (dryrun mode). BAM copies queued.`)
+    if (!useDb || selectedDrafts.length === 0) {
+      setBatchMessage(`${selectedDrafts.length} invoices approved. AP emails queued (dryrun mode). BAM copies queued.`)
       setTimeout(() => setBatchMessage(null), 6000)
       return
     }
@@ -87,16 +104,17 @@ export default function InvoiceBatch() {
       const res = await fetch('/api/admin/invoices/batch-approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cohort_id: first.cohort_id, period: first.period })
+        body: JSON.stringify({ invoice_ids: selectedDrafts.map(inv => inv.id) })
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
         setBatchMessage(json.message || 'Batch approve failed')
       } else {
         setBatchMessage(`Batch approve: ${json.processed ?? 0} invoice(s) processed.`)
+        setSelected(new Set())
       }
     } catch {
-      setBatchMessage('Network error — batch approve not sent')
+      setBatchMessage('Network error: batch approve not sent')
     }
     setTimeout(() => setBatchMessage(null), 6000)
   }
@@ -112,7 +130,7 @@ export default function InvoiceBatch() {
     if (!useDb) {
       setInvoices(list => list.map(i => i.number === inv.number ? { ...i, status: 'void' as const } : i))
       setVoidingNumber(null)
-      setRowMessage(`${inv.number} voided — AP cancellation email drafted.`)
+      setRowMessage(`${inv.number} voided. AP cancellation email drafted.`)
       setTimeout(() => setRowMessage(null), 5000)
       return
     }
@@ -127,10 +145,10 @@ export default function InvoiceBatch() {
         setRowMessage(json.message || json.error || 'Void failed')
       } else {
         setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'void' as const } : i))
-        setRowMessage(`${inv.number} voided — AP cancellation email drafted.`)
+        setRowMessage(`${inv.number} voided. AP cancellation email drafted.`)
       }
     } catch {
-      setRowMessage('Network error — void not saved')
+      setRowMessage('Network error: void not saved')
     }
     setVoidingNumber(null)
     setTimeout(() => setRowMessage(null), 5000)
@@ -150,6 +168,7 @@ export default function InvoiceBatch() {
 
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfLoading, setPdfLoading] = useState(false)
+  const [apPreview, setApPreview] = useState<{ inv: Row; sending: boolean } | null>(null)
 
   async function fetchPdf(inv: Row): Promise<Blob | null> {
     const body = useDb && inv.id && !inv.id.startsWith('dummy-')
@@ -197,9 +216,7 @@ export default function InvoiceBatch() {
     URL.revokeObjectURL(url)
   }
 
-  function downloadAll() {
-    // No JSZip dependency installed yet — fall back to a single CSV export
-    // (same pattern as the audit log page) rather than a real .zip.
+  function downloadCsv() {
     const header = ['Invoice #', 'BAM', 'Period', 'Amount', 'Status', 'Flag']
     const rows = invoices.map(inv => [inv.number, inv.bam, periodLabel(inv.period), inv.amount, inv.status, inv.flag ?? ''])
     const csv = [header, ...rows]
@@ -208,12 +225,53 @@ export default function InvoiceBatch() {
     downloadFile(`blu-invoices-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv;charset=utf-8;')
   }
 
-  async function emailToAp(inv: Row) {
+  const [zipLoading, setZipLoading] = useState(false)
+
+  async function downloadZip() {
+    setZipLoading(true)
     try {
+      const ids = invoices.filter(i => i.id && !i.id.startsWith('dummy-')).map(i => i.id)
+      const res = await fetch('/api/admin/invoices/download-zip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: ids.length > 0 ? ids : undefined })
+      })
+      if (!res.ok) {
+        setRowMessage('ZIP download failed')
+        setTimeout(() => setRowMessage(null), 4000)
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `BLU-Invoices-${new Date().toISOString().slice(0, 10)}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      setRowMessage('ZIP download failed. Check server logs')
+      setTimeout(() => setRowMessage(null), 4000)
+    }
+    setZipLoading(false)
+  }
+
+  function openApPreview(inv: Row) {
+    setApPreview({ inv, sending: false })
+  }
+
+  async function confirmSendAp(testEmail?: string) {
+    if (!apPreview) return
+    const inv = apPreview.inv
+    setApPreview({ inv, sending: true })
+    try {
+      const payload: Record<string, string> = { invoice_id: inv.id }
+      if (testEmail) payload.test_email = testEmail
       const res = await fetch('/api/admin/send-ap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: inv.id })
+        body: JSON.stringify(payload)
       })
       if (res.status === 404) {
         setRowMessage('AP email endpoint not configured yet.')
@@ -222,11 +280,17 @@ export default function InvoiceBatch() {
         setRowMessage(`AP email failed: ${body.message ?? res.statusText}`)
       } else {
         const json = await res.json().catch(() => ({}))
-        setRowMessage(json.failed ? `${inv.number}: AP send failed.` : `${inv.number} queued for AP email.`)
+        if (testEmail) {
+          setRowMessage(json.failed ? `Test send failed.` : `Test email sent to ${testEmail}`)
+        } else {
+          setRowMessage(json.failed ? `${inv.number}: AP send failed.` : `${inv.number} sent to AP.`)
+          setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'sent' as const } : i))
+        }
       }
     } catch {
       setRowMessage('AP email endpoint not configured yet.')
     }
+    setApPreview(null)
     setTimeout(() => setRowMessage(null), 5000)
   }
 
@@ -241,11 +305,14 @@ export default function InvoiceBatch() {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span className="muted" style={{ fontSize: 12 }}>{invoices.length} invoices · <strong>${total.toFixed(2)}</strong></span>
-            <button className="btn-ghost" onClick={downloadAll} disabled={invoices.length === 0}>
-              Download all (CSV)
+            <button className="btn-ghost" onClick={downloadCsv} disabled={invoices.length === 0}>
+              CSV
             </button>
-            <button onClick={() => setBatchConfirming(true)} disabled={invoices.length === 0}>
-              Approve batch ({invoices.length})
+            <button className="btn-ghost" onClick={downloadZip} disabled={invoices.length === 0 || zipLoading}>
+              {zipLoading ? 'Zipping…' : 'Download ZIP'}
+            </button>
+            <button onClick={() => setBatchConfirming(true)} disabled={selectedDrafts.length === 0}>
+              Approve selected ({selectedDrafts.length})
             </button>
           </div>
         </div>
@@ -253,7 +320,7 @@ export default function InvoiceBatch() {
         {batchConfirming && (
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 10, fontSize: 13 }}>
-              Approve {invoices.length} invoices? This will send AP emails.
+              Approve <strong>{selectedDrafts.length}</strong> of {draftInvoices.length} draft invoices? This will queue AP emails for selected invoices only.
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={confirmBatchApprove}>Confirm approve</button>
@@ -272,6 +339,15 @@ export default function InvoiceBatch() {
         <table className="admin-table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  checked={allDraftsSelected}
+                  onChange={toggleAll}
+                  title="Select all drafts"
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <th>Invoice #</th><th>BAM</th><th>Period</th><th>Amount</th><th>Receipt</th><th>Status</th><th>Flag</th><th></th>
             </tr>
           </thead>
@@ -279,21 +355,29 @@ export default function InvoiceBatch() {
             {invoices.map(inv => (
               <Fragment key={inv.number}>
                 <tr>
+                  <td>
+                    {inv.status === 'draft' ? (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(inv.id)}
+                        onChange={() => toggleSelect(inv.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    ) : <span />}
+                  </td>
                   <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--bl-navy)' }}>{inv.number}</td>
                   <td style={{ fontWeight: 600 }}>{inv.bam}</td>
                   <td className="muted">{periodLabel(inv.period)}</td>
                   <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{inv.amount}</td>
                   <td>
-                    {inv.receiptStatus === 'pass'
-                      ? <span className="badge badge-green" style={{ fontSize: 10 }}>PASS {inv.receiptTotal}</span>
+                    {inv.receiptStatus === 'auto_pass'
+                      ? <span className="badge badge-green" style={{ fontSize: 10 }}>AUTO-PASS {inv.receiptTotal}</span>
                       : inv.receiptStatus === 'approved'
                       ? <span className="badge badge-green" style={{ fontSize: 10 }}>APPROVED {inv.receiptTotal}</span>
                       : inv.receiptStatus === 'review'
                       ? <span className="badge badge-yellow" style={{ fontSize: 10 }}>REVIEW {inv.receiptTotal}</span>
                       : inv.receiptStatus === 'rejected'
-                      ? <span className="badge badge-red" style={{ fontSize: 10 }}>REJECTED</span>
-                      : inv.receiptStatus === 'fail'
-                      ? <span className="badge badge-red" style={{ fontSize: 10 }}>FAIL {inv.receiptTotal}</span>
+                      ? <span className="badge badge-red" style={{ fontSize: 10 }}>REJECTED {inv.receiptTotal}</span>
                       : <span className="muted" style={{ fontSize: 11 }}>—</span>}
                   </td>
                   <td>
@@ -321,7 +405,7 @@ export default function InvoiceBatch() {
                         <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => downloadOne(inv)}>
                           PDF
                         </button>
-                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => emailToAp(inv)}>
+                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => openApPreview(inv)}>
                           AP
                         </button>
                         <button
@@ -338,7 +422,7 @@ export default function InvoiceBatch() {
 
                 {previewNumber === inv.number && (
                   <tr>
-                    <td colSpan={8} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={9} style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       {pdfLoading && <div className="muted" style={{ padding: 20, textAlign: 'center' }}>Generating PDF…</div>}
                       {pdfUrl && (
                         <iframe
@@ -356,23 +440,32 @@ export default function InvoiceBatch() {
 
                 {voidingNumber === inv.number && (
                   <tr>
-                    <td colSpan={8} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={9} style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div className="card" style={{ maxWidth: 420 }}>
+                        <p style={{ fontSize: 13, marginBottom: 8 }}>
+                          Voiding <strong>{inv.number}</strong> ({inv.bam}) will generate an AP cancellation email draft.
+                        </p>
                         <div className="field">
-                          <label>Void reason</label>
+                          <label>Why are you voiding this invoice?</label>
                           <input
-                            placeholder="e.g. duplicate submission, wrong amount…"
+                            placeholder="e.g. duplicate submission, wrong amount, BAM left program…"
                             value={voidReason}
                             onChange={e => setVoidReason(e.target.value)}
+                            autoFocus
                           />
+                          {voidReason.trim().length > 0 && voidReason.trim().length < 5 && (
+                            <span className="muted" style={{ fontSize: 11, color: 'var(--amber)' }}>
+                              A bit more detail please (at least 5 characters)
+                            </span>
+                          )}
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button
                             style={{ background: 'var(--red)' }}
-                            disabled={!voidReason.trim()}
+                            disabled={voidReason.trim().length < 5}
                             onClick={() => confirmVoid(inv)}
                           >
-                            Confirm void
+                            Void invoice
                           </button>
                           <button className="btn-ghost" onClick={() => setVoidingNumber(null)}>Cancel</button>
                         </div>
@@ -384,7 +477,7 @@ export default function InvoiceBatch() {
             ))}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={8}>
+                <td colSpan={9}>
                   <div className="empty-state">No draft or sent invoices for this cycle.</div>
                 </td>
               </tr>
@@ -392,6 +485,106 @@ export default function InvoiceBatch() {
           </tbody>
         </table>
       </div>
+
+      {apPreview && (() => {
+        const inv = apPreview.inv
+        const period = new Date(inv.period)
+        const month = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
+        const apTo = 'accounts.payable@ilovesalt.com'
+        const apCc = 'robin.graham@ilovesalt.com, nb@ilovesalt.com'
+        const subject = `${inv.bam} ${month} Invoice #${inv.number}`
+        const body = `Hi there,\n\nAttached is a ${month} invoice for our Bud Light BAM.\nPlease maintain net15 payment terms with direct deposit.\n\nThis is from BUD LIGHT U - PO# (see cohort config).\n\nThanks,\nProgram Team`
+        return (
+          <div
+            onClick={() => setApPreview(null)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9999,
+              background: 'rgba(0,0,0,0.6)', display: 'grid', placeItems: 'center',
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--surface, #fff)', borderRadius: 12,
+                boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+                maxWidth: 560, width: '100%', overflow: 'hidden',
+              }}
+            >
+              <div style={{
+                padding: '16px 20px', borderBottom: '1px solid var(--border, #e5e7eb)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--bl-navy)' }}>
+                  AP Email Preview
+                </div>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                  padding: '3px 8px', borderRadius: 4,
+                  background: 'var(--amber-tint, #fff8e1)', color: 'var(--amber, #d97706)',
+                }}>
+                  Review before sending
+                </span>
+              </div>
+
+              <div style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: '8px 12px', fontSize: 13, marginBottom: 16 }}>
+                  <span className="muted" style={{ fontWeight: 600 }}>To</span>
+                  <span>{apTo}</span>
+                  <span className="muted" style={{ fontWeight: 600 }}>CC</span>
+                  <span>{apCc}</span>
+                  <span className="muted" style={{ fontWeight: 600 }}>Subject</span>
+                  <span style={{ fontWeight: 600 }}>{subject}</span>
+                  <span className="muted" style={{ fontWeight: 600 }}>Attach</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{inv.number}.pdf</span>
+                </div>
+
+                <div style={{
+                  background: 'var(--bl-fog, #f5f5f5)', borderRadius: 8,
+                  padding: '14px 16px', fontSize: 13, lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap', color: 'var(--text, #333)',
+                  border: '1px solid var(--border, #e5e7eb)',
+                }}>
+                  {body}
+                </div>
+
+                <div style={{ marginTop: 12, fontSize: 12 }}>
+                  <span className="muted">Invoice: </span>
+                  <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{inv.number}</span>
+                  <span className="muted"> · BAM: </span>
+                  <span style={{ fontWeight: 600 }}>{inv.bam}</span>
+                  <span className="muted"> · Amount: </span>
+                  <span style={{ fontWeight: 600 }}>{inv.amount}</span>
+                </div>
+              </div>
+
+              <div style={{
+                padding: '12px 20px', borderTop: '1px solid var(--border, #e5e7eb)',
+                display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center',
+              }}>
+                <button className="btn-ghost" onClick={() => setApPreview(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => confirmSendAp('mirae.lee@ilovesalt.com')}
+                  disabled={apPreview.sending}
+                  style={{ color: 'var(--bl-blue)', borderColor: 'var(--bl-blue)' }}
+                >
+                  Test send to me
+                </button>
+                <button
+                  onClick={() => confirmSendAp()}
+                  disabled={apPreview.sending}
+                  style={{ background: 'var(--bl-blue)' }}
+                >
+                  {apPreview.sending ? 'Sending…' : 'Send to AP'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </>
   )
 }

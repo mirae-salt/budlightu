@@ -19,7 +19,7 @@ describe('computeMonthlyReimbursement — happy path', () => {
     expect(out.shortfallFlag).toBe(false)
   })
 
-  it('spent < entitlement → paid = spent, shortfall flagged, unspent rolls out (accumulate)', () => {
+  it('spent < entitlement → paid = spent, shortfall flagged, unspent forfeited (no rollover)', () => {
     const out = computeMonthlyReimbursement({
       period: '2026-09-01',
       monthsActiveThroughPeriod: 1,
@@ -28,11 +28,11 @@ describe('computeMonthlyReimbursement — happy path', () => {
       policy
     })
     expect(out.paidThisMonth).toBe(120)
-    expect(out.carryoverOut).toBe(30)
+    expect(out.carryoverOut).toBe(0)
     expect(out.shortfallFlag).toBe(true)
   })
 
-  it('spent = 0 → paid = 0, full entitlement rolls out (accumulate)', () => {
+  it('spent = 0 → paid = 0, full entitlement forfeited (no rollover)', () => {
     const out = computeMonthlyReimbursement({
       period: '2026-09-01',
       monthsActiveThroughPeriod: 1,
@@ -41,18 +41,22 @@ describe('computeMonthlyReimbursement — happy path', () => {
       policy
     })
     expect(out.paidThisMonth).toBe(0)
-    expect(out.carryoverOut).toBe(150)
+    expect(out.carryoverOut).toBe(0)
     expect(out.shortfallFlag).toBe(true)
   })
 })
 
-describe('computeMonthlyReimbursement — rollover (accumulate)', () => {
-  it('carries in unspent from prior month, allows spend up to combined cap', () => {
+describe('computeMonthlyReimbursement — no rollover (forfeit, default policy)', () => {
+  it('unspent from a prior month never carries in — spendable cap stays at flat entitlement', () => {
+    // Even if a prior ledger row somehow recorded a carryover_out (e.g. legacy data or
+    // a cohort override was toggled off), the default forfeit policy computes carryoverIn
+    // from the prior row's carryoverOutCad, which forfeit mode always writes as 0 going
+    // forward — so from this point on, nothing accumulates.
     const priorLedger = [{
       period: '2026-09-01',
-      entitlementUsd: 150, spentUsd: 120,
-      carryoverInUsd: 0, carryoverOutUsd: 30,
-      paidUsd: 120, spendableCapUsd: 150, capSnapshotUsd: 150,
+      entitlementCad: 150, spentCad: 120,
+      carryoverInCad: 0, carryoverOutCad: 0,
+      paidCad: 120, spendableCapCad: 150, capSnapshotCad: 150,
       shortfallFlag: true, policyVersion: 1
     }]
     const out = computeMonthlyReimbursement({
@@ -62,19 +66,19 @@ describe('computeMonthlyReimbursement — rollover (accumulate)', () => {
       priorLedger,
       policy
     })
-    expect(out.carryoverIn).toBe(30)
-    expect(out.spendableCap).toBe(180)
-    expect(out.paidThisMonth).toBe(170)
-    expect(out.carryoverOut).toBe(10)
+    expect(out.carryoverIn).toBe(0)
+    expect(out.spendableCap).toBe(150)
+    expect(out.paidThisMonth).toBe(150)
+    expect(out.carryoverOut).toBe(0)
     expect(out.shortfallFlag).toBe(false) // spent 170 >= entitlement 150
   })
 
-  it('spend exceeds spendable cap → paid capped at spendableCap, no negative carry', () => {
+  it('spend exceeds flat cap → paid capped at $150, no negative carry, no carry out', () => {
     const priorLedger = [{
       period: '2026-09-01',
-      entitlementUsd: 150, spentUsd: 100,
-      carryoverInUsd: 0, carryoverOutUsd: 50,
-      paidUsd: 100, spendableCapUsd: 150, capSnapshotUsd: 150,
+      entitlementCad: 150, spentCad: 100,
+      carryoverInCad: 0, carryoverOutCad: 0,
+      paidCad: 100, spendableCapCad: 150, capSnapshotCad: 150,
       shortfallFlag: true, policyVersion: 1
     }]
     const out = computeMonthlyReimbursement({
@@ -84,13 +88,13 @@ describe('computeMonthlyReimbursement — rollover (accumulate)', () => {
       priorLedger,
       policy
     })
-    expect(out.spendableCap).toBe(200)
-    expect(out.paidThisMonth).toBe(200)
+    expect(out.spendableCap).toBe(150)
+    expect(out.paidThisMonth).toBe(150)
     expect(out.carryoverOut).toBe(0)
   })
 })
 
-describe('computeMonthlyReimbursement — forfeit mode', () => {
+describe('computeMonthlyReimbursement — forfeit mode (explicit)', () => {
   it('unspent → paid = spent, carryover out = 0 (never rolls forward)', () => {
     const forfeit = { ...policy, rolloverMode: 'forfeit' as const }
     const out = computeMonthlyReimbursement({
@@ -106,12 +110,12 @@ describe('computeMonthlyReimbursement — forfeit mode', () => {
 })
 
 describe('computeMonthlyReimbursement — cumulative cap safety net', () => {
-  it('never pays beyond monthsActive × max even if carryover somehow exceeds', () => {
+  it('never pays beyond monthsActive × max, and forfeit means no carryover ever accrues', () => {
     const priorLedger = [{
       period: '2026-09-01',
-      entitlementUsd: 150, spentUsd: 0,
-      carryoverInUsd: 0, carryoverOutUsd: 150,
-      paidUsd: 0, spendableCapUsd: 150, capSnapshotUsd: 150,
+      entitlementCad: 150, spentCad: 0,
+      carryoverInCad: 0, carryoverOutCad: 0,
+      paidCad: 0, spendableCapCad: 150, capSnapshotCad: 150,
       shortfallFlag: true, policyVersion: 1
     }]
     const out = computeMonthlyReimbursement({
@@ -121,28 +125,40 @@ describe('computeMonthlyReimbursement — cumulative cap safety net', () => {
       priorLedger,
       policy
     })
-    expect(out.spendableCap).toBe(300)  // 150 + 150 carryover
-    expect(out.capSnapshot).toBe(300)   // 2 * 150
-    expect(out.paidThisMonth).toBe(300) // min(400, 300, 300)
+    expect(out.spendableCap).toBe(150)  // no carryover under forfeit
+    expect(out.capSnapshot).toBe(300)   // 2 * 150 (cumulative program-wide cap, unaffected)
+    expect(out.paidThisMonth).toBe(150) // min(400, 150, 300)
+    expect(out.carryoverOut).toBe(0)
   })
 })
 
-describe('isInReviewBand — P0-2 fix', () => {
-  it('receipt at rolling cap boundary → REVIEW', () => {
-    // spendableCap = 200 (150 + 50 carry), receipt = 195 → falls in [190, 210]
+describe('isInReviewBand — HIGH fix: $150+ always flagged', () => {
+  it('receipt near rolling cap boundary (below cap) → REVIEW', () => {
+    // spendableCap = 200 (150 + 50 carry), receipt = 195 → within [190, 200)
     expect(isInReviewBand(195, 200, 150, 10)).toBe(true)
+  })
+
+  it('receipt at or over rolling cap → REVIEW, with NO upper edge (unlike old ±padding band)', () => {
+    expect(isInReviewBand(200, 200, 150, 10)).toBe(true)
+    expect(isInReviewBand(210, 200, 150, 10)).toBe(true)
+    expect(isInReviewBand(500, 200, 150, 10)).toBe(true) // far over cap — still REVIEW, never auto_pass
   })
 
   it('receipt at fresh max boundary → REVIEW (even without carryover)', () => {
     expect(isInReviewBand(148, 150, 150, 10)).toBe(true)
   })
 
+  it('receipt at or over fresh max ($150+) → REVIEW even with no carryover, no matter how high', () => {
+    expect(isInReviewBand(150, 150, 150, 10)).toBe(true)
+    expect(isInReviewBand(165, 150, 150, 10)).toBe(true)
+    expect(isInReviewBand(1000, 150, 150, 10)).toBe(true)
+  })
+
   it('receipt far from all boundaries → NOT review', () => {
     expect(isInReviewBand(80, 200, 150, 10)).toBe(false)
   })
 
-  it('boundary edge inclusive at spendableCap + padding', () => {
-    expect(isInReviewBand(210, 200, 150, 10)).toBe(true)
-    expect(isInReviewBand(211, 200, 150, 10)).toBe(false)
+  it('just below the near-cap padding window (and below fresh max) → NOT review', () => {
+    expect(isInReviewBand(100, 200, 150, 10)).toBe(false)
   })
 })

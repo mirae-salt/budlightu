@@ -11,31 +11,53 @@ type InvoiceRow = {
   created_at: string
 }
 
+const DUMMY_INVOICES: InvoiceRow[] = [
+  { id: 'demo-1', period: '2026-09-01', status: 'sent', invoice_number: 'INV-AT1', seq: 1, created_at: '2026-09-16T18:00:00Z' },
+  { id: 'demo-2', period: '2026-10-01', status: 'draft', invoice_number: 'INV-AT2', seq: 2, created_at: '2026-10-16T18:00:00Z' },
+]
+
 export default function MyInvoices() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [printing, setPrinting] = useState<InvoiceRow | null>(null)
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const [emailing, setEmailing] = useState<string | null>(null)
+  const [emailMsg, setEmailMsg] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
+        const isDev = process.env.NODE_ENV === 'development'
         const sb = browserClient()
         const { data: userRes } = await sb.auth.getUser()
-        if (!userRes.user) { setLoading(false); return }
 
-        const { data: bam } = await sb.from('bams').select('id').eq('auth_user_id', userRes.user.id).single()
-        if (!bam?.id) { setLoading(false); return }
+        let bamId: string | null = null
+        if (userRes.user) {
+          const { data: bam } = await sb.from('bams').select('id').eq('auth_user_id', userRes.user.id).single()
+          bamId = bam?.id ?? null
+        } else if (isDev) {
+          const { data: firstBam } = await sb.from('bams').select('id').limit(1).single()
+          bamId = firstBam?.id ?? null
+        }
+
+        if (!bamId) {
+          if (isDev) setInvoices(DUMMY_INVOICES)
+          setLoading(false)
+          return
+        }
 
         const { data } = await sb
           .from('invoices')
           .select('id, period, status, invoice_number, seq, created_at')
-          .eq('bam_id', bam.id)
+          .eq('bam_id', bamId)
           .order('period', { ascending: false })
 
-        if (!cancelled) setInvoices(data ?? [])
+        if (!cancelled) {
+          const rows = data ?? []
+          setInvoices(rows.length > 0 ? rows : isDev ? DUMMY_INVOICES : [])
+        }
       } catch {
-        // safe fallback
+        if (process.env.NODE_ENV === 'development') setInvoices(DUMMY_INVOICES)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -51,9 +73,23 @@ export default function MyInvoices() {
     }
   }
 
-  function printInvoice(inv: InvoiceRow) {
-    setPrinting(inv)
-    setTimeout(() => window.print(), 50)
+  async function emailMeCopy(inv: InvoiceRow) {
+    setEmailing(inv.id)
+    setEmailMsg(null)
+    try {
+      const res = await fetch('/api/portal/invoices/email-copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: inv.id })
+      })
+      const j = await res.json()
+      setEmailMsg(j.ok ? 'Invoice copy sent to your email' : (j.error || 'Failed to send'))
+    } catch {
+      setEmailMsg('Failed to send')
+    } finally {
+      setEmailing(null)
+      setTimeout(() => setEmailMsg(null), 4000)
+    }
   }
 
   return (
@@ -64,20 +100,22 @@ export default function MyInvoices() {
 
       <p className="eyebrow">MY PORTAL</p>
       <h1>My invoices</h1>
-      <p className="subtle">
-        Your monthly invoice generates automatically once your receipts are reviewed.
-        A copy is also emailed to you — use this page any time you need another look.
-      </p>
 
-      <div className="surface" style={{ marginTop: 20 }}>
+      {emailMsg && (
+        <div className="badge badge-green" style={{ display: 'inline-block', marginTop: 8, marginBottom: 8, padding: '6px 14px', fontSize: 13 }}>
+          {emailMsg}
+        </div>
+      )}
+
+      <div className="surface" style={{ marginTop: 16, overflowX: 'auto' }}>
         {loading ? (
-          <p className="subtle">Loading…</p>
+          <p className="subtle">Loading...</p>
         ) : invoices.length === 0 ? (
           <div className="empty-state">
-            No invoices yet — your first invoice will appear here after your receipts are reviewed.
+            No invoices yet. Your first invoice will appear here after your receipts are reviewed.
           </div>
         ) : (
-          <table className="admin-table">
+          <table className="admin-table" style={{ minWidth: 480 }}>
             <thead>
               <tr>
                 <th>Period</th>
@@ -92,28 +130,58 @@ export default function MyInvoices() {
                   <td style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{periodLabel(inv.period)}</td>
                   <td style={{ fontFamily: 'monospace', color: 'var(--bl-blue)' }}>{inv.invoice_number ?? '—'}</td>
                   <td><span className={`badge badge-${statusBadge(inv.status)}`}>{statusText(inv.status)}</span></td>
-                  <td><button className="btn-ghost" style={{ padding: '5px 12px', fontSize: 12 }} onClick={() => printInvoice(inv)}>View / print</button></td>
+                  <td style={{ display: 'flex', gap: 4 }}>
+                    {inv.status !== 'draft' && (
+                      <>
+                        <a
+                          href={`/api/portal/invoices/download?id=${inv.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-ghost"
+                          style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none', display: 'inline-block' }}
+                        >
+                          View PDF
+                        </a>
+                        <button
+                          className="btn-ghost"
+                          style={{ padding: '5px 12px', fontSize: 12 }}
+                          disabled={downloading === inv.id}
+                          onClick={async () => {
+                            setDownloading(inv.id)
+                            try {
+                              const res = await fetch(`/api/portal/invoices/download?id=${inv.id}`)
+                              if (!res.ok) return
+                              const blob = await res.blob()
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `${inv.invoice_number ?? 'invoice'}.pdf`
+                              document.body.appendChild(a)
+                              a.click()
+                              document.body.removeChild(a)
+                              URL.revokeObjectURL(url)
+                            } finally { setDownloading(null) }
+                          }}
+                        >
+                          {downloading === inv.id ? '...' : 'Download'}
+                        </button>
+                        <button
+                          className="btn-ghost"
+                          style={{ padding: '5px 12px', fontSize: 12 }}
+                          disabled={emailing === inv.id}
+                          onClick={() => emailMeCopy(inv)}
+                        >
+                          {emailing === inv.id ? '...' : 'Email me'}
+                        </button>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
-
-      {printing && (
-        <div className="print-only" style={{ marginTop: 32 }}>
-          <div className="card" style={{ maxWidth: 480 }}>
-            <div style={{ fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 8 }}>
-              {printing.invoice_number ?? 'Invoice'}
-            </div>
-            <div>Period: {periodLabel(printing.period)}</div>
-            <div>Status: {statusText(printing.status)}</div>
-            <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-              This is a summary view. A PDF download will be available soon.
-            </p>
-          </div>
-        </div>
-      )}
     </>
   )
 }

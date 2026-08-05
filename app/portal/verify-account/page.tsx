@@ -65,13 +65,13 @@ export default function VerifyAccountPage() {
           {bank ?? '—'} · ending in <span style={{ color: 'var(--bl-blue)' }}>{tail ?? '••••'}</span>
         </div>
         <p className="muted" style={{ fontSize: 13, marginTop: 12 }}>
-          If those last 4 digits don&rsquo;t match your bank account, <strong>do NOT confirm</strong> — email
+          If those last 4 digits don&rsquo;t match your bank account, <strong>do NOT confirm</strong>. Email
           robin.graham@ilovesalt.com immediately. Someone else may have completed your onboarding form.
         </p>
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-        <button onClick={confirm}>Yes, that&rsquo;s me — confirm</button>
+        <button onClick={confirm}>Yes, that&rsquo;s me. Confirm</button>
         <a href="mailto:robin.graham@ilovesalt.com?subject=BLU%20account%20verification%20issue" className="btn-ghost" style={{ textDecoration: 'none', padding: '9px 16px' }}>
           Something&rsquo;s wrong
         </a>

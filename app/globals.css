@@ -86,6 +86,7 @@ button, .btn {
   color: var(--paper);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   transition: background 0.15s;
   text-transform: uppercase;
@@ -106,12 +107,17 @@ input, select, textarea {
   border-radius: var(--r-sm);
   width: 100%; background: var(--paper); color: var(--ink);
 }
+input[type="checkbox"], input[type="radio"] {
+  width: auto; padding: 0;
+}
 input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--bl-blue);
   box-shadow: 0 0 0 3px rgba(58,173,217,0.15);
 }
 label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; color: var(--charcoal); }
 .field { margin-bottom: 14px; }
+.field-err { display: block; font-size: 11px; color: #A31212; margin-top: 3px; font-weight: 500; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
 /* ── Portal (student-facing) simple container ────────── */
 .container {
@@ -178,6 +184,8 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .portal-sidebar { background: var(--bl-navy); }
 .portal-main { padding: 24px 32px 60px; min-width: 0; }
+.portal-shell--no-sidebar { grid-template-columns: 1fr; }
+.portal-main-centered { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding-top: 0; padding-bottom: 0; }
 .portal-mobile-header {
   display: none;
   align-items: center; gap: 12px;
@@ -197,6 +205,152 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   }
   .portal-sidebar.open { left: 0; }
   .portal-mobile-header { display: flex; }
+}
+
+/* ── BLU Home Page ───────────────────────────────────────── */
+.blu-home { margin: -24px -32px -60px; }
+
+.blu-hero {
+  position: relative;
+  height: calc(100vh - 30px);
+  min-height: 500px;
+  max-height: 800px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+.blu-hero-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+}
+.blu-hero-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(4,6,14,0.95) 0%,
+    rgba(4,6,14,0.6) 40%,
+    rgba(4,6,14,0.15) 70%,
+    transparent 100%
+  );
+}
+.blu-hero-content {
+  position: relative; z-index: 1;
+  padding: 0 48px 44px;
+  width: 100%;
+}
+.blu-hero-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+  margin: 0 0 12px;
+}
+.blu-hero-title {
+  font-size: 64px;
+  font-weight: 900;
+  color: #fff;
+  line-height: 0.92;
+  margin: 0 0 32px;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+}
+.blu-hero-nav {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.blu-hero-link {
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.blu-hero-link:first-child {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border-color: rgba(255,255,255,0.25);
+}
+.blu-hero-link:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-color: rgba(255,255,255,0.3);
+}
+
+.blu-timeline-section {
+  background: var(--bl-navy);
+  padding: 40px 48px 44px;
+}
+.blu-timeline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  position: relative;
+}
+.blu-tl-line {
+  position: absolute;
+  top: 8px;
+  left: 0; right: 0;
+  height: 1px;
+  background: rgba(255,255,255,0.1);
+}
+.blu-tl-item {
+  position: relative;
+  padding-top: 28px;
+  padding-right: 24px;
+}
+.blu-tl-dot {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+}
+.blu-tl-item.active .blu-tl-dot {
+  background: #3AADD9;
+  box-shadow: 0 0 0 3px rgba(58,173,217,0.25);
+}
+.blu-tl-year {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  margin-bottom: 6px;
+}
+.blu-tl-item.active .blu-tl-year { color: #3AADD9; }
+.blu-tl-label {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  line-height: 1.5;
+}
+.blu-tl-item.active .blu-tl-label { color: rgba(255,255,255,0.75); }
+
+@media (max-width: 768px) {
+  .blu-home { margin: -20px -16px -60px; }
+  .blu-hero { height: 70vh; min-height: 400px; }
+  .blu-hero-content { padding: 0 24px 32px; }
+  .blu-hero-title { font-size: 42px; }
+  .blu-hero-nav { gap: 6px; }
+  .blu-hero-link { padding: 8px 14px; font-size: 11px; }
+  .blu-timeline-section { padding: 32px 24px; }
+  .blu-timeline { grid-template-columns: 1fr; gap: 24px; }
+  .blu-tl-line {
+    top: 0; bottom: 0;
+    left: 4px; right: auto;
+    width: 1px; height: auto;
+  }
+  .blu-tl-item { padding-left: 28px; padding-top: 0; padding-right: 0; }
+  .blu-tl-dot { top: 2px; }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -219,7 +373,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
 }
 .sidebar-brand {
   display: flex; align-items: center; gap: 10px;
@@ -378,13 +532,14 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 /* Hero KPI row */
 .kpi-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 14px;
   padding: 8px 0;
 }
 .kpi { text-align: center; }
 .kpi-label { color: var(--midgray); font-size: 12px; margin-bottom: 6px; font-weight: 500; }
-.kpi-value { font-size: 28px; font-weight: 800; color: var(--bl-navy); letter-spacing: -0.02em; line-height: 1.1; }
+.kpi-value { font-size: 24px; font-weight: 800; color: var(--bl-navy); letter-spacing: -0.02em; line-height: 1.15; white-space: nowrap; }
+.kpi-value .kpi-denom { font-size: 14px; font-weight: 600; color: var(--midgray); letter-spacing: 0; }
 .kpi-trend { margin-top: 4px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
 .trend-up   { color: var(--green); }
 .trend-down { color: var(--red); }

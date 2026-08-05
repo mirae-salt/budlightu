@@ -39,9 +39,9 @@ describe('apEmailSubject', () => {
 
 describe('apEmailBody', () => {
   it('contains PROGRAM_LABEL and PO_NUMBER, net15, direct deposit', () => {
-    const body = apEmailBody('September', 'BL Campus', '250437')
+    const body = apEmailBody('September', 'BL Campus', '260351')
     expect(body).toContain('BL Campus')
-    expect(body).toContain('PO# 250437')
+    expect(body).toContain('PO# 260351')
     expect(body).toContain('net15')
     expect(body).toContain('direct deposit')
     expect(body).toContain('September')

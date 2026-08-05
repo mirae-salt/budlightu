@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { UNMATCHED, type UnmatchedRow } from '../_lib/dummy'
+import { browserClient } from '@/lib/supabase-browser'
 
 type Row = UnmatchedRow & { id: string }
 

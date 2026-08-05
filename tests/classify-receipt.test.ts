@@ -21,9 +21,21 @@ function mkOcr(overrides: Partial<{
 }
 
 describe('classifyReceipt', () => {
-  it('clean receipt outside band → auto_pass', () => {
+  it('clean receipt with total >= cap ($165 with $150 cap) → always review, never auto_pass', () => {
     const out = classifyReceipt({
-      ocr: mkOcr(),
+      ocr: mkOcr(), // total defaults to 165
+      spendableCap: 150,
+      policy: basePolicy,
+      duplicateHash: false,
+      lowResolutionHeuristic: false
+    })
+    expect(out.status).toBe('review')
+    expect(out.reason).toMatch(/>= spendable_cap/)
+  })
+
+  it('clean receipt genuinely below the review band → auto_pass', () => {
+    const out = classifyReceipt({
+      ocr: mkOcr({ total: 80 }),
       spendableCap: 150,
       policy: basePolicy,
       duplicateHash: false,

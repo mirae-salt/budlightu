@@ -14,7 +14,11 @@ export function KpiCell({ label, value, hint, trend = 'neutral', delta, onClick 
       style={onClick ? { cursor: 'pointer' } : undefined}
     >
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{value}</div>
+      <div className="kpi-value">
+        {value.includes(' / ') ? (
+          <>{value.split(' / ')[0]} <span className="kpi-denom">/ {value.split(' / ')[1]}</span></>
+        ) : value}
+      </div>
       {hint && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>}
       {delta && (
         <div className={`kpi-trend ${trendClass}`}>

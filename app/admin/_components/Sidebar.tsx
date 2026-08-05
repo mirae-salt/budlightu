@@ -5,8 +5,9 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import type { ReactNode } from 'react'
 
-type NavItem = { href: string; label: string; icon: JSX.Element; badge?: string }
+type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
 type NavGroup = { title: string; items: NavItem[] }
 
 const groups: NavGroup[] = [
@@ -29,7 +30,9 @@ const groups: NavGroup[] = [
   {
     title: 'System',
     items: [
-      { href: '/admin/audit',     label: 'Audit log',  icon: <IconShield /> }
+      { href: '/admin/team',      label: 'Admin Team', icon: <IconKey /> },
+      { href: '/admin/audit',     label: 'Audit log',  icon: <IconShield /> },
+      { href: '/admin/guide',     label: 'BLU Guide', icon: <IconInfo /> }
     ]
   }
 ]
@@ -38,8 +41,9 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
   const path = usePathname()
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
-      <div className="sidebar-brand" style={{ justifyContent: 'center', paddingBottom: 12 }}>
-        <img src="/brand/download-removebg-preview.png" alt="Bud Light U" style={{ height: 56, width: 'auto' }} />
+      <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px' }}>
+        <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
+        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Admin</span>
       </div>
 
       {groups.map(g => (
@@ -88,5 +92,6 @@ function IconFile()    { return <svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2
 function IconUsers()   { return <svg {...iconProps}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg> }
 function IconLayers()  { return <svg {...iconProps}><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg> }
 function IconAlert()   { return <svg {...iconProps}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> }
+function IconKey()     { return <svg {...iconProps}><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777Zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> }
 function IconShield()  { return <svg {...iconProps}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg> }
 function IconInfo()    { return <svg {...iconProps} style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> }

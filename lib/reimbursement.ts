@@ -4,7 +4,8 @@
  *
  * Key rules:
  *   • Reimburse actual spend up to `reimbursement_max` (default $150).
- *   • Unspent amount rolls forward (accumulate) unless mode=forfeit.
+ *   • No rollover — each month resets to $150 cap (Robin confirmed 2026-08-04).
+ *     Unspent amount is forfeited unless a cohort explicitly overrides mode=accumulate.
  *   • Cumulative cap = cap_multiplier × months_active × reimbursement_max.
  *   • Salary is independent (handled by invoice-engine; not here).
  *   • Total is measured incl. HST (caller sums that way).
@@ -14,20 +15,20 @@ export type Policy = {
   reimbursementMax: number      // e.g. 150
   rolloverMode: 'accumulate' | 'forfeit'
   capMultiplier: number         // usually 1
-  reviewBandPaddingUsd: number  // usually 10
+  reviewBandPaddingCad: number  // usually 10
   firstCohortAllReview: boolean
   policyVersion: number
 }
 
 export type LedgerRow = {
   period: string                // ISO date "YYYY-MM-01"
-  entitlementUsd: number
-  spentUsd: number
-  carryoverInUsd: number
-  carryoverOutUsd: number
-  paidUsd: number
-  spendableCapUsd: number
-  capSnapshotUsd: number
+  entitlementCad: number
+  spentCad: number
+  carryoverInCad: number
+  carryoverOutCad: number
+  paidCad: number
+  spendableCapCad: number
+  capSnapshotCad: number
   shortfallFlag: boolean
   policyVersion: number
 }
@@ -67,7 +68,7 @@ export function computeMonthlyReimbursement(input: ComputeInput): ComputeOutput 
 
   // carryoverIn = previous ledger's carryoverOut (0 if none, or if last row was written under forfeit)
   const last = priorLedger.length ? priorLedger[priorLedger.length - 1] : null
-  const carryoverIn = last ? last.carryoverOutUsd : 0
+  const carryoverIn = last ? last.carryoverOutCad : 0
   if (carryoverIn > 0) reasons.push(`carryover_in=${carryoverIn}`)
 
   const spendableCap = round2(entitlement + carryoverIn)
@@ -110,23 +111,35 @@ export function computeMonthlyReimbursement(input: ComputeInput): ComputeOutput 
 }
 
 /**
- * P0-2 fix: REVIEW-band boundary check for a single receipt total against BOTH
- *   • the rolling spendable cap (entitlement + carryover_in) and
- *   • the fresh monthly max.
- * Returns true if the total falls within the padding band of either boundary
- * (so classifier should force REVIEW instead of auto-pass).
+ * REVIEW-band boundary check for a single receipt total.
+ *
+ * Rule (2026-08 fix — HIGH issue: $150+ was slipping through to auto_pass):
+ *   • total >= spendableCap  → ALWAYS review (at/over the cap — Robin must see it,
+ *     regardless of how far over; there is no upper edge to this band).
+ *   • total >= (spendableCap - paddingCad) AND total < spendableCap → review
+ *     (close enough to the cap that Robin should decide).
+ *   • total < (spendableCap - paddingCad) → not in the review band on cap grounds
+ *     (classifier may still auto_pass if confidence checks also pass).
+ *
+ * Also checked against the fresh monthly max (reimbursementMax) using the same
+ * rule, so a BAM with carryover pushing spendableCap above reimbursementMax
+ * still gets flagged if their spend is at/over the fresh $150 max.
  */
 export function isInReviewBand(
   totalInclHst: number,
   spendableCap: number,
   reimbursementMax: number,
-  paddingUsd: number
+  paddingCad: number
 ): boolean {
-  const inRollingBand =
-    totalInclHst >= spendableCap - paddingUsd && totalInclHst <= spendableCap + paddingUsd
-  const inFreshBand =
-    totalInclHst >= reimbursementMax - paddingUsd && totalInclHst <= reimbursementMax + paddingUsd
-  return inRollingBand || inFreshBand
+  const atOrOverRollingCap = totalInclHst >= spendableCap
+  const nearRollingCap =
+    totalInclHst >= spendableCap - paddingCad && totalInclHst < spendableCap
+
+  const atOrOverFreshMax = totalInclHst >= reimbursementMax
+  const nearFreshMax =
+    totalInclHst >= reimbursementMax - paddingCad && totalInclHst < reimbursementMax
+
+  return atOrOverRollingCap || nearRollingCap || atOrOverFreshMax || nearFreshMax
 }
 
 function round2(n: number): number {

@@ -15,19 +15,21 @@
     "db:reset": "supabase db reset"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0",
-    "@google/generative-ai": "^0.21.0",
     "@react-pdf/renderer": "^4.0.0",
     "@supabase/ssr": "^0.5.0",
     "@supabase/supabase-js": "^2.45.0",
+    "jszip": "^3.10.1",
     "next": "15.0.3",
+    "nodemailer": "^9.0.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "resend": "^6.17.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "supabase": "^1.200.0",

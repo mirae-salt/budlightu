@@ -53,8 +53,8 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
   const total = ocr.bud_light_total_incl_tax
   const conf = ocr.overall_confidence
   const anyAmbiguous = ocr.lines.some(l => l.ambiguous)
-  const anyLowLineConf = ocr.lines.filter(l => l.is_bud_light).some(l => l.confidence < policy.reviewBandPaddingUsd && false)
-  // note: reviewBandPaddingUsd is USD padding, not a confidence threshold — kept separate
+  const anyLowLineConf = ocr.lines.filter(l => l.is_bud_light).some(l => l.confidence < policy.reviewBandPaddingCad && false)
+  // note: reviewBandPaddingCad is CAD padding, not a confidence threshold — kept separate
 
   // Force-REJECT if no Bud Light detected at all
   if (total === 0 && ocr.lines.every(l => !l.is_bud_light)) {
@@ -92,11 +92,23 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
       return { status: 'review', reason: `bud_light line confidence ${l.confidence} < 0.80 (${l.desc})`, budLightTotalInclTax: total, confidence: conf }
     }
   }
-  // Rolling cap AND fresh max bands
-  if (isInReviewBand(total, spendableCap, policy.reimbursementMax, policy.reviewBandPaddingUsd)) {
+  // HIGH fix: total at/over the spendable cap ALWAYS goes to review — no auto_pass
+  // above the cap, no matter how high the confidence. The cap is $150; claiming
+  // $150+ means Robin looks at it.
+  if (total >= spendableCap) {
     return {
       status: 'review',
-      reason: `total ${total} falls in review band (spendable_cap=${spendableCap}, max=${policy.reimbursementMax}, ±${policy.reviewBandPaddingUsd})`,
+      reason: `total ${total} >= spendable_cap ${spendableCap} — always flagged for review regardless of confidence`,
+      budLightTotalInclTax: total,
+      confidence: conf
+    }
+  }
+
+  // Rolling cap AND fresh max bands (near-cap, below the cap itself)
+  if (isInReviewBand(total, spendableCap, policy.reimbursementMax, policy.reviewBandPaddingCad)) {
+    return {
+      status: 'review',
+      reason: `total ${total} falls in review band (spendable_cap=${spendableCap}, max=${policy.reimbursementMax}, ±${policy.reviewBandPaddingCad})`,
       budLightTotalInclTax: total,
       confidence: conf
     }

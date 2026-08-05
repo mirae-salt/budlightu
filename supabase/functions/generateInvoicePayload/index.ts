@@ -19,7 +19,7 @@ export async function handler(req: { bam_id: string; period: string }) {
       return b ? db.from('cohorts').select('*').eq('id', b.cohort_id).single()
                : { data: null }
     })(),
-    db.from('reimbursement_ledger').select('paid_usd').eq('bam_id', req.bam_id).eq('period', req.period).maybeSingle(),
+    db.from('reimbursement_ledger').select('paid_cad').eq('bam_id', req.bam_id).eq('period', req.period).maybeSingle(),
     db.rpc('decrypt_bam_banking', { p_bam_id: req.bam_id }).single()
   ])
 
@@ -53,7 +53,7 @@ export async function handler(req: { bam_id: string; period: string }) {
       salaryDefault: Number(cohort.salary_default),
       currency: 'CAD'
     },
-    ledger: { paidUsd: Number(ledger?.paid_usd ?? 0) },
+    ledger: { paidCad: Number(ledger?.paid_cad ?? 0) },
     period: new Date(req.period),
     seq,
     generatedAt: new Date()

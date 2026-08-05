@@ -27,13 +27,13 @@ export type BamSnapshot = {
 
 export type CohortSnapshot = {
   programLabel: string           // e.g. "BUD LIGHT U – BRAND ACTIVATION MANAGER PAYMENT"
-  poNumber: string               // e.g. "250437" — must be set before send
+  poNumber: string               // e.g. "260351" — must be set before send
   salaryDefault: number          // 218.75 or 250
   currency: 'CAD'
 }
 
 export type LedgerSnapshot = {
-  paidUsd: number                // reimbursement amount (may be 0 → line dropped)
+  paidCad: number                // reimbursement amount (may be 0 → line dropped)
 }
 
 export type InvoicePayload = {
@@ -43,7 +43,7 @@ export type InvoicePayload = {
   toBlock: {
     company: 'Salt Experiential Commerce, Inc.'
     address: '249 Dufferin Street Toronto, ON, M6K 1Z5'
-    attn: ['Jenna Greenspoon (jenna.greenspoon@ilovesalt.com)', 'Nathan Brown (nb@ilovesalt.com)']
+    attn: ['Robin Graham (robin.graham@ilovesalt.com)', 'Nathan Brown (nb@ilovesalt.com)']
   }
   influencer: {
     name: string
@@ -110,17 +110,17 @@ export function generateInvoicePayload(input: {
 
   const lines: InvoicePayload['lines'] = [salaryLine]
 
-  if (ledger.paidUsd > 0) {
+  if (ledger.paidCad > 0) {
     lines.push({
       qty: 1,
       description: `Reimbursement for sponsorship allowance (${monthLong})`,
-      unitPrice: ledger.paidUsd,
-      total: ledger.paidUsd
+      unitPrice: ledger.paidCad,
+      total: ledger.paidCad
     })
   }
 
   const subtotal = round2(lines.reduce((s, l) => s + l.total, 0))
-  const tax = bam.hstNumber ? computeHst(subtotal) : 0
+  const tax = bam.hstNumber ? computeHst(subtotal, bam.prov) : 0
   const total = round2(subtotal + tax)
 
   const dateReadable = generatedAt.toLocaleString('en-US', {
@@ -135,7 +135,7 @@ export function generateInvoicePayload(input: {
       company: 'Salt Experiential Commerce, Inc.',
       address: '249 Dufferin Street Toronto, ON, M6K 1Z5',
       attn: [
-        'Jenna Greenspoon (jenna.greenspoon@ilovesalt.com)',
+        'Robin Graham (robin.graham@ilovesalt.com)',
         'Nathan Brown (nb@ilovesalt.com)'
       ]
     },
@@ -170,9 +170,29 @@ export function generateInvoicePayload(input: {
   }
 }
 
-/** HST at 13% (Ontario / Atlantic mix — MVP; real rate should look up by province). */
-export function computeHst(subtotal: number): number {
-  return round2(subtotal * 0.13)
+const PROVINCE_TAX_RATE: Record<string, number> = {
+  ON: 0.13,  // HST
+  NB: 0.15,  // HST
+  NL: 0.15,  // HST
+  NS: 0.15,  // HST
+  PE: 0.15,  // HST
+  AB: 0.05,  // GST only
+  BC: 0.05,  // GST only (PST collected separately by province)
+  SK: 0.05,  // GST only
+  MB: 0.05,  // GST only
+  QC: 0.05,  // GST only (QST collected separately)
+  YT: 0.05,  // GST only
+  NT: 0.05,  // GST only
+  NU: 0.05,  // GST only
+}
+
+export function computeHst(subtotal: number, province?: string): number {
+  const key = (province ?? 'ON').toUpperCase().trim()
+  const rate = PROVINCE_TAX_RATE[key]
+  if (rate == null) {
+    throw new Error(`Unknown province code "${key}" — cannot compute tax. Fix BAM province before invoicing.`)
+  }
+  return round2(subtotal * rate)
 }
 
 function round2(n: number): number {

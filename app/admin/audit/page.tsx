@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { AUDIT_LOG, type AuditRow } from '../_lib/dummy'
 
@@ -27,7 +27,7 @@ function mapDbAuditLog(e: DbAuditLog): AuditRow {
     role: normalizeRole(e.actor_role),
     entity: e.entity,
     action: e.action,
-    target: e.entity_id || (e.after_json ? JSON.stringify(e.after_json).slice(0, 80) : '—')
+    target: e.entity_id || (e.after_json ? JSON.stringify(e.after_json) : '—')
   }
 }
 
@@ -115,18 +115,20 @@ export default function AuditLog() {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Time</th><th>Actor</th><th>Role</th><th>Entity</th><th>Action</th><th>Target</th>
+              <th style={{ minWidth: 160 }}>Time</th><th>Actor</th><th>Role</th><th>Entity</th><th>Action</th><th>Target</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((e, i) => (
               <tr key={i}>
-                <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{e.ts}</td>
+                <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12.5, whiteSpace: 'nowrap', minWidth: 160 }}>{e.ts}</td>
                 <td style={{ fontWeight: 600 }}>{e.actor}</td>
                 <td>{roleBadge(e.role)}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{e.entity}</td>
                 <td style={{ fontWeight: 500 }}>{e.action}</td>
-                <td className="muted" style={{ fontSize: 12.5 }}>{e.target}</td>
+                <td className="muted" style={{ fontSize: 12.5, maxWidth: 280 }}>
+                          <TargetCell value={e.target} />
+                        </td>
               </tr>
             ))}
             {filtered.length === 0 && (
@@ -140,5 +142,31 @@ export default function AuditLog() {
         </table>
       </div>
     </>
+  )
+}
+
+function TargetCell({ value }: { value: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = value.length > 60
+
+  if (!isLong) return <span style={{ wordBreak: 'break-word' }}>{value}</span>
+
+  return (
+    <div>
+      <span style={{ wordBreak: 'break-word' }}>
+        {expanded ? value : value.slice(0, 56) + '…'}
+      </span>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          marginLeft: 4, padding: '1px 6px', fontSize: 10, fontWeight: 600,
+          background: 'rgba(0,0,0,0.04)', border: '1px solid var(--border)',
+          borderRadius: 4, cursor: 'pointer', color: 'var(--bl-blue)',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {expanded ? 'less' : 'more'}
+      </button>
+    </div>
   )
 }

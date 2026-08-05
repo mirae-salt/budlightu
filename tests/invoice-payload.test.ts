@@ -11,7 +11,7 @@ const bam = {
   lastName: 'Portillo',
   street: '554 Johnson',
   city: 'Kingston',
-  prov: 'Ontario',
+  prov: 'ON',
   postal: 'K7L 2A1',
   email: 'gabriella.r.e.portillo@gmail.com',
   phone: '647-225-0077',
@@ -25,7 +25,7 @@ const bam = {
 
 const cohort = {
   programLabel: 'BUD LIGHT U – BRAND ACTIVATION MANAGER PAYMENT',
-  poNumber: '250437',
+  poNumber: '260351',
   salaryDefault: 218.75,
   currency: 'CAD' as const
 }
@@ -33,7 +33,7 @@ const cohort = {
 describe('generateInvoicePayload — matches real Gabriella #106 semantics', () => {
   const payload = generateInvoicePayload({
     bam, cohort,
-    ledger: { paidUsd: 150 },
+    ledger: { paidCad: 150 },
     period: new Date(Date.UTC(2026, 2, 1)),  // March
     seq: 1,
     generatedAt: new Date(Date.UTC(2026, 2, 20))
@@ -54,10 +54,10 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
     expect(payload.lines[1].total).toBe(150)     // reimbursement
   })
 
-  it('drops reimbursement line when paidUsd = 0 (P0-2 companion)', () => {
+  it('drops reimbursement line when paidCad = 0 (P0-2 companion)', () => {
     const shortfallPayload = generateInvoicePayload({
       bam, cohort,
-      ledger: { paidUsd: 0 },
+      ledger: { paidCad: 0 },
       period: new Date(Date.UTC(2026, 2, 1)),
       seq: 2,
       generatedAt: new Date(Date.UTC(2026, 2, 20))
@@ -69,7 +69,7 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
   it('salary is ALWAYS present even on shortfall (P0-2 core rule)', () => {
     const p = generateInvoicePayload({
       bam, cohort,
-      ledger: { paidUsd: 0 },
+      ledger: { paidCad: 0 },
       period: new Date(Date.UTC(2026, 2, 1)),
       seq: 3,
       generatedAt: new Date(Date.UTC(2026, 2, 20))
@@ -87,7 +87,7 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
     const bamWithHst = { ...bam, hstNumber: '123456789RT0001' }
     const p = generateInvoicePayload({
       bam: bamWithHst, cohort,
-      ledger: { paidUsd: 150 },
+      ledger: { paidCad: 150 },
       period: new Date(Date.UTC(2026, 2, 1)),
       seq: 4,
       generatedAt: new Date(Date.UTC(2026, 2, 20))
@@ -101,7 +101,7 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
       generateInvoicePayload({
         bam,
         cohort: { ...cohort, poNumber: '' },
-        ledger: { paidUsd: 150 },
+        ledger: { paidCad: 150 },
         period: new Date(Date.UTC(2026, 2, 1)),
         seq: 5,
         generatedAt: new Date(Date.UTC(2026, 2, 20))
@@ -114,7 +114,7 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
     expect(() =>
       generateInvoicePayload({
         bam: badBam, cohort,
-        ledger: { paidUsd: 150 },
+        ledger: { paidCad: 150 },
         period: new Date(Date.UTC(2026, 2, 1)),
         seq: 6,
         generatedAt: new Date(Date.UTC(2026, 2, 20))
@@ -127,7 +127,7 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
     //         checks-to / contact / bank / institution / transit / account / email / footer
     expect(payload.footer.programTitle).toBe('BUD LIGHT CAMPUS INVOICE')
     expect(payload.footer.invoiceNumber).toBe('INV-GP1')
-    expect(payload.jobNumber).toBe('250437')
+    expect(payload.jobNumber).toBe('260351')
     expect(payload.toBlock.attn.length).toBe(2)
     expect(payload.commentsLabel).toContain('BUD LIGHT')
     expect(payload.makeChecksTo).toBe('Gabriella Portillo')
@@ -136,8 +136,22 @@ describe('generateInvoicePayload — matches real Gabriella #106 semantics', () 
 })
 
 describe('computeHst', () => {
-  it('13% rounded to 2 decimals', () => {
+  it('defaults to ON (13%) when no province given', () => {
     expect(computeHst(100)).toBe(13)
     expect(computeHst(368.75)).toBe(47.94)
+  })
+  it('ON = 13% HST', () => {
+    expect(computeHst(100, 'ON')).toBe(13)
+  })
+  it('AB = 5% GST only', () => {
+    expect(computeHst(100, 'AB')).toBe(5)
+    expect(computeHst(368.75, 'AB')).toBe(18.44)
+  })
+  it('NS = 15% HST', () => {
+    expect(computeHst(100, 'NS')).toBe(15)
+    expect(computeHst(368.75, 'NS')).toBe(55.31)
+  })
+  it('throws on unknown province code', () => {
+    expect(() => computeHst(100, 'XX')).toThrow('Unknown province code')
   })
 })

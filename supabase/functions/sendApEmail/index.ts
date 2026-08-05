@@ -9,7 +9,7 @@ import { serviceClient } from '../_shared/supabase-admin'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../lib/invoice-numbering'
 
 const AP_TO = 'accounts.payable@ilovesalt.com'
-const AP_CC = ['Jenna.Greenspoon@ilovesalt.com', 'robin.graham@ilovesalt.com']
+const AP_CC = ['robin.graham@ilovesalt.com', 'nb@ilovesalt.com']
 
 export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live' }) {
   const db = serviceClient()
@@ -17,6 +17,7 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   // Look up invoice + BAM + cohort + PDF
   const { data: inv, error: invErr } = await db.from('invoices').select('*, bams(*), cohorts(*)').eq('id', req.invoice_id).single()
   if (invErr || !inv) return { ok: false, error: `invoice not found: ${invErr?.message}` }
+  if (inv.status === 'void') return { ok: false, error: 'invoice is voided — cannot send to AP' }
 
   const bam = (inv as any).bams
   const cohort = (inv as any).cohorts
@@ -39,12 +40,17 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   const token = await getGraphToken()
   if (!token) return { ok: false, error: 'graph auth failed' }
 
+  const ccList = [...AP_CC]
+  if (bam.email && !ccList.some((e: string) => e.toLowerCase() === bam.email.toLowerCase())) {
+    ccList.push(bam.email)
+  }
+
   const graphBody = {
     message: {
       subject,
       body: { contentType: 'Text', content: body },
       toRecipients: [{ emailAddress: { address: AP_TO } }],
-      ccRecipients: AP_CC.map(a => ({ emailAddress: { address: a } })),
+      ccRecipients: ccList.map((a: string) => ({ emailAddress: { address: a } })),
       attachments: [{
         '@odata.type': '#microsoft.graph.fileAttachment',
         name: filename,

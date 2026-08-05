@@ -7,16 +7,16 @@ const DEFAULT_CAP = 150
 
 type DashboardState = {
   firstName: string
-  spentUsd: number
-  capUsd: number
+  spentCad: number
+  capCad: number
   receiptCount: number
   invoiceStatus: string | null
 }
 
 const FALLBACK: DashboardState = {
   firstName: '',
-  spentUsd: 0,
-  capUsd: DEFAULT_CAP,
+  spentCad: 0,
+  capCad: DEFAULT_CAP,
   receiptCount: 0,
   invoiceStatus: null
 }
@@ -36,18 +36,28 @@ export default function Dashboard() {
         const period = new Date().toISOString().slice(0, 7) + '-01'
         const next: DashboardState = { ...FALLBACK }
 
-        const { data: bam } = await sb.from('bams').select('id, first_name').eq('auth_user_id', userRes.user.id).single()
+        const { data: bam } = await sb.from('bams').select('id, first_name, status, bank_name, street, email_verified_at').eq('auth_user_id', userRes.user.id).single()
+        if (bam && (!bam.bank_name || !bam.street || bam.status === 'pending')) {
+          window.location.href = '/portal/onboarding'
+          return
+        }
+        // P0-4: first-login banking confirmation gate. Must happen before
+        // anything else (incl. unlocking BAM-copy sends of banking info).
+        if (bam && !bam.email_verified_at) {
+          window.location.href = '/portal/verify-account'
+          return
+        }
         if (bam?.first_name) next.firstName = bam.first_name
 
         if (bam?.id) {
           const [{ data: ledger }, { data: receipts }, { data: invoice }] = await Promise.all([
-            sb.from('reimbursement_ledger').select('spent_usd, spendable_cap_usd').eq('bam_id', bam.id).eq('period', period).maybeSingle(),
+            sb.from('reimbursement_ledger').select('spent_cad, spendable_cap_cad').eq('bam_id', bam.id).eq('period', period).maybeSingle(),
             sb.from('receipts').select('id').eq('bam_id', bam.id).eq('period', period),
             sb.from('invoices').select('status').eq('bam_id', bam.id).eq('period', period).maybeSingle()
           ])
           if (ledger) {
-            next.spentUsd = Number(ledger.spent_usd ?? 0)
-            next.capUsd = Number(ledger.spendable_cap_usd ?? DEFAULT_CAP)
+            next.spentCad = Number(ledger.spent_cad ?? 0)
+            next.capCad = Number(ledger.spendable_cap_cad ?? DEFAULT_CAP)
           }
           next.receiptCount = receipts?.length ?? 0
           next.invoiceStatus = invoice?.status ?? null
@@ -79,9 +89,9 @@ export default function Dashboard() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <div style={{ fontSize: 40, fontWeight: 800, color: 'var(--paper)', lineHeight: 1 }}>
-              {loading ? '—' : `$${state.spentUsd.toFixed(0)}`}
+              {loading ? '—' : `$${state.spentCad.toFixed(0)}`}
             </div>
-            <div className="muted" style={{ fontSize: 13 }}>of your ${state.capUsd.toFixed(0)} allowance used</div>
+            <div className="muted" style={{ fontSize: 13 }}>of your ${state.capCad.toFixed(0)} allowance used</div>
           </div>
           <Link href="/portal/upload" className="btn" style={{ textDecoration: 'none' }}>Upload receipt</Link>
         </div>
@@ -115,6 +125,8 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      <MonthlyTags />
     </>
   )
 }
@@ -127,4 +139,92 @@ function statusLabel(status: string | null): { text: string; badge: string } {
     case 'draft': return { text: 'Being prepared', badge: 'yellow' }
     default:      return { text: 'Not yet generated', badge: 'yellow' }
   }
+}
+
+const ALWAYS_TAGS = ['#BudLightPartner', '#BudLightU', '@budlightca']
+const NFL_MONTHS = [9, 10, 11, 0, 1] // Oct–Feb (0-indexed)
+
+type MonthConfig = {
+  month: string
+  tags: string[]
+  extras: string[]
+  tip: string
+}
+
+function getMonthConfig(): MonthConfig {
+  const now = new Date()
+  const m = now.getMonth()
+  const monthName = now.toLocaleString('en-US', { month: 'long' })
+  const isNfl = NFL_MONTHS.includes(m)
+
+  const extras: string[] = []
+  if (isNfl) extras.push('@NFLCanada')
+
+  const tips: Record<number, string> = {
+    8:  'Welcome month! Kick things off with a back-to-school post featuring BL.',
+    9:  'NFL season starts! Include @NFLCanada on game-day content.',
+    10: 'Halloween content opportunity. Team can Reels eligible ($50 bonus).',
+    11: 'Grey Cup month! Big NFL push. Tag @NFLCanada on all game content.',
+    0:  'New year content. NFL playoffs, keep tagging @NFLCanada.',
+    1:  'Super Bowl month! Last NFL push of the season.',
+    2:  'March Madness vibes. Spring content planning starts.',
+    3:  'Wrap-up month. Final invoices and content submissions.',
+  }
+
+  return {
+    month: monthName,
+    tags: ALWAYS_TAGS,
+    extras,
+    tip: tips[m] ?? 'Post your monthly content and tag correctly!',
+  }
+}
+
+function MonthlyTags() {
+  const config = getMonthConfig()
+  const allTags = [...config.tags, ...config.extras]
+  const [copied, setCopied] = useState(false)
+
+  function copyAll() {
+    navigator.clipboard.writeText(allTags.join(' ')).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="surface" style={{ marginTop: 20 }}>
+      <div className="surface-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="surface-title">Tags for {config.month}</span>
+        <button
+          onClick={copyAll}
+          className="btn-ghost"
+          style={{ fontSize: 12, padding: '4px 12px' }}
+        >
+          {copied ? 'Copied!' : 'Copy all'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {config.tags.map(tag => (
+          <span key={tag} style={{
+            padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: 'var(--bl-blue)', color: '#fff'
+          }}>{tag}</span>
+        ))}
+        {config.extras.map(tag => (
+          <span key={tag} style={{
+            padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+            background: 'var(--bl-navy)', color: '#fff'
+          }}>{tag}</span>
+        ))}
+      </div>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+        {config.tip}
+      </p>
+      {config.extras.length > 0 && (
+        <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
+          <strong style={{ color: 'var(--bl-navy)' }}>NFL season</strong>: dark tags are active this month only.
+        </p>
+      )}
+    </div>
+  )
 }

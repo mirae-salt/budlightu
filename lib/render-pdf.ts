@@ -4,7 +4,7 @@ import type { InvoicePayload } from './invoice-payload'
 import * as React from 'react'
 
 export async function renderInvoicePdfToBuffer(payload: InvoicePayload): Promise<Buffer> {
-  return renderToBuffer(React.createElement(InvoicePdf, { payload }))
+  return renderToBuffer(React.createElement(InvoicePdf, { payload }) as any)
 }
 
 export function buildSamplePayload(row: {
@@ -38,7 +38,7 @@ export function buildSamplePayload(row: {
     toBlock: {
       company: 'Salt Experiential Commerce, Inc.',
       address: '249 Dufferin Street Toronto, ON, M6K 1Z5',
-      attn: ['Jenna Greenspoon (jenna.greenspoon@ilovesalt.com)', 'Nathan Brown (nb@ilovesalt.com)']
+      attn: ['Robin Graham (robin.graham@ilovesalt.com)', 'Nathan Brown (nb@ilovesalt.com)']
     },
     influencer: {
       name: `${firstName} ${lastName}`,
@@ -48,7 +48,7 @@ export function buildSamplePayload(row: {
       phone: '(phone on file)'
     },
     commentsLabel: 'BUD LIGHT U – BRAND ACTIVATION MANAGER PAYMENT',
-    jobNumber: '250437',
+    jobNumber: '260351',
     lines,
     subtotal,
     tax: 0,

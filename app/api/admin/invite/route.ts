@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   })
   const { data: user } = await supa.auth.getUser()
 
-  const isDev = process.env.NODE_ENV === 'development'
+  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
   if (!isDev) {
     if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
     const role = (user.user.user_metadata as { role?: string }).role
@@ -74,6 +74,13 @@ export async function POST(req: NextRequest) {
     to: bam.email,
     subject: `You're invited to Bud Light U — set up your account`,
     html: inviteEmailHtml(bam.first_name, inviteUrl)
+  })
+
+  const actorId = user.user?.id ?? 'dev'
+  await admin.from('audit_log').insert({
+    actor_id: actorId, actor_role: 'admin', entity: 'bams',
+    entity_id: bam_id, action: 'invite_sent',
+    meta: { email: bam.email, provider: result.provider, sent: result.sent }
   })
 
   return NextResponse.json({

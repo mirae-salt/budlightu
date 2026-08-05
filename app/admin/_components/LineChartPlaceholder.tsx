@@ -1,15 +1,27 @@
 /**
- * Static SVG chart placeholder — visually similar to the reference chart.
- * Will be replaced with Recharts (or similar) when real data flows in.
+ * SVG area chart — shows monthly reimbursement data when available,
+ * falls back to static placeholder shape when no data.
  */
-export function LineChartPlaceholder() {
-  // fake path from an "area chart" — evenly spaced x with sample y values
-  const points = [30, 35, 32, 40, 55, 48, 62, 58, 65, 72, 68, 75, 78, 74, 82, 80, 85, 88, 90, 87]
+export function LineChartPlaceholder({ data }: { data?: Record<string, number> }) {
+  const FALLBACK = [30, 35, 32, 40, 55, 48, 62, 58, 65, 72, 68, 75, 78, 74, 82, 80, 85, 88, 90, 87]
+
+  const entries = data ? Object.entries(data).sort(([a], [b]) => a.localeCompare(b)).slice(-12) : []
+  const hasReal = entries.length > 0
+  const points = hasReal ? entries.map(([, v]) => v) : FALLBACK
+  const labels = hasReal
+    ? entries.map(([m]) => new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short' }))
+    : ['8AM', '10AM', '12PM', '2PM', '4PM', '6PM', '8PM', '10PM']
+
+  const max = Math.max(...points, 1)
   const w = 100, h = 100
-  const step = w / (points.length - 1)
-  const yFor = (v: number) => h - (v / 100) * h
+  const step = w / Math.max(points.length - 1, 1)
+  const yFor = (v: number) => h - (v / max) * h * 0.9
   const path = points.map((v, i) => `${i === 0 ? 'M' : 'L'} ${(i * step).toFixed(2)} ${yFor(v).toFixed(2)}`).join(' ')
   const area = `${path} L ${w} ${h} L 0 ${h} Z`
+
+  const yLabels = hasReal
+    ? [`$${max.toFixed(0)}`, `$${(max * 0.75).toFixed(0)}`, `$${(max * 0.5).toFixed(0)}`, `$${(max * 0.25).toFixed(0)}`, '$0']
+    : ['100%', '75%', '50%', '25%', '0%']
 
   return (
     <div style={{ position: 'relative', width: '100%', height: 240 }}>
@@ -24,10 +36,10 @@ export function LineChartPlaceholder() {
         <path d={path} fill="none" stroke="#003D6B" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
       </svg>
       <div style={{ position: 'absolute', right: 8, top: 4, bottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: 10, color: 'var(--midgray)', pointerEvents: 'none' }}>
-        <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
+        {yLabels.map((l, i) => <span key={i}>{l}</span>)}
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--midgray)' }}>
-        <span>8AM</span><span>10AM</span><span>12PM</span><span>2PM</span><span>4PM</span><span>6PM</span><span>8PM</span><span>10PM</span>
+        {labels.map((l, i) => <span key={i}>{l}</span>)}
       </div>
     </div>
   )

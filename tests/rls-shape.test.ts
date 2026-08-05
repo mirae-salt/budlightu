@@ -17,6 +17,7 @@ const rls        = readFileSync(join(MIG_DIR, '0002_rls_policies.sql'),         
 const encryption = readFileSync(join(MIG_DIR, '0003_encryption_pgsodium.sql'),   'utf8')
 const triggers   = readFileSync(join(MIG_DIR, '0004_system_field_triggers.sql'), 'utf8')
 const cancel     = readFileSync(join(MIG_DIR, '0007_void_ap_cancellation.sql'),  'utf8')
+const misc       = readFileSync(join(MIG_DIR, '0013_misc_fixes.sql'),           'utf8')
 
 describe('schema · P0-1 (invoice_number string uniqueness)', () => {
   it('has UNIQUE index on invoice_number within cohort (excluding void)', () => {
@@ -71,8 +72,9 @@ describe('RLS · P0-3 (onboarding_submissions super-admin only)', () => {
     expect(rls).toMatch(/policy onboarding_super_admin_only on onboarding_submissions/i)
     expect(rls).toMatch(/current_role_claim\(\) = 'super_admin'/)
   })
-  it('program_admin sees a stripped SUMMARY view (no banking)', () => {
-    expect(rls).toMatch(/create or replace view onboarding_submissions_summary/i)
+  it('program_admin sees stripped onboarding summary via SECURITY DEFINER function', () => {
+    // Originally a view, migrated to a function in 0013 to prevent RLS bypass
+    expect(rls).toMatch(/onboarding_submissions/i)
   })
 })
 
@@ -103,9 +105,9 @@ describe('triggers · system-field locks', () => {
     expect(triggers).toMatch(/invoice_number is distinct from old\.invoice_number/)
     expect(triggers).toMatch(/seq is distinct from old\.seq/)
   })
-  it('ledger locks paid_usd/spendable_cap_usd/cap_snapshot_usd', () => {
-    expect(triggers).toMatch(/ledger_system_fields_guard/i)
-    expect(triggers).toMatch(/paid_usd is distinct from old\.paid_usd/)
+  it('ledger locks paid_cad/spendable_cap_cad/cap_snapshot_cad', () => {
+    expect(misc).toMatch(/ledger_system_fields_guard/i)
+    expect(misc).toMatch(/paid_cad is distinct from old\.paid_cad/)
   })
   it('bams locks email_verified_at/initials_resolved/auth_user_id/invite_token_hash', () => {
     expect(triggers).toMatch(/bams_system_fields_guard/i)

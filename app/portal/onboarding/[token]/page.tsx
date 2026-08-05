@@ -1,27 +1,70 @@
 'use client'
-import { useState, use } from 'react'
+import { useState, useEffect, use } from 'react'
 import { BANK_SEED } from '@/lib/banks'
 
 /**
  * Onboarding form — invite-token gated (P0-3).
- * Two-step: (1) email confirm, (2) banking details.
+ * Three-step: (0) upfront token validity check, (1) email confirm, (2) banking details.
  * Banking fields only rendered after step 1 passes.
  */
 export default function OnboardingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
+  const [checking, setChecking] = useState(true)
+  const [tokenValid, setTokenValid] = useState(false)
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [email, setEmail] = useState('')
   const [form, setForm] = useState({
     first_name: '', last_name: '', phone: '',
     street: '', city: '', prov: '', postal: '', school_id: '',
     bank_name: '', institution_no: '', transit_no: '', account_no: '',
-    hst_number: '', consent_ap_cc: true
+    hst_number: '', consent_ap_cc: true, consent_terms: false
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [done, setDone] = useState<string | null>(null)
 
+  // Upfront token validity check — surfaces a dead/used invite link
+  // immediately instead of after the whole form is filled out.
+  useEffect(() => {
+    async function checkToken() {
+      try {
+        const resp = await fetch(`/api/portal/onboarding/check-token?token=${encodeURIComponent(token)}`)
+        const j = await resp.json()
+        setTokenValid(!!j.ok)
+      } catch {
+        setTokenValid(false)
+      } finally {
+        setChecking(false)
+      }
+    }
+    checkToken()
+  }, [token])
+
+  function validate(): Record<string, string> {
+    const e: Record<string, string> = {}
+    if (!form.first_name.trim()) e.first_name = 'Required'
+    if (!form.last_name.trim()) e.last_name = 'Required'
+    if (!form.phone.trim()) e.phone = 'Required'
+    if (!form.street.trim()) e.street = 'Required'
+    if (!form.city.trim()) e.city = 'Required'
+    if (!form.prov.trim()) e.prov = 'Required'
+    if (!form.postal.trim()) e.postal = 'Required'
+    if (!form.school_id.trim()) e.school_id = 'Required'
+    if (!form.bank_name) e.bank_name = 'Select a bank'
+    if (form.bank_name && form.bank_name !== 'Other') {
+      if (form.institution_no.length !== 3) e.institution_no = 'Must be 3 digits'
+      if (form.transit_no.length !== 5) e.transit_no = 'Must be 5 digits'
+      if (!form.account_no) e.account_no = 'Required'
+    }
+    return e
+  }
+
   async function submitAll() {
+    const errs = validate()
+    setFieldErrors(errs)
+    if (Object.keys(errs).length > 0) return
+
     setBusy(true); setError(null)
     try {
       const resp = await fetch('/api/onboarding', {
@@ -40,9 +83,35 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
     }
   }
 
+  const errStyle = { borderColor: '#A31212' }
+
+  if (checking) {
+    return (
+      <main className="container" style={{ maxWidth: 680 }}>
+        <p className="eyebrow">WELCOME TO BUD LIGHT U</p>
+        <h1>Set up your account</h1>
+        <p className="subtle">Checking your invite link…</p>
+      </main>
+    )
+  }
+
+  if (!tokenValid) {
+    return (
+      <main className="container" style={{ maxWidth: 680 }}>
+        <p className="eyebrow">WELCOME TO BUD LIGHT U</p>
+        <h1>Invite link not valid</h1>
+        <div className="surface" style={{ marginTop: 24 }}>
+          <p className="subtle" style={{ margin: 0 }}>
+            This invite link is invalid or has already been used. Please contact your program manager.
+          </p>
+        </div>
+      </main>
+    )
+  }
+
   if (step === 3 && done) {
     return (
-      <main className="container" style={{ maxWidth: 560 }}>
+      <main className="container" style={{ maxWidth: 680 }}>
         <p className="eyebrow">ALL SET</p>
         <h1>You&rsquo;re onboarded 🎉</h1>
         <p className="subtle">{done}</p>
@@ -54,14 +123,14 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
   }
 
   return (
-    <main className="container" style={{ maxWidth: 560 }}>
+    <main className="container" style={{ maxWidth: 680 }}>
       <p className="eyebrow">WELCOME TO BUD LIGHT U</p>
       <h1>Set up your account</h1>
       <p className="subtle">Takes about 3 minutes. Your banking info is encrypted before it&rsquo;s stored.</p>
 
       {/* Step 1: email confirm */}
       {step === 1 && (
-        <div className="hero-card stack" style={{ marginTop: 24 }}>
+        <div className="surface stack" style={{ marginTop: 24 }}>
           <div className="field">
             <label>Confirm your email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@school.edu" />
@@ -75,51 +144,58 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
       {step === 2 && (
         <div className="stack" style={{ marginTop: 24 }}>
 
-          <div className="hero-card">
+          <div className="surface">
             <h2 style={{ marginTop: 0 }}>You</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field"><label>Legal first name</label><input value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} /></div>
-              <div className="field"><label>Legal last name</label><input value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} /></div>
+              <div className="field"><label>Legal first name</label><input value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} style={fieldErrors.first_name ? errStyle : {}} />{fieldErrors.first_name && <span className="field-err">{fieldErrors.first_name}</span>}</div>
+              <div className="field"><label>Legal last name</label><input value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} style={fieldErrors.last_name ? errStyle : {}} />{fieldErrors.last_name && <span className="field-err">{fieldErrors.last_name}</span>}</div>
             </div>
-            <div className="field"><label>Phone</label><input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="647-555-0100" /></div>
-            <div className="field"><label>Street</label><input value={form.street} onChange={e => setForm({...form, street: e.target.value})} /></div>
+            <div className="field"><label>Phone</label><input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="647-555-0100" style={fieldErrors.phone ? errStyle : {}} />{fieldErrors.phone && <span className="field-err">{fieldErrors.phone}</span>}</div>
+            <div className="field"><label>Street</label><input value={form.street} onChange={e => setForm({...form, street: e.target.value})} style={fieldErrors.street ? errStyle : {}} />{fieldErrors.street && <span className="field-err">{fieldErrors.street}</span>}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-              <div className="field"><label>City</label><input value={form.city} onChange={e => setForm({...form, city: e.target.value})} /></div>
-              <div className="field"><label>Province</label><input value={form.prov} onChange={e => setForm({...form, prov: e.target.value})} placeholder="ON" /></div>
-              <div className="field"><label>Postal</label><input value={form.postal} onChange={e => setForm({...form, postal: e.target.value})} placeholder="M5V 3L9" /></div>
+              <div className="field"><label>City</label><input value={form.city} onChange={e => setForm({...form, city: e.target.value})} style={fieldErrors.city ? errStyle : {}} />{fieldErrors.city && <span className="field-err">{fieldErrors.city}</span>}</div>
+              <div className="field"><label>Province</label><input value={form.prov} onChange={e => setForm({...form, prov: e.target.value})} placeholder="ON" style={fieldErrors.prov ? errStyle : {}} />{fieldErrors.prov && <span className="field-err">{fieldErrors.prov}</span>}</div>
+              <div className="field"><label>Postal</label><input value={form.postal} onChange={e => setForm({...form, postal: e.target.value})} placeholder="M5V 3L9" style={fieldErrors.postal ? errStyle : {}} />{fieldErrors.postal && <span className="field-err">{fieldErrors.postal}</span>}</div>
             </div>
-            <div className="field"><label>School / campus</label><input value={form.school_id} onChange={e => setForm({...form, school_id: e.target.value})} /></div>
+            <div className="field"><label>School / campus</label><input value={form.school_id} onChange={e => setForm({...form, school_id: e.target.value})} style={fieldErrors.school_id ? errStyle : {}} />{fieldErrors.school_id && <span className="field-err">{fieldErrors.school_id}</span>}</div>
           </div>
 
-          <div className="hero-card">
+          <div className="surface">
             <h2 style={{ marginTop: 0 }}>Direct deposit</h2>
             <p className="subtle" style={{ fontSize: 13, marginTop: 0 }}>These fields are encrypted at rest. Only Salt&rsquo;s payment system can decrypt.</p>
             <div className="field">
               <label>Bank</label>
-              <select value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})}>
+              <select value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} style={fieldErrors.bank_name ? errStyle : {}}>
                 <option value="">Select…</option>
                 {BANK_SEED.map(b => <option key={b.normalized} value={b.displayName}>{b.displayName}</option>)}
                 <option value="Other">Other (contact your program manager)</option>
               </select>
+              {fieldErrors.bank_name && <span className="field-err">{fieldErrors.bank_name}</span>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12 }}>
-              <div className="field"><label>Institution # (3 digits)</label><input inputMode="numeric" maxLength={3} value={form.institution_no} onChange={e => setForm({...form, institution_no: e.target.value.replace(/\D/g,'')})} /></div>
-              <div className="field"><label>Transit # (5 digits)</label><input inputMode="numeric" maxLength={5} value={form.transit_no} onChange={e => setForm({...form, transit_no: e.target.value.replace(/\D/g,'')})} /></div>
-              <div className="field"><label>Account #</label><input inputMode="numeric" value={form.account_no} onChange={e => setForm({...form, account_no: e.target.value.replace(/\D/g,'')})} /></div>
+              <div className="field"><label>Institution # (3 digits)</label><input inputMode="numeric" maxLength={3} value={form.institution_no} onChange={e => setForm({...form, institution_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.institution_no ? errStyle : {}} />{fieldErrors.institution_no && <span className="field-err">{fieldErrors.institution_no}</span>}</div>
+              <div className="field"><label>Transit # (5 digits)</label><input inputMode="numeric" maxLength={5} value={form.transit_no} onChange={e => setForm({...form, transit_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.transit_no ? errStyle : {}} />{fieldErrors.transit_no && <span className="field-err">{fieldErrors.transit_no}</span>}</div>
+              <div className="field"><label>Account #</label><input inputMode="numeric" value={form.account_no} onChange={e => setForm({...form, account_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.account_no ? errStyle : {}} />{fieldErrors.account_no && <span className="field-err">{fieldErrors.account_no}</span>}</div>
             </div>
             <div className="field"><label>HST number (optional)</label><input value={form.hst_number} onChange={e => setForm({...form, hst_number: e.target.value})} placeholder="123456789 RT 0001" /></div>
           </div>
 
-          <div className="card">
+          <div className="surface" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.consent_ap_cc} onChange={e => setForm({...form, consent_ap_cc: e.target.checked})} style={{ width: 'auto', marginTop: 2 }} />
+              <input type="checkbox" checked={form.consent_terms} onChange={e => setForm({...form, consent_terms: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
+              <span className="subtle" style={{ fontWeight: 400 }}>
+                I agree to the Bud Light U program terms. Submitting fraudulent, reused, or AI-generated receipts may result in forfeiture of reimbursement and removal from the program. I will retain original receipts for at least 6 months.
+              </span>
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.consent_ap_cc} onChange={e => setForm({...form, consent_ap_cc: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
               <span className="subtle" style={{ fontWeight: 400 }}>
                 I consent to Salt XC processing my banking information for the sole purpose of paying my monthly BAM invoice.
               </span>
             </label>
           </div>
 
-          <button onClick={submitAll} disabled={busy || !form.consent_ap_cc}>
+          <button onClick={submitAll} disabled={busy || !form.consent_ap_cc || !form.consent_terms}>
             {busy ? 'Submitting…' : 'Finish onboarding'}
           </button>
           {error && <p style={{ color: '#A31212' }}>{error}</p>}

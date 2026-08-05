@@ -1,0 +1,623 @@
+// BLU Internal Guide — designed & built by Mirae Lee
+'use client'
+
+import { useState } from 'react'
+import { TopBar } from '../_components/TopBar'
+
+export default function GuidePage() {
+  return (
+    <>
+      <TopBar crumbs={['System', 'BLU Internal Guide']} />
+
+      <div className="surface" style={{ maxWidth: 1100 }} data-author="mirae">
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 4 }}>
+          BLU Internal Guide
+        </h2>
+        <p className="muted" style={{ marginBottom: 24, fontSize: 13 }}>
+          Setup, monthly flow, receipt rules, and what gets flagged.
+        </p>
+
+        <TabNav />
+      </div>
+    </>
+  )
+}
+
+function TabNav() {
+  const tabs = [
+    { id: 'setup', label: 'Getting started' },
+    { id: 'flow', label: 'How it works' },
+    { id: 'bam-ux', label: 'What BAMs see' },
+    { id: 'patterns', label: 'What counts as BL' },
+    { id: 'flags', label: 'What gets flagged' },
+  ] as const
+  const [active, setActive] = useState<string>('setup')
+
+  return (
+    <div>
+      <style>{`
+        :root { --built-by-mirae-lee: 1; }
+        .guide-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
+        .guide-tab { padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--midgray);
+          cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; background: none; border-top: none; border-left: none; border-right: none; }
+        .guide-tab:hover { color: var(--bl-navy); background: rgba(0,0,0,0.03); border-radius: 6px 6px 0 0; }
+        .guide-tab.active { color: #fff; background: var(--bl-blue); border-bottom-color: var(--bl-blue); border-radius: 6px 6px 0 0; }
+        .guide-tab.active:hover { color: #fff; background: var(--bl-blue); }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .pill-green { background: rgba(34,197,94,0.12); color: #16a34a; }
+        .pill-yellow { background: rgba(245,158,11,0.12); color: #d97706; }
+        .pill-red { background: rgba(239,68,68,0.1); color: #dc2626; }
+        .pill-blue { background: rgba(58,173,217,0.1); color: #0284c7; }
+        .pill-gray { background: rgba(128,128,128,0.1); color: #6b7280; }
+        .pattern-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 600px) { .pattern-grid { grid-template-columns: 1fr; } }
+        .pattern-card { padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+        .pattern-card h4 { font-size: 13px; font-weight: 700; margin: 0 0 6px 0; color: var(--bl-navy); }
+        .pattern-card code { font-size: 11px; background: rgba(0,0,0,0.04); padding: 1px 4px; border-radius: 3px; font-family: monospace; }
+        .step-box { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+        .step-box:last-child { border-bottom: none; margin-bottom: 0; }
+        .step-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--bl-blue); color: #fff;
+          display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+        .step-title { font-size: 16px; font-weight: 700; color: var(--bl-navy); }
+        .info-box { font-size: 13px; line-height: 1.6; padding: 8px 12px; border-radius: 6px; margin-top: 8px; }
+        .info-auto { background: rgba(58,173,217,0.08); }
+        .info-you { background: rgba(239,68,68,0.06); }
+        .info-note { background: rgba(128,128,128,0.06); }
+      `}</style>
+
+      <div className="guide-tabs">
+        {tabs.map(t => (
+          <button key={t.id} className={`guide-tab${active === t.id ? ' active' : ''}`} onClick={() => setActive(t.id)}>{t.label}</button>
+        ))}
+      </div>
+
+      {active === 'setup' && <SetupPanel />}
+      {active === 'flow' && <FlowPanel />}
+      {active === 'bam-ux' && <BamUxPanel />}
+      {active === 'patterns' && <PatternsPanel />}
+      {active === 'flags' && <FlagsPanel />}
+
+
+      {/* b·m·l */}
+      <div style={{ marginTop: 40, paddingTop: 16, borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+        <p style={{ fontSize: 11, color: 'rgba(128,128,128,0.4)', userSelect: 'none' }}>
+          BLU Automation v0.1
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 0: Getting started — first-time setup for Robin/Jenna
+   ═══════════════════════════════════════════════════════════════════ */
+function SetupPanel() {
+  return (
+    <>
+      <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20, color: 'var(--text)' }}>
+        This is a one-time setup you do at the start of each cohort (semester). Once it&apos;s done, the monthly flow runs on its own.
+      </p>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">1</span>
+          <span className="step-title">Create a cohort</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Go to the <strong>Cohorts</strong> page and create a new cohort for the semester (e.g. &quot;Fall 2026&quot;).
+          Set the PO number, start/end dates, and leave the send mode on <strong>dryrun</strong> until you&apos;re ready to go live.
+        </p>
+        <div className="info-box info-note">
+          <strong>Why cohorts?</strong> Each semester has its own group of BAMs, PO number, and settings.
+          You can have multiple cohorts active at once (e.g. summer stragglers + fall new hires).
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">2</span>
+          <span className="step-title">Import your BAM list</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Go to the <strong>Roster</strong> page and click <strong>Import CSV / Excel</strong>.
+          Upload the list of accepted applicants. The file only needs two things: <strong>name</strong> and <strong>email</strong>.
+        </p>
+        <div style={{ margin: '12px 0', padding: '12px 16px', background: 'rgba(0,0,0,0.03)', borderRadius: 8 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 8 }}>What the system accepts:</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+            <div><span className="pill pill-green">OK</span> &nbsp;Full Name + Email (two columns)</div>
+            <div><span className="pill pill-green">OK</span> &nbsp;First Name + Last Name + Email (three columns)</div>
+            <div><span className="pill pill-green">OK</span> &nbsp;Name + Email + School (extra columns are optional)</div>
+          </div>
+        </div>
+        <div className="info-box info-auto">
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> The system maps your column headers automatically. If it guesses wrong, you can fix the mapping before importing.
+        </div>
+        <div className="info-box info-note" style={{ marginTop: 8 }}>
+          <strong>Tip:</strong> You can also add BAMs one at a time with the <strong>+ Add BAM</strong> button.
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">3</span>
+          <span className="step-title">Invite emails go out</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          When you import, each BAM gets an email with a one-time link to set up their account.
+          They&apos;ll enter their personal info and banking details through an onboarding form.
+        </p>
+        <div className="info-box info-auto">
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Invite emails are sent immediately after import.
+          Each link is unique and can only be used once.
+        </div>
+        <div className="info-box info-you" style={{ marginTop: 8 }}>
+          <strong style={{ color: 'var(--red, #ef4444)' }}>Important:</strong> Tell BAMs to use the <strong>same email they applied with</strong>.
+          That&apos;s the email tied to their account. If someone needs to change their email later, you can update it in the Roster page.
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">4</span>
+          <span className="step-title">BAMs complete onboarding</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Each BAM clicks their invite link and fills out the onboarding form: name, address, banking details (bank name, transit number, account number, institution code).
+          This info is used to generate their invoices automatically.
+        </p>
+        <div className="info-box info-note">
+          <strong>You don&apos;t need to collect banking info yourself.</strong> BAMs enter it directly into the secure form.
+          You can see who has completed onboarding on the <strong>Dashboard</strong> (pending vs active BAMs).
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">5</span>
+          <span className="step-title">You&apos;re ready to go</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Once BAMs have completed onboarding, the monthly cycle can begin.
+          Switch to the <strong>How it works</strong> tab to see the month-to-month process.
+        </p>
+        <div style={{ margin: '12px 0', padding: '12px 16px', background: 'rgba(0,115,207,0.06)', borderRadius: 8 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 8 }}>Quick checklist before first month:</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+            <div>&#9744; Cohort created with correct PO number</div>
+            <div>&#9744; BAMs imported and invite emails sent</div>
+            <div>&#9744; BAMs have completed onboarding (check Dashboard)</div>
+            <div>&#9744; Send mode set to <strong>dryrun</strong> for your first test run</div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 1: How it works — plain language walkthrough
+   ═══════════════════════════════════════════════════════════════════ */
+function FlowPanel() {
+  return (
+    <>
+      <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20, color: 'var(--text)' }}>
+        Every month, this is what happens from start to finish. Most of it is automatic. You only need to step in at two points.
+      </p>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">1</span>
+          <span className="step-title">BAMs upload their receipts</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Each BAM logs into the portal, picks their month, and uploads photos of their Bud Light receipts.
+          They can upload multiple receipts. Phone photos, screenshots, and scanned images all work.
+        </p>
+        <div className="info-box info-auto">
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> The system saves the file and checks if the same image was already submitted before (prevents duplicates).
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">2</span>
+          <span className="step-title">AI reads what&apos;s on the receipt</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          The system looks at each receipt image, reads the text, and finds any Bud Light products.
+          It pulls out the store name, date, item names, prices, tax, and the Bud Light total.
+        </p>
+        <div className="info-box info-auto">
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Trained on 400+ real receipts from 40+ Canadian stores. It knows how different stores print &quot;Bud Light&quot; (see the <em>What counts as BL</em> tab).
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">3</span>
+          <span className="step-title">Safety checks run</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          The system runs a series of automatic checks on every receipt to catch problems, like duplicate submissions, suspicious patterns, or images that aren&apos;t actually receipts. Details are in the <em>What gets flagged</em> tab.
+        </p>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">4</span>
+          <span className="step-title">You review anything that&apos;s unclear</span>
+          <span className="badge badge-yellow">Your action</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Each receipt gets one of three statuses:
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '10px 0' }}>
+          <StatusRow color="#22c55e" label="Approved" desc="Everything looks good. No action needed from you." />
+          <StatusRow color="#f59e0b" label="Needs review" desc="Something was unclear or flagged. You decide: approve it or reject it." />
+          <StatusRow color="#ef4444" label="Couldn't read" desc="The image was too blurry or damaged. You can ask the BAM to resubmit." />
+        </div>
+        <div className="info-box info-you">
+          <strong style={{ color: 'var(--red, #ef4444)' }}>Your action:</strong> Go to <strong>Receipts</strong> page, filter by &quot;Review&quot;, and approve or reject each one.
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">5</span>
+          <span className="step-title">Reimbursement is calculated</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Each BAM gets up to <strong>$150/month</strong> for Bud Light purchases. This resets every month. Unused amounts do not carry over. If a BAM spends less than $150, they get reimbursed only what they spent.
+        </p>
+        <div className="info-box info-note">
+          <strong>Example:</strong> A BAM who spent $120 in September gets $120 reimbursed.
+          In October they start fresh with another $150 allowance.
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">6</span>
+          <span className="step-title">Generate invoices</span>
+          <span className="badge badge-yellow">Your action</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          When you&apos;re ready (usually around the 16th), go to the <strong>Invoices</strong> page and press <strong>Generate Invoices</strong>. The system pulls each BAM&apos;s info from the roster (name, bank details, salary, reimbursement amount) and creates all invoices at once.
+        </p>
+        <div className="info-box info-auto">
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Invoice numbers, bank codes, amounts: everything is filled in automatically. A PDF is generated for each BAM.
+        </div>
+        <div className="info-box info-you">
+          <strong style={{ color: 'var(--red, #ef4444)' }}>Your action:</strong> Review any flagged invoices, make corrections if needed, then hit <strong>Batch Approve</strong>.
+        </div>
+      </div>
+
+      <div className="step-box">
+        <div className="step-header">
+          <span className="step-num">7</span>
+          <span className="step-title">Invoices are sent to AP</span>
+        </div>
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          After you approve, each invoice PDF is emailed to Accounts Payable (one email per invoice). A copy goes to SharePoint for records, and the BAM gets a copy too.
+        </p>
+        <div className="info-box info-note">
+          <strong>Note:</strong> Right now the system is in test mode. It won&apos;t actually send emails until you turn on live mode in settings.
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 2b: What BAMs see — explaining BAM-side experience for Robin
+   ═══════════════════════════════════════════════════════════════════ */
+function BamUxPanel() {
+  return (
+    <>
+      <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20, color: 'var(--text)' }}>
+        This is what your BAMs experience when they use the portal. You can share this with new BAMs or reference it when answering their questions.
+      </p>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        Signing in
+      </h3>
+      <div className="step-box">
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          BAMs sign in with their <strong>email only</strong>. There is no password to create or remember.
+        </p>
+        <div style={{ margin: '12px 0', padding: '16px', background: 'rgba(0,115,207,0.04)', borderRadius: 8 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 10 }}>How it works:</p>
+          <ol style={{ fontSize: 13, lineHeight: 1.8, paddingLeft: 20, margin: 0 }}>
+            <li>BAM enters their email on the login page</li>
+            <li>They receive a <strong>6-digit code</strong> in their inbox</li>
+            <li>They type the code into the portal</li>
+            <li>They&apos;re in. That&apos;s it.</li>
+          </ol>
+        </div>
+        <div className="info-box info-note">
+          <strong>Why no password?</strong> BAMs will never DM you about a forgotten password.
+          The code expires after 10 minutes, and each login sends a fresh one.
+        </div>
+        <div className="info-box info-you" style={{ marginTop: 8 }}>
+          <strong style={{ color: 'var(--red, #ef4444)' }}>Common question:</strong> &quot;I didn&apos;t get the code.&quot;
+          Have them check their spam/junk folder first. The email comes from <strong>budlightu.portal@gmail.com</strong>. If they still can&apos;t find it, they can click &quot;Resend code&quot; on the login screen.
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        First time: onboarding
+      </h3>
+      <div className="step-box">
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          When a BAM clicks their invite link for the first time, they land on a <strong>secure onboarding form</strong>.
+          They fill in their personal details and banking info (for direct deposit).
+        </p>
+        <div style={{ margin: '12px 0', padding: '16px', background: 'rgba(0,0,0,0.03)', borderRadius: 8 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 10 }}>What they fill in:</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 13 }}>
+            <div><span className="pill pill-blue">Step 1</span> Full name, phone, address</div>
+            <div><span className="pill pill-blue">Step 2</span> Bank name, transit #, account #</div>
+          </div>
+        </div>
+        <div className="info-box info-auto">
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Once they submit, their status changes from &quot;pending&quot; to &quot;active&quot; in your roster.
+          You can see who hasn&apos;t completed onboarding on the Dashboard.
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        Monthly: uploading receipts
+      </h3>
+      <div className="step-box">
+        <p style={{ fontSize: 14, lineHeight: 1.7 }}>
+          Each month, BAMs upload their Bud Light receipts through the <strong>Upload</strong> page.
+        </p>
+        <div style={{ margin: '12px 0', padding: '16px', background: 'rgba(0,0,0,0.03)', borderRadius: 8 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 10 }}>What they do:</p>
+          <ol style={{ fontSize: 13, lineHeight: 1.8, paddingLeft: 20, margin: 0 }}>
+            <li>Pick the month (e.g. &quot;September 2026&quot;)</li>
+            <li>Take a photo of their receipt or select from camera roll</li>
+            <li>Upload one or more images</li>
+            <li>The system confirms the upload and shows the AI-read results</li>
+          </ol>
+        </div>
+        <div className="info-box info-note">
+          <strong>What they see after upload:</strong> A summary card showing the store name, date,
+          Bud Light items found, and the total. If something was flagged, they see
+          &quot;Under review&quot; instead of &quot;Approved&quot;.
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        Their portal pages
+      </h3>
+      <div className="step-box" style={{ borderBottom: 'none' }}>
+        <div className="table-scroll">
+          <table className="admin-table" style={{ fontSize: 13 }}>
+            <thead><tr><th>Page</th><th>What they see</th></tr></thead>
+            <tbody>
+              <tr>
+                <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Dashboard</td>
+                <td>This month&apos;s spending total, remaining allowance, and receipt submission status</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Upload</td>
+                <td>Receipt upload form + history of past uploads with AI results</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Invoices</td>
+                <td>List of their invoices (month, amount, status). They cannot edit these.</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>FAQ</td>
+                <td>Common questions about the program, receipts, and payments</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Support</td>
+                <td>If they can&apos;t submit receipts this month, they explain why here. The message goes to you (Robin).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="info-box info-note" style={{ marginTop: 12 }}>
+          <strong>Privacy:</strong> Each BAM only sees their own data. They cannot see other BAMs&apos; receipts, invoices, or information.
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 2: What counts as BL — 400+ receipts analyzed by Mirae
+   ═══════════════════════════════════════════════════════════════════ */
+function PatternsPanel() {
+  return (
+    <>
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 12 }}>
+          Different stores print &quot;Bud Light&quot; in different ways. The system recognizes all of these based on <strong>400+ real receipts</strong> from the summer pilot.
+        </p>
+        <div className="info-box info-note">
+          When new receipts come in with text we haven&apos;t seen before, we&apos;ll review them in batches and confirm with you before adding.
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        How stores print &quot;Bud Light&quot;
+      </h3>
+
+      <div className="pattern-grid">
+        <PatternCard title="Full product names" items={[
+          { text: 'BUD LIGHT', note: 'Most common' },
+          { text: 'BUD LIGHT LIME', note: 'Flavour variant' },
+          { text: 'BUD LIGHT DOUBLE LIME', note: 'Common' },
+          { text: 'BUD LIGHT SELTZER', note: '+ flavours like mango, cherry' },
+          { text: 'BUD LIGHT CHELADA', note: 'Clamato mix' },
+          { text: 'BUD LIGHT APPLE', note: 'Flavour variant' },
+          { text: 'BUD LIGHT STRAWBERRY LEMONADE', note: 'Common' },
+        ]} />
+
+        <PatternCard title="Short forms & store codes" items={[
+          { text: 'BUD LT', note: 'Couche-Tard, Beer Store' },
+          { text: 'BL TALL CAN 6X', note: 'Beer Store uses "BL"' },
+          { text: 'BUD DBL LIME', note: 'Calgary Co-op' },
+          { text: 'LABATT - BUD LIGHT', note: 'BC Liquor' },
+          { text: 'BUDLIGHT', note: 'No space, small stores' },
+        ]} />
+
+        <PatternCard title="French receipts (Quebec)" items={[
+          { text: 'BUD LIGHT BIERE', note: 'Super C, "beer" in French' },
+          { text: 'BUDLIG.BIERE CAN', note: 'Metro QC, shortened' },
+          { text: 'BUDLISELT.EAU P.', note: 'Metro QC seltzer' },
+        ]} />
+
+        <PatternCard title="Misprints (faded/thermal)" items={[
+          { text: 'BUD LIOT', note: 'LCBO printers sometimes garble letters' },
+          { text: 'BJD LIGHT', note: 'U printed as J' },
+          { text: 'BUD L1AT', note: 'I printed as 1' },
+        ]} />
+
+        <PatternCard title="Bar & restaurant receipts" items={[
+          { text: 'DFT Bud Light', note: '"Draft" Bud Light' },
+          { text: 'Can Bud Light', note: 'Arena/bar format' },
+          { text: 'Bud Light (no code)', note: 'Just the name, no product code' },
+        ]} />
+
+        <PatternCard title="Pack sizes you might see" items={[
+          { text: '24UC, 30UC, 60UC', note: 'Beer Store, unit count' },
+          { text: '6TC, 12TC, 24TC', note: 'Beer Store, tall can' },
+          { text: '6X355, 12X473', note: 'LCBO, count x volume in mL' },
+          { text: '6 PK-C, 15 PK-C', note: 'LCBO, pack codes' },
+        ]} />
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', margin: '24px 0 12px' }}>
+        Stores we recognize (40+)
+      </h3>
+      <div className="table-scroll">
+        <table className="admin-table" style={{ fontSize: 12 }}>
+          <thead><tr><th>Province</th><th>Stores</th></tr></thead>
+          <tbody>
+            <StoreRow region="Ontario" stores="LCBO, Beer Store, Wine Rack, Loblaws, Superstore, Metro, Campus One Stop" />
+            <StoreRow region="Quebec" stores="SAQ, Couche-Tard, Metro, Super C, Maxi, Proxi, various depanneurs" />
+            <StoreRow region="Alberta" stores="Liquor Depot, ACE Liquor, Boss Liquor, Liquor House, Calgary Co-op, Safeway Liquor, Wine and Beyond" />
+            <StoreRow region="BC" stores="BC Liquor, UBC Liquor, Angry Otter, Great Canadian Liquor" />
+            <StoreRow region="SK" stores="Sherwood Co-op, Lake Country Co-op, Urban Cellars" />
+            <StoreRow region="NS / NB" stores="NSLC, NB Liquor" />
+            <StoreRow region="National" stores="Costco, Sobeys" />
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', margin: '24px 0 12px' }}>
+        These are NOT Bud Light
+      </h3>
+      <p className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
+        The system knows to skip these even if they appear on the same receipt:
+      </p>
+      <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+        <span className="pill pill-red">Budweiser</span>{' '}
+        <span className="pill pill-red">Michelob</span>{' '}
+        <span className="pill pill-red">White Claw</span>{' '}
+        <span className="pill pill-red">Smirnoff</span>{' '}
+        <span className="pill pill-red">Corona</span>{' '}
+        <span className="pill pill-red">Coors Seltzer</span>{' '}
+        <span className="pill pill-red">Cottage Springs</span>{' '}
+        <span className="pill pill-red">Palm Bay</span>{' '}
+        <span className="pill pill-red">Twisted Tea</span>{' '}
+        <span className="pill pill-red">SVNS Hard 7UP</span>
+      </div>
+    </>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 3: What gets flagged — tuned by Mirae from 400-receipt analysis
+   ═══════════════════════════════════════════════════════════════════ */
+function FlagsPanel() {
+  return (
+    <>
+      <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
+        The system automatically checks every receipt before you see it. If anything looks off, it gets sent to your <strong>Review</strong> queue instead of being auto-approved.
+      </p>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        What the system checks for
+      </h3>
+
+      <div className="table-scroll">
+        <table className="admin-table" style={{ fontSize: 13 }}>
+          <thead><tr><th>Check</th><th>What it means</th><th style={{ width: 80 }}>Priority</th></tr></thead>
+          <tbody>
+            <FlagRow name="Not a real receipt" desc="The image is something else (bus ticket, Uber ride, bank notification, pizza order, etc)." severity="High" />
+            <FlagRow name="Duplicate submission" desc="This exact same receipt (same store, date, and total) was already submitted." severity="High" />
+            <FlagRow name="Spending looks suspicious" desc="3+ receipts from this BAM are all very close to their balance limit, or they always shop at the exact same store." severity="High" />
+            <FlagRow name="Over their balance" desc="The receipt total is more than the BAM has available to spend." severity="Medium" />
+            <FlagRow name="Math doesn't add up" desc="The items + tax on the receipt don't match the total shown." severity="Medium" />
+            <FlagRow name="Unusual pricing" desc="A Bud Light item is priced below $2 or above $70, which is outside the normal range." severity="Medium" />
+            <FlagRow name="Tax rate looks wrong" desc="The tax percentage is outside what's normal for Canadian provinces (5–15%)." severity="Medium" />
+            <FlagRow name="No store name visible" desc="The receipt doesn't show which store it's from." severity="Medium" />
+            <FlagRow name="Might be a screenshot" desc="The image looks like a screenshot or edited image, not a photo taken with a camera." severity="Low" />
+          </tbody>
+        </table>
+      </div>
+
+
+    </>
+  )
+}
+
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   Shared components
+   ═══════════════════════════════════════════════════════════════════ */
+
+function StatusRow({ color, label, desc }: { color: string; label: string; desc: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      <strong>{label}</strong>
+      <span className="muted">{desc}</span>
+    </div>
+  )
+}
+
+function FlagRow({ name, desc, severity }: { name: string; desc: string; severity: string }) {
+  return (
+    <tr>
+      <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{name}</td>
+      <td>{desc}</td>
+      <td>
+        <span className={`pill ${severity === 'High' ? 'pill-red' : severity === 'Medium' ? 'pill-yellow' : 'pill-gray'}`}>
+          {severity}
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+function PatternCard({ title, items }: { title: string; items: { text: string; note: string }[] }) {
+  return (
+    <div className="pattern-card">
+      <h4>{title}</h4>
+      {items.map((item, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0', fontSize: 12 }}>
+          <code>{item.text}</code>
+          <span className="muted" style={{ fontSize: 11 }}>{item.note}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function StoreRow({ region, stores }: { region: string; stores: string }) {
+  return (
+    <tr>
+      <td style={{ fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{region}</td>
+      <td style={{ lineHeight: 1.7 }}>{stores}</td>
+    </tr>
+  )
+}

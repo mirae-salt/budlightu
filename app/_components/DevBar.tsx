@@ -9,6 +9,7 @@ import { usePathname } from 'next/navigation'
 
 const bamLinks: Array<[string, string]> = [
   ['/portal/login',      'Login'],
+  ['/portal/onboarding', 'Onboarding'],
   ['/portal/dashboard',  'Dashboard'],
   ['/portal/upload',     'Upload'],
   ['/portal/invoices',   'Invoices'],

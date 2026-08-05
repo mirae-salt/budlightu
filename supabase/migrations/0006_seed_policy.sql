@@ -5,15 +5,15 @@ insert into policy (key, value_json) values
   ('reimbursement_max_default',            '150'::jsonb),
   ('salary_school_year_default',           '218.75'::jsonb),
   ('salary_summer_default',                '250'::jsonb),
-  ('rollover_mode_default',                '"accumulate"'::jsonb),
+  ('rollover_mode_default',                '"forfeit"'::jsonb),
   ('cap_multiplier_default',               '1'::jsonb),
-  ('consecutive_shortfall_warn_at',        '3'::jsonb),
+  ('consecutive_shortfall_warn_at',        '2'::jsonb),
   ('first_cohort_all_review_default',      'true'::jsonb),
 
   -- OCR / audit
   ('auto_pass_min_overall_confidence',     '0.85'::jsonb),
   ('auto_pass_min_line_confidence',        '0.80'::jsonb),
-  ('review_band_padding_usd',              '10'::jsonb),
+  ('review_band_padding_cad',              '10'::jsonb),
   ('ocr_max_retry_attempts',               '3'::jsonb),
 
   -- send guardrails
@@ -29,7 +29,7 @@ insert into policy (key, value_json) values
   ('onboarding_soft_delete_days',          '30'::jsonb),
   ('onboarding_hard_purge_days',           '60'::jsonb),
 
-  -- PO default (⚠️ awaiting program manager confirmation — 250437 / 260814 / 260351)
-  ('default_po_number',                    '"250437"'::jsonb)
+  -- PO default (confirmed by Robin 7/15 — 260351; old candidates 250437/260814 retired)
+  ('default_po_number',                    '"260351"'::jsonb)
 
 on conflict (key) do update set value_json = excluded.value_json, updated_at = now();

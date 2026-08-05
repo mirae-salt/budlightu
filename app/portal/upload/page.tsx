@@ -1,37 +1,70 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 
 const MAX_MB = 10
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
-function buildMonthOptions(): { value: string; label: string; tag?: string }[] {
+const PROGRAM_START_MONTH = 8 // September (0-indexed)
+const PROGRAM_START_YEAR = 2026
+const PROGRAM_MONTHS = 8 // Sept through April
+
+function buildMonthOptions(): { value: string; label: string; tag?: string; isCurrent?: boolean }[] {
   const now = new Date()
-  const isDev = process.env.NODE_ENV === 'development'
   const deadlineDay = 15
-  const opts: { value: string; label: string; tag?: string }[] = []
-  const futureMonths = isDev ? 3 : 0
-  for (let offset = futureMonths; offset >= -3; offset--) {
-    const d = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+  const opts: { value: string; label: string; tag?: string; isCurrent?: boolean }[] = []
+
+  for (let i = 0; i < PROGRAM_MONTHS; i++) {
+    const month = (PROGRAM_START_MONTH + i) % 12
+    const year = PROGRAM_START_YEAR + Math.floor((PROGRAM_START_MONTH + i) / 12)
+    const d = new Date(year, month, 1)
     const value = d.toISOString().slice(0, 10)
     const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+    const isCurrent = now.getFullYear() === year && now.getMonth() === month
     let tag: string | undefined
-    if (offset > 0) tag = 'dev'
-    else if (offset < 0 || (offset === 0 && now.getDate() > deadlineDay)) tag = 'late'
-    opts.push({ value, label, tag })
+    if (isCurrent && now.getDate() > deadlineDay) tag = 'past deadline'
+    else if (d < new Date(now.getFullYear(), now.getMonth(), 1)) tag = 'late'
+    else if (d > new Date(now.getFullYear(), now.getMonth(), 1)) tag = 'upcoming'
+    opts.push({ value, label, tag, isCurrent })
   }
   return opts
 }
 
 export default function UploadPage() {
   const monthOptions = buildMonthOptions()
-  const [selectedPeriod, setSelectedPeriod] = useState(monthOptions[0].value)
+  const currentMonth = monthOptions.find(o => o.isCurrent) ?? monthOptions[0]
+  const pastMonths = monthOptions.slice(1)
+  const [selectedPeriod, setSelectedPeriod] = useState(currentMonth.value)
+  const [showPastMonths, setShowPastMonths] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const isLate = selectedPeriod !== currentMonth.value
+
+  type PastReceipt = { id: string; created_at: string; storage_mime: string; storage_bytes: number; status: string; bl_total: number | null }
+  const [pastReceipts, setPastReceipts] = useState<PastReceipt[]>([])
+  const [loadingReceipts, setLoadingReceipts] = useState(false)
+
+  const loadReceipts = useCallback(async (period: string) => {
+    setLoadingReceipts(true)
+    const sb = browserClient()
+    const { data: userRes } = await sb.auth.getUser()
+    if (!userRes.user) { setLoadingReceipts(false); return }
+    const bamId = (userRes.user.user_metadata as { bam_id?: string }).bam_id
+    if (!bamId) { setLoadingReceipts(false); return }
+    const { data } = await sb.from('receipts')
+      .select('id, created_at, storage_mime, storage_bytes, status, bl_total')
+      .eq('bam_id', bamId)
+      .eq('period', period)
+      .order('created_at', { ascending: false })
+    setPastReceipts(data ?? [])
+    setLoadingReceipts(false)
+  }, [])
+
+  useEffect(() => { loadReceipts(selectedPeriod) }, [selectedPeriod, loadReceipts])
 
   function validateAndSet(picked: File[]) {
     setErr(null)
@@ -97,6 +130,7 @@ export default function UploadPage() {
     setBusy(false)
     setFiles([])
     setMsg(`${files.length} receipt${files.length > 1 ? 's' : ''} submitted. You'll hear from your program manager if we need anything.`)
+    loadReceipts(selectedPeriod)
   }
 
   return (
@@ -105,21 +139,70 @@ export default function UploadPage() {
         <div className="crumbs"><span className="now">Upload receipts</span></div>
       </div>
 
-      <div style={{ maxWidth: 640 }}>
+      <div style={{ maxWidth: 680 }}>
         <p className="eyebrow">SUBMIT RECEIPTS</p>
         <h1>Upload this month&rsquo;s Bud Light receipts</h1>
         <p className="subtle">Multiple receipts OK. JPG, PNG, WebP, or PDF. Under {MAX_MB}&nbsp;MB each.</p>
 
         <div className="surface stack" style={{ marginTop: 20 }}>
-          <div className="field">
-            <label>Receipt month</label>
-            <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)}>
-              {monthOptions.map(o => (
-                <option key={o.value} value={o.value}>
-                  {o.label}{o.tag ? ` (${o.tag})` : ''}
-                </option>
-              ))}
-            </select>
+          <div>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px', background: 'var(--bl-fog)', borderRadius: 8
+            }}>
+              <div>
+                <span className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Submitting for
+                </span>
+                <div style={{ fontWeight: 700, fontSize: 15, marginTop: 1 }}>
+                  {monthOptions.find(o => o.value === selectedPeriod)?.label}
+                  {isLate && <span style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 500, marginLeft: 8 }}>late</span>}
+                </div>
+              </div>
+              {!showPastMonths ? (
+                <button
+                  type="button"
+                  style={{
+                    fontSize: 12, padding: '6px 14px',
+                    background: 'var(--bl-blue)', color: '#fff',
+                    border: 'none', borderRadius: 6, cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                  onClick={() => setShowPastMonths(true)}
+                >
+                  Different month?
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ fontSize: 12, padding: '6px 14px' }}
+                  onClick={() => { setSelectedPeriod(currentMonth.value); setShowPastMonths(false) }}
+                >
+                  Back to {currentMonth.label.split(' ')[0]}
+                </button>
+              )}
+            </div>
+            {showPastMonths && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                {pastMonths.map(o => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    className={selectedPeriod === o.value ? 'btn-navy' : 'btn-ghost'}
+                    style={{ fontSize: 12, padding: '6px 14px', flex: 1 }}
+                    onClick={() => setSelectedPeriod(o.value)}
+                  >
+                    {o.label.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {isLate && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                Late submissions are accepted but may delay your reimbursement.
+              </p>
+            )}
           </div>
 
           <div
@@ -146,7 +229,7 @@ export default function UploadPage() {
               Drop receipts here or <span style={{ color: 'var(--bl-blue)', textDecoration: 'underline' }}>browse</span>
             </p>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-              JPG, PNG, WebP, or PDF — up to {MAX_MB} MB each
+              JPG, PNG, WebP, or PDF. Up to {MAX_MB} MB each
             </p>
           </div>
 
@@ -171,14 +254,100 @@ export default function UploadPage() {
             </div>
           )}
 
-          <button onClick={submit} disabled={busy || files.length === 0}>
-            {busy ? 'Submitting…' : `Submit ${files.length || ''} receipt${files.length === 1 ? '' : 's'}`}
+          <button
+            onClick={submit}
+            disabled={busy || files.length === 0}
+            style={{
+              padding: '14px 24px', fontSize: 15, fontWeight: 700,
+              ...(files.length > 0 ? { background: 'var(--bl-blue)', transform: 'scale(1)' } : {})
+            }}
+          >
+            {busy ? 'Submitting…' : files.length > 0
+              ? `Submit ${files.length} receipt${files.length === 1 ? '' : 's'}`
+              : 'Select receipts to submit'}
           </button>
         </div>
 
         {err && <p style={{ color: '#A31212', marginTop: 16 }}>{err}</p>}
         {msg && <p style={{ color: 'var(--green)', marginTop: 16 }}>{msg}</p>}
 
+        {/* Submitted receipts for this month */}
+        {pastReceipts.length > 0 && (
+          <div className="surface" style={{ marginTop: 20 }}>
+            <div className="surface-header">
+              <span className="surface-title">Your receipts this month ({pastReceipts.length})</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {pastReceipts.map(r => {
+                const statusColor: Record<string, string> = {
+                  pending: 'var(--amber)', processing: 'var(--amber)',
+                  approved: 'var(--green)', auto_pass: 'var(--green)',
+                  review: '#D97706', rejected: '#A31212', ocr_failed: '#A31212'
+                }
+                const statusLabel: Record<string, string> = {
+                  pending: 'Processing', processing: 'Processing',
+                  approved: 'Approved', auto_pass: 'Approved',
+                  review: 'Under review', rejected: 'Not accepted', ocr_failed: 'Processing error'
+                }
+                return (
+                  <div key={r.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', background: 'var(--bl-fog)', borderRadius: 8, fontSize: 13
+                  }}>
+                    <span style={{ fontSize: 16, flexShrink: 0 }}>{r.storage_mime === 'application/pdf' ? '\u{1F4C4}' : '\u{1F4F8}'}</span>
+                    <span className="muted" style={{ flex: 1 }}>
+                      {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                    {r.bl_total != null && <span style={{ fontWeight: 600, fontSize: 12 }}>${r.bl_total.toFixed(2)}</span>}
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                      background: (statusColor[r.status] ?? 'var(--midgray)') + '1a',
+                      color: statusColor[r.status] ?? 'var(--midgray)'
+                    }}>
+                      {statusLabel[r.status] ?? r.status}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            {pastReceipts.some(r => r.bl_total != null) && (
+              <div style={{ marginTop: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600 }}>
+                <span>BL total this month</span>
+                <span style={{ color: pastReceipts.reduce((s, r) => s + (r.bl_total ?? 0), 0) >= 150 ? 'var(--green)' : 'var(--amber)' }}>
+                  ${pastReceipts.reduce((s, r) => s + (r.bl_total ?? 0), 0).toFixed(2)} / $150
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+        {loadingReceipts && pastReceipts.length === 0 && <p className="muted" style={{ marginTop: 16, fontSize: 13 }}>Loading your receipts...</p>}
+
+        <div className="surface" style={{ marginTop: 20 }}>
+          <div className="surface-header"><span className="surface-title">Receipt checklist</span></div>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { icon: '🏷️', title: 'Label by month', desc: 'Name your file with the month it\'s for (e.g. "October receipt").' },
+              { icon: '🍺', title: 'Bud Light products only', desc: 'Only Bud Light purchases count toward your $150 reimbursement.' },
+              { icon: '✨', title: 'Mixed receipt? Highlight BL items', desc: 'If your receipt has non-BL items, circle or highlight the Bud Light products before uploading.' },
+              { icon: '📸', title: 'Clear, readable photos', desc: 'Make sure the store name, date, items, and total are all legible. No blurry or cropped images.' },
+              { icon: '💰', title: 'Purchase $150 worth per month', desc: 'Aim for $150 (tax included). Under ~$140 may be flagged for review.' },
+              { icon: '📅', title: 'Submit by the 15th', desc: 'Receipts are due by the 15th of each month. Late submissions may delay reimbursement.' },
+            ].map((item, i) => (
+              <li key={i} style={{
+                display: 'flex', gap: 12, alignItems: 'flex-start',
+                padding: '10px 14px', background: 'var(--bl-fog)', borderRadius: 8
+              }}>
+                <span style={{ fontSize: 20, lineHeight: '24px', flexShrink: 0 }}>{item.icon}</span>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--bl-navy)' }}>{item.title}</div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{item.desc}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Steps confirmed in 8/4 meeting with Robin/Nathan */}
         <div className="surface" style={{ marginTop: 20 }}>
           <div className="surface-header"><span className="surface-title">What happens next</span></div>
           <ol className="stack subtle" style={{ margin: 0, paddingLeft: 20 }}>

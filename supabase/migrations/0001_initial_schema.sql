@@ -14,7 +14,7 @@ create table cohorts (
   po_number                   text,                          -- must be set before first send
   salary_default              numeric(10,2) not null,        -- 218.75 school year / 250 summer
   reimbursement_max           numeric(10,2) not null default 150,
-  rollover_mode               text not null default 'accumulate'
+  rollover_mode               text not null default 'forfeit'
                               check (rollover_mode in ('accumulate','forfeit')),
   cap_multiplier              int not null default 1,
   send_mode                   text not null default 'dryrun'

@@ -18,7 +18,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </svg>
           </button>
           <div className="admin-mobile-brand">
-            <img src="/brand/download-removebg-preview.png" alt="Bud Light U" style={{ height: 28 }} />
+            <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ height: 28 }} />
             <span>U · Admin</span>
           </div>
         </div>

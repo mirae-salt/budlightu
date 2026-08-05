@@ -54,8 +54,9 @@ export async function handler(req: { invoice_id: string }) {
   const driveId = (await driveResp.json()).id
 
   // Upload — path-based endpoint auto-creates missing folders
-  const targetPath = `${DRIVE_PATH_ROOT}/${cohortSlug}/${yyyy}-${mm}/${filename}`
-  const uploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodeURIComponent(targetPath)}:/content`
+  const targetPath = [DRIVE_PATH_ROOT, cohortSlug, `${yyyy}-${mm}`, filename]
+    .map(seg => encodeURIComponent(seg)).join('/')
+  const uploadUrl = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${targetPath}:/content`
 
   const upResp = await fetch(uploadUrl, {
     method: 'PUT',

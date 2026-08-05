@@ -49,13 +49,13 @@ export async function handler(req: { period?: string } = {}) {
 
       const priorLedger = (prior ?? []).map(p => ({
         period: p.period,
-        entitlementUsd: Number(p.entitlement_usd),
-        spentUsd: Number(p.spent_usd),
-        carryoverInUsd: Number(p.carryover_in_usd),
-        carryoverOutUsd: Number(p.carryover_out_usd),
-        paidUsd: Number(p.paid_usd),
-        spendableCapUsd: Number(p.spendable_cap_usd),
-        capSnapshotUsd: Number(p.cap_snapshot_usd),
+        entitlementCad: Number(p.entitlement_cad),
+        spentCad: Number(p.spent_cad),
+        carryoverInCad: Number(p.carryover_in_cad),
+        carryoverOutCad: Number(p.carryover_out_cad),
+        paidCad: Number(p.paid_cad),
+        spendableCapCad: Number(p.spendable_cap_cad),
+        capSnapshotCad: Number(p.cap_snapshot_cad),
         shortfallFlag: p.shortfall_flag,
         policyVersion: p.policy_version
       }))
@@ -80,13 +80,13 @@ export async function handler(req: { period?: string } = {}) {
 
       await db.from('reimbursement_ledger').upsert({
         bam_id: bam.id, cohort_id: cohort.id, period,
-        entitlement_usd:      out.entitlement,
-        spent_usd:            receiptsTotal,
-        carryover_in_usd:     out.carryoverIn,
-        carryover_out_usd:    out.carryoverOut,
-        paid_usd:             out.paidThisMonth,
-        spendable_cap_usd:    out.spendableCap,
-        cap_snapshot_usd:     out.capSnapshot,
+        entitlement_cad:      out.entitlement,
+        spent_cad:            receiptsTotal,
+        carryover_in_cad:     out.carryoverIn,
+        carryover_out_cad:    out.carryoverOut,
+        paid_cad:             out.paidThisMonth,
+        spendable_cap_cad:    out.spendableCap,
+        cap_snapshot_cad:     out.capSnapshot,
         shortfall_flag:       out.shortfallFlag,
         policy_version:       policy.policyVersion,
         created_by:           'system'
