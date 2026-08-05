@@ -19,7 +19,7 @@
     "@supabase/ssr": "^0.5.0",
     "@supabase/supabase-js": "^2.45.0",
     "jszip": "^3.10.1",
-    "next": "15.0.3",
+    "next": "^15.5.22",
     "nodemailer": "^9.0.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
