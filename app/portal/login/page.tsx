@@ -353,7 +353,8 @@ export default function LoginPage() {
                   </div>
                   <p style={{ margin: 0 }}>
                     Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
-                    Outlook Safe Senders (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
+                    Outlook Safe Senders so sign-in codes and onboarding emails arrive
+                    (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
                   </p>
                 </div>
               </>
@@ -417,7 +418,8 @@ export default function LoginPage() {
                   </div>
                   <p style={{ margin: 0 }}>
                     Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
-                    Outlook Safe Senders (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
+                    Outlook Safe Senders so sign-in codes and onboarding emails arrive
+                    (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
                   </p>
                 </div>
               </>

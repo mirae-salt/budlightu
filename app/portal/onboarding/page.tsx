@@ -145,7 +145,8 @@ export default function OnboardingPage() {
         }}>
           <strong style={{ color: '#b45309' }}>Using Outlook?</strong>{' '}
           Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
-          Safe Senders (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
+          Outlook Safe Senders so sign-in codes and onboarding emails arrive
+          (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
         </div>
 
         <div className="stack" style={{ marginTop: 20 }}>

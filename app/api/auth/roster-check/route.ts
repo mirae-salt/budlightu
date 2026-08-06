@@ -34,22 +34,34 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Create auth user if this BAM doesn't have one yet (first-time flow)
+  // Create or find auth user if this BAM doesn't have one yet (first-time flow)
   if (!bam.auth_user_id) {
+    let authUserId: string | null = null
+
     const { data: authUser, error: authErr } = await db.auth.admin.createUser({
       email: normEmail,
       email_confirm: true,
       user_metadata: { role: 'bam', bam_id: bam.id }
     })
 
-    if (authErr || !authUser?.user) {
+    if (authUser?.user) {
+      authUserId = authUser.user.id
+    } else if (authErr?.message?.toLowerCase().includes('already') || authErr?.status === 422) {
+      // Auth user already exists (prior attempt or token-based onboarding) — find and link
+      const { data: { users } } = await db.auth.admin.listUsers({ perPage: 500 })
+      const existing = users?.find((u: { email?: string }) => u.email?.toLowerCase() === normEmail)
+      if (existing) authUserId = existing.id
+    }
+
+    if (!authUserId) {
+      console.error('roster-check auth setup failed:', authErr?.message)
       return NextResponse.json(
         { ok: false, message: 'Failed to set up your account. Please try again or contact your program manager.' },
         { status: 500 }
       )
     }
 
-    await db.from('bams').update({ auth_user_id: authUser.user.id }).eq('id', bam.id)
+    await db.from('bams').update({ auth_user_id: authUserId }).eq('id', bam.id)
   }
 
   return NextResponse.json({ ok: true })
