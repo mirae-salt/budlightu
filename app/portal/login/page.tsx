@@ -363,11 +363,8 @@ export default function LoginPage() {
             {phase === 'otp' && (
               <>
                 <h1>Enter your code</h1>
-                <div className="login-subtitle">Check your inbox for the 6-digit code.</div>
+                <div className="login-subtitle">We sent a 6-digit code to <strong>{email}</strong></div>
 
-                <div className="otp-sent">
-                  Sent to <strong>{email}</strong>
-                </div>
                 <div className="otp-grid" onPaste={handleOtpPaste}>
                   {otp.map((d, i) => (
                     <input
@@ -399,15 +396,34 @@ export default function LoginPage() {
                     {busy ? 'Sending...' : 'Resend code'}
                   </button>
                 </div>
+
                 <div style={{
                   marginTop: 16, padding: '12px 14px', borderRadius: 10,
-                  background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.15)',
+                  background: 'rgba(58,173,217,0.06)', border: '1px solid rgba(58,173,217,0.12)',
+                  fontSize: 13, lineHeight: 1.6, color: 'var(--bl-navy)'
+                }}>
+                  <strong>Not seeing the code?</strong> Check your spam or junk folder.
+                </div>
+
+                <div style={{
+                  marginTop: 8, padding: '12px 14px', borderRadius: 10,
+                  background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)',
                   fontSize: 12.5, lineHeight: 1.6, color: '#92400e'
                 }}>
-                  <strong style={{ color: '#b45309' }}>Not seeing the code?</strong> Check your spam or junk folder.
-                  Corporate email (Outlook, Microsoft 365) may quarantine it.
-                  Add <strong>noreply@budlightu.com</strong> to Safe Senders:
-                  Outlook Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders.
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    <strong style={{ color: '#b45309' }}>Corporate email (Outlook / Microsoft 365)</strong>
+                  </div>
+                  <p style={{ margin: 0 }}>
+                    Your mail server may quarantine emails from new senders.
+                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to your Safe Senders list
+                    so codes arrive in your inbox.
+                  </p>
+                  <p style={{ margin: '6px 0 0', fontSize: 12, color: '#a16207' }}>
+                    Outlook Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders
+                  </p>
                 </div>
               </>
             )}

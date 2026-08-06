@@ -216,53 +216,16 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView }: {
                         </div>
                       ))}
                     </div>
-                    {((b.warningCount ?? 0) > 0 || b.utilization < 85) && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--midgray)' }}>
-                        {(b.warningCount ?? 0) > 0 && (
-                          <span style={{
-                            padding: '2px 8px', borderRadius: 4, fontWeight: 600,
-                            background: b.needsReevaluation ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
-                            color: b.needsReevaluation ? '#DC2626' : '#D97706',
-                          }}>
-                            {b.warningCount} warning{(b.warningCount ?? 0) !== 1 ? 's' : ''} ({b.warningsSent ?? 0} sent)
-                            {b.needsReevaluation && ' · reevaluate'}
-                          </span>
-                        )}
-                        <button
-                          className="btn-navy"
-                          style={{ fontSize: 11, padding: '3px 10px' }}
-                          onClick={async e => {
-                            e.stopPropagation()
-                            const lowestMonth = months.reduce((min, [m, v]) => v < (min[1] as number) ? [m, v] : min, months[0])
-                            const btn = e.currentTarget
-                            btn.disabled = true
-                            btn.textContent = 'Sending...'
-                            try {
-                              const res = await fetch('/api/admin/warnings', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  bam_id: b.bam_id, cohort_id: b.cohort_id,
-                                  period: lowestMonth[0], spent: lowestMonth[1], action: 'flag'
-                                })
-                              })
-                              const data = await res.json()
-                              if (data.ok) {
-                                btn.textContent = data.skipped ? 'Already flagged' : 'Robin notified'
-                                btn.style.background = 'var(--green, #22c55e)'
-                              } else {
-                                btn.textContent = data.message || 'Failed'
-                                btn.style.background = 'var(--red, #ef4444)'
-                              }
-                            } catch {
-                              btn.textContent = 'Network error'
-                              btn.style.background = 'var(--red, #ef4444)'
-                            }
-                            setTimeout(() => { btn.disabled = false; btn.textContent = 'Flag & notify Robin'; btn.style.background = '' }, 3000)
-                          }}
-                        >
-                          Flag & notify Robin
-                        </button>
+                    {(b.warningCount ?? 0) > 0 && (
+                      <div style={{ fontSize: 12, marginTop: 4 }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: 4, fontWeight: 600,
+                          background: b.needsReevaluation ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+                          color: b.needsReevaluation ? '#DC2626' : '#D97706',
+                        }}>
+                          {b.warningCount} warning{(b.warningCount ?? 0) !== 1 ? 's' : ''} ({b.warningsSent ?? 0} sent)
+                          {b.needsReevaluation && ' · reevaluate'}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -327,12 +290,11 @@ function ReceiptStatusSummary({ breakdown }: { breakdown: ReceiptBreakdown }) {
 
 function BarChartPlaceholder({ data }: { data?: Record<string, number> }) {
   const entries = data ? Object.entries(data).sort(([a], [b]) => a.localeCompare(b)).slice(-12) : []
-  const hasReal = entries.length > 0
-  const fallback = [12, 18, 24, 16, 22, 30, 26, 34, 28, 38, 42, 36]
-  const bars = hasReal ? entries.map(([, v]) => v) : fallback
-  const labels = hasReal
-    ? entries.map(([m]) => new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short' }))
-    : null
+  if (entries.length === 0) {
+    return <div className="muted" style={{ fontSize: 13, padding: '20px 0' }}>No invoice data yet</div>
+  }
+  const bars = entries.map(([, v]) => v)
+  const labels = entries.map(([m]) => new Date(m + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short' }))
   const max = Math.max(...bars, 1)
   return (
     <div>
@@ -351,11 +313,9 @@ function BarChartPlaceholder({ data }: { data?: Record<string, number> }) {
           />
         ))}
       </div>
-      {labels && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--midgray)', marginTop: 4 }}>
-          {labels.map((l, i) => <span key={i}>{l}</span>)}
-        </div>
-      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--midgray)', marginTop: 4 }}>
+        {labels.map((l, i) => <span key={i}>{l}</span>)}
+      </div>
     </div>
   )
 }
@@ -366,7 +326,6 @@ export default function AdminDashboard() {
     reviewQueue: 0, budgetUsed: '$0 / $0', invoicesSent: 0, pendingOnboarding: 0,
     budgetPct: 0
   })
-  const [chartTab, setChartTab] = useState('30 Days')
   const [reimbByMonth, setReimbByMonth] = useState<Record<string, number>>({})
   const [invoicesByMonth, setInvoicesByMonth] = useState<Record<string, number>>({})
   const [receiptBreakdown, setReceiptBreakdown] = useState<ReceiptBreakdown>({})
@@ -430,15 +389,8 @@ export default function AdminDashboard() {
 
       <div className="surface">
         <div className="surface-header">
-          <div className="chart-headline">Monthly reimbursement <span className="badge-blue badge">accumulate</span></div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div className="chart-tabs">
-              {['Today', '7 Days', '30 Days', '12 Months', 'All Time'].map(t => (
-                <button key={t} className={`chart-tab${chartTab === t ? ' active' : ''}`} onClick={() => setChartTab(t)}>{t}</button>
-              ))}
-            </div>
-            <button className="btn-ghost" style={{ padding: '7px 12px' }} onClick={() => window.location.reload()}>Refresh</button>
-          </div>
+          <div className="chart-headline">Monthly reimbursement</div>
+          <button className="btn-ghost" style={{ padding: '7px 12px', fontSize: 12 }} onClick={() => window.location.reload()}>Refresh</button>
         </div>
 
         <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--bl-navy)', letterSpacing: '-0.02em', marginBottom: 4 }}>

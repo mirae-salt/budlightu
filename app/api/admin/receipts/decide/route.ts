@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
   }
 
   let softFloorBreach = false
+  let totalSpentThisPeriod = 0
 
   if (decision === 'approved' && receipt.bud_light_total_incl_tax != null) {
     const { data: cohort } = await admin.from('cohorts')
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
       .eq('bam_id', receipt.bam_id).eq('period', receipt.period)
       .in('status', ['approved', 'auto_pass'])
     const receiptsTotal = (monthReceipts ?? []).reduce((s, r) => s + Number(r.bud_light_total_incl_tax ?? 0), 0)
+    totalSpentThisPeriod = receiptsTotal
 
     const { data: prior } = await admin.from('reimbursement_ledger')
       .select('*').eq('bam_id', receipt.bam_id).lt('period', receipt.period)
@@ -151,13 +153,36 @@ export async function POST(req: NextRequest) {
     }, { onConflict: 'bam_id,cohort_id,period' })
   }
 
+  // Auto-upsert draft invoice when approving (fire-and-forget)
+  if (decision === 'approved') {
+    import('@/lib/draft-invoice').then(({ upsertDraftInvoice }) =>
+      upsertDraftInvoice(admin, receipt.bam_id, receipt.cohort_id, receipt.period)
+    ).catch(e => console.error('[decide] draft invoice upsert failed:', e))
+  }
+
   // Trigger shortfall warning if approved but below soft floor
   if (decision === 'approved' && softFloorBreach) {
     const baseUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const warnHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+
+    // 1. Email the BAM about underspending
     fetch(`${baseUrl}/api/admin/receipts/shortfall-warning`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: warnHeaders,
       body: JSON.stringify({ receipt_id })
+    }).catch(() => {})
+
+    // 2. Auto-flag Robin (creates bam_warnings record + emails Robin)
+    fetch(`${baseUrl}/api/admin/warnings`, {
+      method: 'POST',
+      headers: warnHeaders,
+      body: JSON.stringify({
+        bam_id: receipt.bam_id,
+        cohort_id: receipt.cohort_id,
+        period: receipt.period,
+        spent: totalSpentThisPeriod,
+        action: 'flag'
+      })
     }).catch(() => {})
   }
 

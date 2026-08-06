@@ -113,19 +113,26 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
 
   // Render PDF from payload_json (or download from storage if pre-rendered).
-  let attachments: Array<{ filename: string; content: Buffer }> | undefined
+  // AP requires 1 PDF per email — hard-block if we can't produce the attachment.
+  let attachments: Array<{ filename: string; content: Buffer }>
   if (inv.payload_json && typeof inv.payload_json === 'object' && 'invoiceNumber' in (inv.payload_json as object)) {
     try {
       const pdfBuffer = await renderInvoicePdfToBuffer(inv.payload_json as unknown as InvoicePayload)
       attachments = [{ filename, content: pdfBuffer }]
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
       console.error(`PDF render failed for ${invoiceId}:`, e)
+      return { invoice_id: invoiceId, ok: false, error: `PDF render failed: ${msg}` }
     }
   } else if (inv.pdf_key) {
     const { data: pdfFile } = await admin.storage.from('invoices').download(inv.pdf_key)
     if (pdfFile) {
       attachments = [{ filename, content: Buffer.from(await pdfFile.arrayBuffer()) }]
+    } else {
+      return { invoice_id: invoiceId, ok: false, error: 'PDF download from storage failed' }
     }
+  } else {
+    return { invoice_id: invoiceId, ok: false, error: 'No payload_json or pdf_key — cannot generate PDF attachment' }
   }
 
   const html = textToEmailHtml(bodyText, {
@@ -133,8 +140,7 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
     bamName: `${bam.first_name} ${bam.last_name}`,
     month: monthLong,
     poNumber: cohort.po_number,
-    programLabel: cohort.program_label,
-    attached: Boolean(attachments)
+    programLabel: cohort.program_label
   })
 
   const actualTo = testEmail || AP_TO
@@ -177,7 +183,7 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
 
 function textToEmailHtml(
   bodyText: string,
-  meta: { invoiceNumber: string; bamName: string; month: string; poNumber: string; programLabel: string; attached: boolean }
+  meta: { invoiceNumber: string; bamName: string; month: string; poNumber: string; programLabel: string }
 ): string {
   const paragraphs = bodyText
     .split('\n')
@@ -193,7 +199,7 @@ function textToEmailHtml(
       <tr><td style="padding: 2px 8px 2px 0;">Period</td><td>${meta.month}</td></tr>
       <tr><td style="padding: 2px 8px 2px 0;">Program</td><td>${meta.programLabel}</td></tr>
       <tr><td style="padding: 2px 8px 2px 0;">PO#</td><td>${meta.poNumber}</td></tr>
-      <tr><td style="padding: 2px 8px 2px 0;">PDF attached</td><td>${meta.attached ? 'Yes' : 'Not yet rendered — details above'}</td></tr>
+      <tr><td style="padding: 2px 8px 2px 0;">PDF attached</td><td>Yes</td></tr>
     </table>
   </div>`
 }
