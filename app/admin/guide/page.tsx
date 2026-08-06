@@ -32,6 +32,7 @@ function TabNav() {
     { id: 'patterns', label: 'What counts as BL' },
     { id: 'flags', label: 'What gets flagged' },
     { id: 'emails', label: 'Emails & alerts' },
+    { id: 'admin-actions', label: 'Admin actions' },
   ] as const
   const [active, setActive] = useState<string>('open')
 
@@ -81,6 +82,7 @@ function TabNav() {
       {active === 'patterns' && <PatternsPanel />}
       {active === 'flags' && <FlagsPanel />}
       {active === 'emails' && <EmailsPanel />}
+      {active === 'admin-actions' && <AdminActionsPanel />}
 
 
       {/* b·m·l */}
@@ -352,17 +354,21 @@ function FlowPanel() {
       <div className="step-box">
         <div className="step-header">
           <span className="step-num">6</span>
-          <span className="step-title">Generate invoices</span>
-          <span className="badge badge-yellow">Your action</span>
+          <span className="step-title">Invoices auto-generate on the 16th</span>
         </div>
         <p style={{ fontSize: 14, lineHeight: 1.7 }}>
-          When you&apos;re ready (usually around the 16th), go to the <strong>Invoices</strong> page and press <strong>Generate Invoices</strong>. The system pulls each BAM&apos;s info from the roster (name, bank details, salary, reimbursement amount) and creates all invoices at once.
+          On the <strong>16th of each month</strong>, invoices are automatically generated for every active BAM.
+          The system pulls each BAM&apos;s info from the roster (name, bank details, salary, reimbursement amount) and creates all invoices at once.
         </p>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Invoice numbers, bank codes, amounts: everything is filled in automatically. A PDF is generated for each BAM.
+          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Invoice numbers, bank codes, amounts, and PDFs are all generated without any action needed.
         </div>
-        <div className="info-box info-you">
-          <strong style={{ color: 'var(--red, #ef4444)' }}>Your action:</strong> Review any flagged invoices, make corrections if needed, then hit <strong>Batch Approve</strong>.
+        <div className="info-box info-note" style={{ marginTop: 8 }}>
+          <strong>Manual preview:</strong> You can click <strong>PDF</strong> on any invoice to preview or download it at any time. This is just a preview and does not send anything.
+        </div>
+        <div className="info-box info-you" style={{ marginTop: 8 }}>
+          <strong style={{ color: 'var(--red, #ef4444)' }}>Your action:</strong> Review the generated invoices, then select the ones you want to send and hit <strong>Approve selected</strong>.
+          See the <em>Admin actions</em> tab for what each button does.
         </div>
       </div>
 
@@ -642,6 +648,128 @@ function FlagsPanel() {
 }
 
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB 6: Admin actions — what each button does + reversibility
+   ═══════════════════════════════════════════════════════════════════ */
+function AdminActionsPanel() {
+  return (
+    <>
+      <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20, color: 'var(--text)' }}>
+        What each admin action does, whether it can be undone, and when to use it.
+      </p>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        Invoice page buttons
+      </h3>
+      <div className="table-scroll" style={{ marginBottom: 24 }}>
+        <table className="admin-table" style={{ fontSize: 13 }}>
+          <thead>
+            <tr><th>Button</th><th>What happens</th><th>Reversible?</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>PDF</td>
+              <td>Preview the invoice as a PDF in your browser. You can also download it. <strong>Nothing is saved or sent.</strong></td>
+              <td><span className="pill pill-green">Safe</span> No side effects</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Send AP</td>
+              <td>Sends the invoice PDF to accounts.payable@ilovesalt.com with CC to Robin, Nathan, and the BAM. Records the send in the database so it can&apos;t be sent twice.</td>
+              <td><span className="pill pill-red">No</span> Email is already delivered. You can void the invoice, but AP has the email.</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Approve selected</td>
+              <td>Marks selected draft invoices as approved, then sends each one to AP + archives to SharePoint + sends BAM copy. Same as clicking &quot;Send AP&quot; on each one.</td>
+              <td><span className="pill pill-red">No</span> All emails go out immediately. Void individual invoices after if needed.</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>✕ (Void)</td>
+              <td>Marks the invoice as voided. A cancellation email draft is auto-generated for you to review and send to AP manually.</td>
+              <td><span className="pill pill-yellow">Partial</span> The invoice is flagged, but if AP already processed it, you need to contact them.</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>CSV</td>
+              <td>Downloads the current invoice list as a spreadsheet. No database changes.</td>
+              <td><span className="pill pill-green">Safe</span></td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Download ZIP</td>
+              <td>Downloads all invoice PDFs as a single zip file. No database changes.</td>
+              <td><span className="pill pill-green">Safe</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="info-box info-you" style={{ marginBottom: 24 }}>
+        <strong style={{ color: 'var(--red, #ef4444)' }}>Before going live:</strong> Make sure the cohort&apos;s send mode is set to <strong>dryrun</strong> for your first test cycle.
+        In dryrun mode, &quot;Send AP&quot; still works but sends a test email to your address, not the real AP inbox.
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        Pending BAMs (onboarding)
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+        <div style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 6 }}>Why is a BAM &quot;pending&quot;?</p>
+          <p style={{ fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+            A BAM shows as pending when they have been invited but have not completed the onboarding form yet.
+            Once they open their invite link and submit their personal info + banking details, they automatically become &quot;active&quot;.
+          </p>
+        </div>
+
+        <div style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 6 }}>What can you do about it?</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, lineHeight: 1.6 }}>
+            <div><span className="pill pill-blue">Option 1</span> Wait. They may just need more time. Check the Dashboard to see the count.</div>
+            <div><span className="pill pill-blue">Option 2</span> Re-send the invite email from the Roster page (select the BAM, click re-invite).</div>
+            <div><span className="pill pill-blue">Option 3</span> If they should no longer be in the program, change their status to &quot;archived&quot; in the Roster page edit view.</div>
+          </div>
+        </div>
+
+        <div style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 6 }}>How does removal work?</p>
+          <p style={{ fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+            There is no hard delete. Changing a BAM&apos;s status to <strong>archived</strong> removes them from the active count, stops invoice generation for them, and hides them from the default roster view.
+            Their records are kept for audit purposes.
+          </p>
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 12 }}>
+        Monthly timeline
+      </h3>
+      <div className="table-scroll">
+        <table className="admin-table" style={{ fontSize: 13 }}>
+          <thead><tr><th>Day</th><th>What happens</th><th>Who</th></tr></thead>
+          <tbody>
+            <tr>
+              <td style={{ fontWeight: 700 }}>1st - 14th</td>
+              <td>BAMs upload receipts for the current month</td>
+              <td><span className="pill pill-gray">BAMs</span></td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700 }}>15th</td>
+              <td>Receipt deadline. You review anything in the review queue.</td>
+              <td><span className="pill pill-yellow">You</span></td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700 }}>16th</td>
+              <td><strong>Invoices auto-generate.</strong> Review the batch, then approve and send.</td>
+              <td><span className="pill pill-yellow">You</span></td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700 }}>16th+</td>
+              <td>AP receives invoices, processes payment (net 15, direct deposit).</td>
+              <td><span className="pill pill-gray">AP</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    Shared components

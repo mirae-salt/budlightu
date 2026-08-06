@@ -308,10 +308,10 @@ export default function InvoiceBatch() {
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           {day < deadlineDay
-            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Receipt deadline {deadlineDay}th ({daysLeft}d left) · Invoices generate on {generateDay}th</>
+            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Receipt deadline {deadlineDay}th ({daysLeft}d left) · <strong>Auto-generate on {generateDay}th</strong></>
             : day <= generateDay
-            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Deadline passed · Ready to generate</>
-            : <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Generation window open</>}
+            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Deadline passed · <strong>Auto-generate today</strong></>
+            : <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Invoices generated · Review and approve</>}
         </div>
 
         <div className="surface-header">
@@ -498,7 +498,7 @@ export default function InvoiceBatch() {
               <tr>
                 <td colSpan={7}>
                   <div className="empty-state" style={{ padding: '28px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
-                    No invoices yet. Generated on the 16th after receipt review.
+                    No invoices yet. <strong>Auto-generated on the 16th</strong> after receipt review.
                   </div>
                 </td>
               </tr>
