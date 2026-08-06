@@ -58,11 +58,23 @@ Task:
    - "Bud Light Light Beer Cans" (Instacart/Uber Eats)
    - "Double Lime" alone on a liquor-store receipt (Safeway may drop "Bud Light" prefix)
 
+   BEER STORE DISCOUNT/PROMO LINES (always associate with the BL item above):
+   - "Best Price 1x6=$16.59" followed by a negative amount (e.g. -$1.35)
+     is a volume discount on the preceding BL item — keep both lines,
+     mark the discount line is_bud_light=true with a negative total.
+   - "6:16.59  -1.35" is the same discount in compact format.
+   - DEPOSIT lines ($8.50, $3.60, etc.) are container deposits — mark
+     is_bud_light=false. Deposits are excluded from bud_light_total.
+   - When multiple BL items appear with interleaved discounts, each
+     discount belongs to the item immediately above it.
+
    NOT Bud Light: Budweiser, Michelob, SVNS Hard 7UP, White Claw, Smirnoff,
    Corona, Blood Brothers Blood Light, Cottage Springs, Coors Seltzer, Palm Bay,
    Twisted Tea, or any non-AB InBev brand.
 
 3) Extract: store, date, subtotal, tax (HST/GST/PST/TPS+TVQ), grand_total.
+   For Beer Store receipts: use SUBTOTAL (before deposit), not TOTAL (which
+   includes deposit). Deposit is not part of the product spend.
 4) Return confidence for each line (0.0–1.0) and overall receipt confidence.
 5) Flag ambiguity ONLY if the text is genuinely unclear (blurry, cut off).
    Normal store abbreviations like "BL TALL CAN 6X" are NOT ambiguous — they
