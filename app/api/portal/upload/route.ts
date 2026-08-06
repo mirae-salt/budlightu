@@ -59,6 +59,10 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ ok: false, message: 'Not authenticated' }, { status: 401 })
     }
+    const userRole = (user.user_metadata as { role?: string }).role
+    if (userRole === 'program_admin' || userRole === 'super_admin') {
+      return NextResponse.json({ ok: false, message: 'Admin accounts cannot upload receipts' }, { status: 403 })
+    }
     // Look up the BAM linked to this auth user
     const { data: sessionBam } = await admin.from('bams')
       .select('id, cohort_id')
