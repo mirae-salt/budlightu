@@ -323,7 +323,7 @@ export async function POST(req: Request) {
       policy = {
         ...policy,
         reimbursementMax: Number(cohort.reimbursement_max ?? policy.reimbursementMax),
-        firstCohortAllReview: cohort.first_cohort_all_review ?? policy.firstCohortAllReview
+        firstCohortAllReview: false
       }
     }
   }
