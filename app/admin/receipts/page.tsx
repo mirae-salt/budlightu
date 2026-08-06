@@ -87,13 +87,13 @@ export default function ReceiptsQueue() {
           setHistory(all.filter(r => r.status === 'approved' || r.status === 'rejected' || r.status === 'auto_pass'))
           setUseDb(true)
         } else {
-          setQueue(REVIEW_QUEUE.map((r, i) => ({ ...r, id: `dummy-${i}` })))
-          setHistory(DECIDED_RECEIPTS.map((r, i) => ({ ...r, id: `decided-${i}` })))
+          setQueue([])
+          setHistory([])
         }
       })
       .catch(() => {
-        setQueue(REVIEW_QUEUE.map((r, i) => ({ ...r, id: `dummy-${i}` })))
-        setHistory(DECIDED_RECEIPTS.map((r, i) => ({ ...r, id: `decided-${i}` })))
+        setQueue([])
+        setHistory([])
       })
   }
 
