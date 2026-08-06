@@ -143,9 +143,9 @@ export default function OnboardingPage() {
           background: 'rgba(180,83,9,0.06)', border: '1px solid rgba(180,83,9,0.12)',
           fontSize: 13, lineHeight: 1.6, color: 'var(--bl-navy)'
         }}>
-          <strong style={{ color: '#b45309' }}>Using Outlook or Microsoft 365?</strong>{' '}
-          Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to your Safe Senders list so
-          sign-in codes and onboarding emails arrive in your inbox, not quarantine.
+          <strong style={{ color: '#b45309' }}>Using Outlook?</strong>{' '}
+          Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
+          Safe Senders (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
         </div>
 
         <div className="stack" style={{ marginTop: 20 }}>

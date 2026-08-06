@@ -352,9 +352,8 @@ export default function LoginPage() {
                     <strong style={{ color: '#b45309' }}>Using a corporate or work email?</strong>
                   </div>
                   <p style={{ margin: 0 }}>
-                    Outlook and Microsoft 365 may block emails from new domains.
-                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to your
-                    Safe Senders list so sign-in codes and onboarding emails arrive in your inbox, not quarantine.
+                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
+                    Outlook Safe Senders (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
                   </p>
                 </div>
               </>
@@ -417,12 +416,8 @@ export default function LoginPage() {
                     <strong style={{ color: '#b45309' }}>Corporate email (Outlook / Microsoft 365)</strong>
                   </div>
                   <p style={{ margin: 0 }}>
-                    Your mail server may quarantine emails from new senders.
-                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to your Safe Senders list
-                    so codes arrive in your inbox.
-                  </p>
-                  <p style={{ margin: '6px 0 0', fontSize: 12, color: '#a16207' }}>
-                    Outlook Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders
+                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
+                    Outlook Safe Senders (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
                   </p>
                 </div>
               </>
