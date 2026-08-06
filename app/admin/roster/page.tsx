@@ -340,7 +340,7 @@ export default function Roster() {
       <TopBar crumbs={['Roster', 'BAMs']} />
 
       {editMsg && (
-        <div className="badge badge-green" style={{ marginBottom: 12, display: 'inline-block' }}>{editMsg}</div>
+        <div className={editMsg.startsWith('Save failed') ? 'badge badge-red' : 'badge badge-green'} style={{ marginBottom: 12, display: 'inline-block' }}>{editMsg}</div>
       )}
 
       <div className="surface">
