@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from './_components/TopBar'
 import { KpiCell } from './_components/StatCard'
 import { LineChartPlaceholder } from './_components/LineChartPlaceholder'
-import { DASHBOARD_STATS } from './_lib/dummy'
+// No dummy imports - all data from DB
 
 type BamSpending = {
   bam_id: string; cohort_id?: string; name: string; email: string; cohort: string
@@ -16,18 +16,7 @@ type BamSpending = {
 }
 
 const FAKE_BAM_SPENDING: BamSpending[] = [
-  { bam_id: 'f1', cohort_id: 'c1', name: 'Anastacia Tran',  email: 'anastacia.tran@utoronto.ca', cohort: 'Fall 2026', monthly: { '2026-09': 148.50, '2026-10': 142.30 }, totalSpent: 290.80, avgMonthly: 145.40, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
-  { bam_id: 'f2', cohort_id: 'c1', name: 'Kira Sabharwal',  email: 'kira.s@queensu.ca',          cohort: 'Fall 2026', monthly: { '2026-09': 150.00, '2026-10': 149.80 }, totalSpent: 299.80, avgMonthly: 149.90, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
-  { bam_id: 'f3', cohort_id: 'c1', name: 'Lucas Grabowski', email: 'lucas.g13@gmail.com',        cohort: 'Fall 2026', monthly: { '2026-09': 132.00, '2026-10': 88.50 },  totalSpent: 220.50, avgMonthly: 110.25, lowMonths: 1, consecutiveLow: 1, isLowPerformer: false, warningCount: 1, warningsSent: 1, warningPeriods: ['2026-10'], needsReevaluation: false },
-  { bam_id: 'f4', cohort_id: 'c1', name: 'Luke Grabowski',  email: 'luke.grabowski@yorku.ca',    cohort: 'Fall 2026', monthly: { '2026-09': 145.60, '2026-10': 150.00 }, totalSpent: 295.60, avgMonthly: 147.80, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
-  { bam_id: 'f5', cohort_id: 'c1', name: 'Luke Ducheck',    email: 'lducheck@uwo.ca',            cohort: 'Fall 2026', monthly: { '2026-09': 78.20, '2026-10': 45.00 },   totalSpent: 123.20, avgMonthly: 61.60,  lowMonths: 2, consecutiveLow: 2, isLowPerformer: true, warningCount: 2, warningsSent: 2, warningPeriods: ['2026-09', '2026-10'], needsReevaluation: true },
-  { bam_id: 'f6', cohort_id: 'c1', name: 'Emma Chen',       email: 'emma.chen@dal.ca',           cohort: 'Fall 2026', monthly: { '2026-09': 150.00, '2026-10': 138.90 }, totalSpent: 288.90, avgMonthly: 144.45, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
-  { bam_id: 'f7', cohort_id: 'c1', name: 'Avery Wong',      email: 'avery.w@ucalgary.ca',        cohort: 'Fall 2026', monthly: { '2026-09': 110.50, '2026-10': 125.40 }, totalSpent: 235.90, avgMonthly: 117.95, lowMonths: 1, consecutiveLow: 0, isLowPerformer: false, warningCount: 1, warningsSent: 0, warningPeriods: ['2026-09'], needsReevaluation: false },
-  { bam_id: 'f8', cohort_id: 'c1', name: 'Ian Sullivan',    email: 'ian.sullivan@mtroyal.ca',    cohort: 'Fall 2026', monthly: { '2026-09': 143.70, '2026-10': 150.00 }, totalSpent: 293.70, avgMonthly: 146.85, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
-  { bam_id: 'f9', cohort_id: 'c1', name: 'Sophia Martin',   email: 'smartin@uottawa.ca',         cohort: 'Fall 2026', monthly: { '2026-09': 95.30, '2026-10': 112.80 },  totalSpent: 208.10, avgMonthly: 104.05, lowMonths: 1, consecutiveLow: 0, isLowPerformer: false, warningCount: 1, warningsSent: 1, warningPeriods: ['2026-09'], needsReevaluation: false },
-  { bam_id: 'f10', cohort_id: 'c1', name: 'Devon Park',     email: 'devon.park@uwaterloo.ca',    cohort: 'Fall 2026', monthly: { '2026-09': 62.40, '2026-10': 0 },       totalSpent: 62.40,  avgMonthly: 31.20,  lowMonths: 2, consecutiveLow: 2, isLowPerformer: true, warningCount: 2, warningsSent: 2, warningPeriods: ['2026-09', '2026-10'], needsReevaluation: true },
-  { bam_id: 'f11', cohort_id: 'c1', name: 'Marcus Rivera',  email: 'marcus.r@torontomu.ca',      cohort: 'Fall 2026', monthly: { '2026-09': 138.90, '2026-10': 144.50 }, totalSpent: 283.40, avgMonthly: 141.70, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
-  { bam_id: 'f12', cohort_id: 'c1', name: 'Nadia Fischer',  email: 'nadia.f@smu.ca',             cohort: 'Fall 2026', monthly: { '2026-09': 150.00, '2026-10': 147.20 }, totalSpent: 297.20, avgMonthly: 148.60, lowMonths: 0, consecutiveLow: 0, isLowPerformer: false, warningCount: 0, warningsSent: 0, warningPeriods: [], needsReevaluation: false },
+  { bam_id: 'example-1', cohort_id: 'c1', name: 'Example Student', email: 'example@school.ca', cohort: 'Fall 2026', monthly: { '2026-09': 78.20, '2026-10': 45.00 }, totalSpent: 123.20, avgMonthly: 61.60, lowMonths: 2, consecutiveLow: 2, isLowPerformer: true, warningCount: 2, warningsSent: 2, warningPeriods: ['2026-09', '2026-10'], needsReevaluation: true },
 ]
 
 function currentPeriod(): string {
@@ -287,15 +276,25 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView }: {
   )
 }
 
-function ReceiptStatusSummary() {
-  const statuses = [
-    { label: 'Auto-approved', count: 28, color: '#0088CE', pct: 48 },
-    { label: 'Manually approved', count: 12, color: '#059669', pct: 21 },
-    { label: 'Pending review', count: 9, color: '#D97706', pct: 16 },
-    { label: 'Rejected', count: 5, color: '#DC2626', pct: 9 },
-    { label: 'OCR failed', count: 4, color: '#6B7280', pct: 7 },
+type ReceiptBreakdown = Record<string, { count: number; total: number }>
+
+function ReceiptStatusSummary({ breakdown }: { breakdown: ReceiptBreakdown }) {
+  const statusMap: { key: string; label: string; color: string }[] = [
+    { key: 'auto_pass', label: 'Auto-approved', color: '#0088CE' },
+    { key: 'approved', label: 'Manually approved', color: '#059669' },
+    { key: 'review', label: 'Pending review', color: '#D97706' },
+    { key: 'rejected', label: 'Rejected', color: '#DC2626' },
+    { key: 'ocr_failed', label: 'OCR failed', color: '#6B7280' },
+    { key: 'pending', label: 'Processing', color: '#9CA3AF' },
   ]
+  const statuses = statusMap
+    .map(s => ({ ...s, count: breakdown[s.key]?.count ?? 0 }))
+    .filter(s => s.count > 0)
   const total = statuses.reduce((a, s) => a + s.count, 0)
+
+  if (total === 0) {
+    return <div className="muted" style={{ fontSize: 13, padding: '20px 0' }}>No receipts this period</div>
+  }
 
   return (
     <div>
@@ -305,19 +304,19 @@ function ReceiptStatusSummary() {
       </div>
       <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 16 }}>
         {statuses.map(s => (
-          <div key={s.label} style={{ width: `${s.pct}%`, background: s.color }} title={`${s.label}: ${s.count}`} />
+          <div key={s.key} style={{ width: `${Math.max((s.count / total) * 100, 3)}%`, background: s.color }} title={`${s.label}: ${s.count}`} />
         ))}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {statuses.map(s => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
+          <div key={s.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
               <span style={{ color: 'var(--bl-navy)' }}>{s.label}</span>
             </div>
             <div style={{ display: 'flex', gap: 12, fontVariantNumeric: 'tabular-nums' }}>
               <span style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{s.count}</span>
-              <span className="muted" style={{ width: 36, textAlign: 'right' }}>{s.pct}%</span>
+              <span className="muted" style={{ width: 36, textAlign: 'right' }}>{total > 0 ? Math.round((s.count / total) * 100) : 0}%</span>
             </div>
           </div>
         ))}
@@ -362,10 +361,15 @@ function BarChartPlaceholder({ data }: { data?: Record<string, number> }) {
 }
 
 export default function AdminDashboard() {
-  const [s, setS] = useState(DASHBOARD_STATS)
+  const [s, setS] = useState({
+    activeBams: 0, receiptsSubmitted: 0, missingReceipts: 0,
+    reviewQueue: 0, budgetUsed: '$0 / $0', invoicesSent: 0, pendingOnboarding: 0,
+    budgetPct: 0
+  })
   const [chartTab, setChartTab] = useState('30 Days')
   const [reimbByMonth, setReimbByMonth] = useState<Record<string, number>>({})
   const [invoicesByMonth, setInvoicesByMonth] = useState<Record<string, number>>({})
+  const [receiptBreakdown, setReceiptBreakdown] = useState<ReceiptBreakdown>({})
   const [bamSpending, setBamSpending] = useState<BamSpending[]>([])
   const [spendingView, setSpendingView] = useState<'low' | 'all'>('low')
   const router = useRouter()
@@ -376,19 +380,21 @@ export default function AdminDashboard() {
       .then(res => res.json())
       .then(({ data }) => {
         if (!data) return
-        const { activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent, invoicesByMonth: ibm, reimbByMonth: rbm } = data
-        const anyLive = [activeBams, receiptsSubmitted, reviewQueue, invoicesSent].some((c: number) => c > 0)
-        if (!anyLive) return
+        const { activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent,
+          invoicesByMonth: ibm, reimbByMonth: rbm, receiptBreakdown: rb,
+          budgetCap, budgetSpent, budgetPct } = data
 
-        setS(prev => ({
-          ...prev,
-          activeBams: activeBams || prev.activeBams,
-          receiptsSubmitted: receiptsSubmitted || prev.receiptsSubmitted,
-          missingReceipts: activeBams > 0 ? Math.max(0, activeBams - receiptsSubmitted) : prev.missingReceipts,
-          reviewQueue: reviewQueue ?? prev.reviewQueue,
-          invoicesSent: invoicesSent ?? prev.invoicesSent,
-          pendingOnboarding: pendingBams ?? prev.pendingOnboarding
-        }))
+        setS({
+          activeBams: activeBams ?? 0,
+          receiptsSubmitted: receiptsSubmitted ?? 0,
+          missingReceipts: activeBams > 0 ? Math.max(0, activeBams - receiptsSubmitted) : 0,
+          reviewQueue: reviewQueue ?? 0,
+          budgetUsed: `$${(budgetSpent ?? 0).toLocaleString()} / $${(budgetCap ?? 0).toLocaleString()}`,
+          invoicesSent: invoicesSent ?? 0,
+          pendingOnboarding: pendingBams ?? 0,
+          budgetPct: budgetPct ?? 0
+        })
+        if (rb) setReceiptBreakdown(rb)
         if (ibm) setInvoicesByMonth(ibm)
         if (rbm) setReimbByMonth(rbm)
       })
@@ -413,10 +419,10 @@ export default function AdminDashboard() {
           <button className="btn-navy" onClick={() => router.push('/admin/roster')}>View details ↗</button>
         </div>
         <div className="kpi-row">
-          <KpiCell label="Active BAMs"       value={String(s.activeBams)}        delta="0.9%" trend="up" onClick={() => router.push('/admin/roster')} />
+          <KpiCell label="Active BAMs"       value={String(s.activeBams)}        trend="neutral" onClick={() => router.push('/admin/roster')} />
           <KpiCell label="Receipts submitted" value={`${s.receiptsSubmitted} / ${s.activeBams}`} delta={`${s.missingReceipts} missing`} trend={s.missingReceipts > 0 ? 'down' : 'up'} onClick={() => router.push('/admin/receipts')} />
           <KpiCell label="Review queue"      value={String(s.reviewQueue)}       hint="Action needed" trend="neutral" onClick={() => router.push('/admin/receipts')} />
-          <KpiCell label="Budget used"       value={s.budgetUsed}                delta="2.5%" trend="up" onClick={() => router.push('/admin/cohorts')} />
+          <KpiCell label="Budget used"       value={s.budgetUsed}                delta={`${s.budgetPct}%`} trend={s.budgetPct > 0 ? 'up' : 'neutral'} onClick={() => router.push('/admin/cohorts')} />
           <KpiCell label="Invoices sent"     value={String(s.invoicesSent)}      hint="cycle: Sept 16" onClick={() => router.push('/admin/invoices')} />
           <KpiCell label="Pending onboarding" value={String(s.pendingOnboarding)} hint="need bank info" trend={s.pendingOnboarding > 0 ? 'down' : 'up'} onClick={() => router.push('/admin/roster')} />
         </div>
@@ -436,9 +442,8 @@ export default function AdminDashboard() {
         </div>
 
         <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--bl-navy)', letterSpacing: '-0.02em', marginBottom: 4 }}>
-          72% <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--midgray)' }}>of monthly cap</span>
+          {s.budgetPct}% <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--midgray)' }}>of monthly cap</span>
         </div>
-        <div className="trend-up" style={{ fontSize: 12, fontWeight: 600, marginBottom: 16 }}>▲ 0.9% vs last period</div>
 
         <LineChartPlaceholder data={Object.keys(reimbByMonth).length > 0 ? reimbByMonth : undefined} />
       </div>
@@ -461,7 +466,7 @@ export default function AdminDashboard() {
             <div className="surface-title">Receipt status</div>
             <span className="muted" style={{ fontSize: 12 }}>this month</span>
           </div>
-          <ReceiptStatusSummary />
+          <ReceiptStatusSummary breakdown={receiptBreakdown} />
         </div>
       </div>
 

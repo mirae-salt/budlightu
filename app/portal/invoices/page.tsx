@@ -112,7 +112,7 @@ export default function MyInvoices() {
           <p className="subtle">Loading...</p>
         ) : invoices.length === 0 ? (
           <div className="empty-state">
-            No invoices yet. Your first invoice will appear here after your receipts are reviewed.
+            No invoices yet. Invoices are generated on the 15th of each month after receipt review.
           </div>
         ) : (
           <table className="admin-table" style={{ minWidth: 480 }}>

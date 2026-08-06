@@ -85,8 +85,9 @@ const s = StyleSheet.create({
 })
 
 export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
+  const pdfTitle = `${payload.influencer.name} - ${payload.footer.invoiceNumber}`
   return (
-    <Document>
+    <Document title={pdfTitle}>
       <Page size="LETTER" style={s.page}>
         {/* BAM name top-left */}
         <Text style={s.bamName}>{payload.influencer.name}</Text>

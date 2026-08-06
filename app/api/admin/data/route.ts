@@ -110,10 +110,28 @@ export async function GET(req: Request) {
         admin.from('invoices').select('id', { count: 'exact', head: true }).eq('status', 'sent')
       ])
 
-      // Monthly chart data: last 12 months of invoice counts + reimbursement totals
+      // Receipt status breakdown (current period)
+      const { data: periodReceipts } = await admin.from('receipts')
+        .select('status, bud_light_total_incl_tax')
+        .eq('period', period)
+      const receiptBreakdown: Record<string, { count: number; total: number }> = {}
+      let totalReimbSpent = 0
+      for (const r of (periodReceipts ?? []) as { status: string; bud_light_total_incl_tax: number | null }[]) {
+        if (!receiptBreakdown[r.status]) receiptBreakdown[r.status] = { count: 0, total: 0 }
+        receiptBreakdown[r.status].count++
+        const amt = Math.min(r.bud_light_total_incl_tax ?? 0, 150)
+        receiptBreakdown[r.status].total += amt
+        if (r.status === 'auto_pass' || r.status === 'approved') totalReimbSpent += amt
+      }
+
+      const nActive = activeBams.count ?? 0
+      const budgetCap = nActive * 150
+      const budgetPct = budgetCap > 0 ? Math.round((totalReimbSpent / budgetCap) * 100) : 0
+
+      // Monthly chart data
       const { data: monthlyInvoices } = await admin.from('invoices')
         .select('period, status')
-        .in('status', ['sent', 'paid', 'draft'])
+        .in('status', ['sent', 'draft'])
         .order('period', { ascending: true })
       const { data: monthlyLedger } = await admin.from('reimbursement_ledger')
         .select('period, spent_cad')
@@ -132,11 +150,15 @@ export async function GET(req: Request) {
 
       return NextResponse.json({
         data: {
-          activeBams: activeBams.count ?? 0,
+          activeBams: nActive,
           pendingBams: pendingBams.count ?? 0,
           receiptsSubmitted: receiptsSubmitted.count ?? 0,
           reviewQueue: reviewQueue.count ?? 0,
           invoicesSent: invoicesSent.count ?? 0,
+          receiptBreakdown,
+          budgetCap,
+          budgetSpent: totalReimbSpent,
+          budgetPct,
           invoicesByMonth,
           reimbByMonth
         },

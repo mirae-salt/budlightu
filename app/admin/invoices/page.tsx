@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
-import { DRAFT_INVOICES, type InvoiceRow } from '../_lib/dummy'
+import { type InvoiceRow } from '../_lib/dummy'
 
 type Row = InvoiceRow & { id: string; cohort_id: string | null; period: string }
 
@@ -10,7 +10,7 @@ type DbInvoice = {
   id: string
   invoice_number: string
   period: string
-  status: 'draft' | 'sent' | 'paid' | 'void'
+  status: 'draft' | 'sent' | 'void'
   cohort_id: string
   payload_json: { total?: number } | null
   bams: { first_name: string; last_name: string } | null
@@ -205,7 +205,7 @@ export default function InvoiceBatch() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${inv.number}.pdf`
+    a.download = `${inv.bam} - ${inv.number}.pdf`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -302,32 +302,16 @@ export default function InvoiceBatch() {
       <TopBar crumbs={['Invoices', 'Batch approval']} />
 
       <div className="surface">
-        {/* Cycle cadence banner */}
         <div style={{
-          padding: '12px 16px', marginBottom: 16, borderRadius: 8,
-          background: day < deadlineDay ? 'rgba(0,163,224,0.08)' : day === deadlineDay ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.08)',
-          border: `1px solid ${day < deadlineDay ? 'rgba(0,163,224,0.2)' : day === deadlineDay ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.2)'}`,
-          display: 'flex', alignItems: 'center', gap: 12, fontSize: 13,
+          padding: '8px 14px', marginBottom: 16, borderRadius: 6, fontSize: 12, color: 'var(--midgray)',
+          background: day < deadlineDay ? 'rgba(0,163,224,0.06)' : day <= generateDay ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.06)',
+          display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span style={{ fontSize: 18 }}>{day < deadlineDay ? '📋' : day <= generateDay ? '⏳' : '✅'}</span>
-          <div>
-            {day < deadlineDay ? (
-              <>
-                <strong>{currentMonth} cycle</strong> — Receipt deadline: <strong>{deadlineDay}th</strong> ({daysLeft} day{daysLeft !== 1 ? 's' : ''} left).
-                Invoices will be generated on the <strong>{generateDay}th</strong> after all receipts are reviewed.
-              </>
-            ) : day <= generateDay ? (
-              <>
-                <strong>{currentMonth} cycle</strong> — Receipt deadline passed. Ready to generate invoices.
-                Each BAM gets <strong>1 invoice</strong> (salary + approved receipts capped at $150).
-              </>
-            ) : (
-              <>
-                <strong>{currentMonth} cycle</strong> — Invoice generation window open.
-                Each BAM × 1 month = <strong>1 invoice</strong> combining salary ($218.75) + reimbursement (up to $150).
-              </>
-            )}
-          </div>
+          {day < deadlineDay
+            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Receipt deadline {deadlineDay}th ({daysLeft}d left) · Invoices generate on {generateDay}th</>
+            : day <= generateDay
+            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Deadline passed · Ready to generate</>
+            : <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Generation window open</>}
         </div>
 
         <div className="surface-header">
@@ -379,13 +363,18 @@ export default function InvoiceBatch() {
                   style={{ cursor: 'pointer' }}
                 />
               </th>
-              <th>Invoice #</th><th>BAM</th><th>Period</th><th>Amount</th><th>Receipt</th><th>Status</th><th>Flag</th><th></th>
+              <th>BAM</th><th>Period</th><th style={{ textAlign: 'right' }}>Amount</th><th>Receipt</th><th>Status</th><th style={{ textAlign: 'right' }}></th>
             </tr>
           </thead>
           <tbody>
-            {invoices.map(inv => (
+            {invoices.map(inv => {
+              const receiptOk = inv.receiptStatus === 'auto_pass' || inv.receiptStatus === 'approved'
+              const receiptPending = inv.receiptStatus === 'review'
+              const receiptBad = inv.receiptStatus === 'rejected'
+
+              return (
               <Fragment key={inv.number}>
-                <tr>
+                <tr style={{ borderLeft: inv.status === 'void' ? '3px solid var(--red, #ef4444)' : inv.status === 'sent' ? '3px solid var(--green, #22c55e)' : receiptPending ? '3px solid var(--amber, #f59e0b)' : '3px solid transparent' }}>
                   <td>
                     {inv.status === 'draft' ? (
                       <input
@@ -396,19 +385,19 @@ export default function InvoiceBatch() {
                       />
                     ) : <span />}
                   </td>
-                  <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--bl-navy)' }}>{inv.number}</td>
-                  <td style={{ fontWeight: 600 }}>{inv.bam}</td>
-                  <td className="muted">{periodLabel(inv.period)}</td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{inv.amount}</td>
                   <td>
-                    {inv.receiptStatus === 'auto_pass'
-                      ? <span className="badge badge-green" style={{ fontSize: 10 }}>AUTO-PASS {inv.receiptTotal}</span>
-                      : inv.receiptStatus === 'approved'
-                      ? <span className="badge badge-green" style={{ fontSize: 10 }}>APPROVED {inv.receiptTotal}</span>
-                      : inv.receiptStatus === 'review'
-                      ? <span className="badge badge-yellow" style={{ fontSize: 10 }}>REVIEW {inv.receiptTotal}</span>
-                      : inv.receiptStatus === 'rejected'
-                      ? <span className="badge badge-red" style={{ fontSize: 10 }}>REJECTED {inv.receiptTotal}</span>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{inv.bam}</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--midgray)' }}>{inv.number}</div>
+                  </td>
+                  <td className="muted" style={{ fontSize: 13 }}>{periodLabel(inv.period)}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 14 }}>{inv.amount}</td>
+                  <td>
+                    {receiptOk
+                      ? <span className="badge badge-green" style={{ fontSize: 10 }}>{inv.receiptTotal}</span>
+                      : receiptPending
+                      ? <span className="badge badge-yellow" style={{ fontSize: 10 }}>pending</span>
+                      : receiptBad
+                      ? <span className="badge badge-red" style={{ fontSize: 10 }}>rejected</span>
                       : <span className="muted" style={{ fontSize: 11 }}>—</span>}
                   </td>
                   <td>
@@ -416,35 +405,28 @@ export default function InvoiceBatch() {
                       ? <span className="badge badge-red">VOID</span>
                       : inv.status === 'sent'
                       ? <span className="badge badge-green">SENT</span>
-                      : inv.status === 'paid'
-                      ? <span className="badge badge-blue">PAID</span>
                       : <span className="badge badge-yellow">DRAFT</span>}
                   </td>
-                  <td>
-                    {inv.flag
-                      ? <span className="badge badge-yellow" style={{ background: 'var(--yellow-tint)' }}>{inv.flag}</span>
-                      : <span className="muted" style={{ fontSize: 12 }}>—</span>}
-                  </td>
-                  <td>
+                  <td style={{ textAlign: 'right' }}>
                     {inv.status === 'void' ? (
-                      <span className="muted" style={{ fontSize: 12 }}>Voided</span>
+                      <span className="muted" style={{ fontSize: 11 }}>Voided</span>
                     ) : (
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => previewPdf(inv)}>
-                          {previewNumber === inv.number ? 'Close' : 'Preview'}
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => previewPdf(inv)} title="Preview & download PDF">
+                          {previewNumber === inv.number ? 'Close' : 'PDF'}
                         </button>
-                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => downloadOne(inv)}>
-                          PDF
-                        </button>
-                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => openApPreview(inv)}>
-                          AP
-                        </button>
+                        {inv.status === 'draft' && (
+                          <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => openApPreview(inv)} title="Send to AP">
+                            Send AP
+                          </button>
+                        )}
                         <button
                           className="btn-ghost"
-                          style={{ padding: '3px 8px', fontSize: 11, color: 'var(--red)', borderColor: 'var(--red)' }}
+                          style={{ padding: '2px 6px', fontSize: 11, color: 'var(--midgray)', opacity: 0.5 }}
                           onClick={() => startVoid(inv.number)}
+                          title="Void invoice"
                         >
-                          Void
+                          ✕
                         </button>
                       </div>
                     )}
@@ -453,7 +435,12 @@ export default function InvoiceBatch() {
 
                 {previewNumber === inv.number && (
                   <tr>
-                    <td colSpan={9} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                        <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => downloadOne(inv)}>
+                          Download PDF
+                        </button>
+                      </div>
                       {pdfLoading && <div className="muted" style={{ padding: 20, textAlign: 'center' }}>Generating PDF…</div>}
                       {pdfUrl && (
                         <iframe
@@ -471,7 +458,7 @@ export default function InvoiceBatch() {
 
                 {voidingNumber === inv.number && (
                   <tr>
-                    <td colSpan={9} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div className="card" style={{ maxWidth: 420 }}>
                         <p style={{ fontSize: 13, marginBottom: 8 }}>
                           Voiding <strong>{inv.number}</strong> ({inv.bam}) will generate an AP cancellation email draft.
@@ -505,17 +492,13 @@ export default function InvoiceBatch() {
                   </tr>
                 )}
               </Fragment>
-            ))}
+              )
+            })}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={9}>
-                  <div className="empty-state" style={{ padding: '32px 16px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 8 }}>No invoices yet for this cycle</div>
-                    <div style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.6, maxWidth: 440, margin: '0 auto' }}>
-                      Invoices are generated on the <strong>16th</strong> after the receipt deadline (15th).
-                      Each BAM gets <strong>1 invoice per month</strong> — all approved receipts are automatically
-                      summed and capped at $150 for reimbursement, plus salary.
-                    </div>
+                <td colSpan={7}>
+                  <div className="empty-state" style={{ padding: '28px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
+                    No invoices yet. Generated on the 16th after receipt review.
                   </div>
                 </td>
               </tr>

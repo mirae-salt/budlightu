@@ -59,7 +59,7 @@ const publicGroups: NavGroup[] = [
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname()
-  const [name, setName] = useState<string | null>(null)
+  const [profile, setProfile] = useState<{ name: string; initial: string } | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const close = useCallback(() => setSidebarOpen(false), [])
@@ -77,9 +77,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       if (!cancelled) setLoggedIn(true)
       const meta = userRes.user.user_metadata as { first_name?: string; role?: string }
       if (!cancelled && meta?.role && ['super_admin', 'program_admin'].includes(meta.role)) setIsAdmin(true)
-      if (meta?.first_name && !cancelled) { setName(meta.first_name); return }
-      const { data: bam } = await sb.from('bams').select('first_name').eq('auth_user_id', userRes.user.id).single()
-      if (!cancelled && bam?.first_name) setName(bam.first_name)
+      let firstName = meta?.first_name
+      if (!firstName) {
+        const { data: bam } = await sb.from('bams').select('first_name, last_name').eq('auth_user_id', userRes.user.id).single()
+        if (bam) firstName = bam.first_name
+      }
+      if (!cancelled && firstName) {
+        setProfile({ name: firstName, initial: firstName.charAt(0).toUpperCase() })
+      }
     })()
     return () => { cancelled = true }
   }, [path, isLogin])
@@ -138,15 +143,25 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   </Link>
                 </div>
               )}
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 0 4px' }}>
-                {name && (
-                  <div style={{ padding: '4px 12px', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>
-                    {name}
-                  </div>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 10px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {profile && (
+                  <>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                      background: 'rgba(0,163,224,0.25)', color: '#3AADD9',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 12, fontWeight: 700
+                    }}>{profile.initial}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.name}</div>
+                    </div>
+                  </>
                 )}
-                <button className="nav-item" onClick={logout} style={{ width: '100%', background: 'transparent', color: 'rgba(255,255,255,0.35)', border: 'none', cursor: 'pointer', fontSize: 12 }}>
+                <button onClick={logout} title="Log out" style={{
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  color: 'rgba(255,255,255,0.35)', padding: 4, display: 'flex', flexShrink: 0
+                }}>
                   <IcoLogout />
-                  <span>Log out</span>
                 </button>
               </div>
             </div>
