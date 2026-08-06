@@ -813,6 +813,31 @@ function PatternCard({ title, items }: { title: string; items: { text: string; n
   )
 }
 
+function ToggleScreenshot({ src, alt }: { src: string; alt: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+          fontSize: 12, fontWeight: 600, color: 'var(--bl-blue)', display: 'flex', alignItems: 'center', gap: 4
+        }}
+      >
+        <span style={{ display: 'inline-block', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>&#9654;</span>
+        {open ? 'Hide screenshot' : 'Show screenshot'}
+      </button>
+      {open && (
+        <img
+          src={src} alt={alt}
+          style={{ marginTop: 8, borderRadius: 8, border: '1px solid var(--border)', width: '100%', maxWidth: 640 }}
+        />
+      )}
+    </div>
+  )
+}
+
 function StoreRow({ region, stores }: { region: string; stores: string }) {
   return (
     <tr>
@@ -933,9 +958,10 @@ function EmailsPanel() {
           <li>Go to <strong>Settings</strong> (gear icon, top right)</li>
           <li>Click <strong>Mail</strong>, then <strong>Junk email</strong></li>
           <li>Under <strong>Safe senders and domains</strong>, click <strong>+ Add</strong></li>
-          <li>Type <strong>budlightu.com</strong> and press Enter</li>
+          <li>Add both: <strong>noreply@budlightu.com</strong> and <strong>onboarding@budlightu.com</strong></li>
           <li>Click <strong>Save</strong></li>
         </ol>
+        <ToggleScreenshot src="/guide/outlook-safe-senders.png" alt="Outlook Safe Senders settings showing noreply@budlightu.com and onboarding@budlightu.com added" />
       </div>
 
       <div className="info-box info-note">

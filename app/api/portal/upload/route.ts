@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
     method: 'POST',
     headers: ocrHeaders,
     body: JSON.stringify({ receipt_id: inserted.id, storage_key: storageKey })
-  }).catch(() => {})
+  }).catch(e => console.error('[upload] OCR trigger failed:', e))
 
   return NextResponse.json({ ok: true, storageKey, receipt_id: inserted.id })
 }

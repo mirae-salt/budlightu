@@ -66,6 +66,14 @@ export default function UploadPage() {
 
   useEffect(() => { loadReceipts(selectedPeriod) }, [selectedPeriod, loadReceipts])
 
+  // Poll while any receipt is still pending (OCR in progress)
+  useEffect(() => {
+    const hasPending = pastReceipts.some(r => r.status === 'pending' || r.status === 'processing')
+    if (!hasPending) return
+    const timer = setInterval(() => loadReceipts(selectedPeriod), 5000)
+    return () => clearInterval(timer)
+  }, [pastReceipts, selectedPeriod, loadReceipts])
+
   function validateAndSet(picked: File[]) {
     setErr(null)
     for (const f of picked) {

@@ -77,7 +77,7 @@ export default function ReceiptsQueue() {
   const [retrying, setRetrying] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
-  useEffect(() => {
+  const loadAll = () => {
     fetch('/api/admin/data?table=receipts')
       .then(res => res.json())
       .then(({ data }) => {
@@ -95,7 +95,16 @@ export default function ReceiptsQueue() {
         setQueue(REVIEW_QUEUE.map((r, i) => ({ ...r, id: `dummy-${i}` })))
         setHistory(DECIDED_RECEIPTS.map((r, i) => ({ ...r, id: `decided-${i}` })))
       })
-  }, [])
+  }
+
+  useEffect(() => { loadAll() }, [])
+
+  // Poll while any receipt is pending OCR
+  useEffect(() => {
+    if (!queue.some(r => r.status === 'pending')) return
+    const timer = setInterval(loadAll, 5000)
+    return () => clearInterval(timer)
+  }, [queue])
 
   const pendingCount   = queue.filter(r => r.status === 'pending').length
   const reviewCount    = queue.filter(r => r.status === 'review').length
