@@ -59,20 +59,10 @@ type OcrLine = { desc?: string; qty?: number; unit?: number; total?: number; is_
 
 // ── Fraud detection helpers (zero tokens — pure code logic) ──────────────
 
-function checkExif(bytes: Uint8Array, mediaType: string): string[] {
-  const flags: string[] = []
-  if (mediaType === 'image/jpeg' || mediaType === 'image/jpg') {
-    let hasExif = false
-    const scanLimit = Math.min(bytes.length - 1, 65536)
-    for (let i = 0; i < scanLimit; i++) {
-      if (bytes[i] === 0xFF && bytes[i + 1] === 0xE1) { hasExif = true; break }
-    }
-    if (!hasExif) flags.push('no_exif: JPEG missing EXIF metadata — possible screenshot or AI-generated image')
-  }
-  if (mediaType === 'image/png') {
-    flags.push('png_format: receipt is PNG instead of camera JPEG — possible screenshot or generated image')
-  }
-  return flags
+function checkExif(_bytes: Uint8Array, _mediaType: string): string[] {
+  // PNG/no-EXIF checks removed: real BAM receipts come in PNG, JPG, HEIC etc.
+  // Format alone is not a fraud signal.
+  return []
 }
 
 function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
@@ -351,8 +341,8 @@ export async function POST(req: Request) {
     }
   }
 
-  // 8. Low-resolution / non-camera heuristic (reuses the EXIF check from step 1b)
-  const lowResolutionHeuristic = fraudFlags.some(f => f.startsWith('no_exif') || f.startsWith('png_format'))
+  // 8. Low-resolution heuristic — format-based checks removed (real receipts come in all formats)
+  const lowResolutionHeuristic = false
 
   // 9. Classify via the shared pure function (single source of truth for auto_pass/review/rejected)
   const classification = classifyReceipt({

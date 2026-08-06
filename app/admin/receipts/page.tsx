@@ -34,8 +34,9 @@ type DbReceipt = {
 
 function reasonFor(r: DbReceipt): string {
   if (r.status === 'pending') return 'Awaiting OCR processing'
-  if (r.status === 'ocr_failed') return 'OCR failed. Needs manual review or retry'
-  if (r.status === 'auto_pass') return 'Auto-approved. Meets all criteria'
+  if (r.status === 'ocr_failed') return r.decision_reason || 'OCR failed. Needs manual review or retry'
+  if (r.status === 'auto_pass') return r.decision_reason || 'Auto-approved. Meets all criteria'
+  if (r.decision_reason) return r.decision_reason
   const flags = r.ambiguous_flags
   if (Array.isArray(flags) && flags.length > 0) {
     return flags.map(f => String(f)).join('; ')
