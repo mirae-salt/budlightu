@@ -466,6 +466,10 @@ export default function Roster() {
                   </div>
                 )}
 
+                {importResult.message && !importResult.ok && (
+                  <div style={{ marginTop: 8, fontSize: 13, color: '#b91c1c', fontWeight: 600 }}>{importResult.message}</div>
+                )}
+
                 {importResult.errors && importResult.errors.length > 0 && (
                   <div style={{ marginTop: 8, fontSize: 12, color: '#b91c1c', maxHeight: 120, overflowY: 'auto' }}>
                     {importResult.errors.map((e, i) => <div key={i}>{e}</div>)}
