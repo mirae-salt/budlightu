@@ -21,7 +21,7 @@ export async function upsertDraftInvoice(
   if (!bam || !cohort) return
 
   const reimbTotal = Math.min(
-    (receipts ?? []).reduce((s, r) => s + ((r as { bud_light_total_incl_tax: number | null }).bud_light_total_incl_tax ?? 0), 0),
+    (receipts ?? []).reduce((s: number, r: Record<string, unknown>) => s + (Number(r.bud_light_total_incl_tax ?? 0)), 0),
     150
   )
 
