@@ -166,6 +166,20 @@ export async function GET(req: Request) {
       })
     }
 
+    case 'notifications': {
+      const unreadOnly = url.searchParams.get('unread') === 'true'
+      let q = admin.from('admin_notifications')
+        .select('id, type, title, body, link, read, created_at, bam_id')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (unreadOnly) q = q.eq('read', false)
+      const { data, error } = await q
+      const { count: unreadCount } = await admin.from('admin_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('read', false)
+      return NextResponse.json({ data, unreadCount: unreadCount ?? 0, error: error?.message ?? null })
+    }
+
     case 'bam_spending': {
       const { data: bams } = await admin.from('bams')
         .select('id, cohort_id, first_name, last_name, email, status, cohorts(name, start_date, end_date)')

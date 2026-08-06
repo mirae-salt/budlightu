@@ -184,6 +184,19 @@ export async function POST(req: NextRequest) {
         action: 'flag'
       })
     }).catch(() => {})
+
+    // 3. Admin notification
+    import('@/lib/notify-admin').then(({ notifyAdmin }) =>
+      notifyAdmin({
+        type: 'shortfall',
+        title: 'Shortfall detected',
+        body: `$${totalSpentThisPeriod.toFixed(2)} spent (under $140 soft floor)`,
+        bam_id: receipt.bam_id,
+        cohort_id: receipt.cohort_id,
+        period: receipt.period,
+        link: '/admin/receipts'
+      })
+    ).catch(() => {})
   }
 
   return NextResponse.json({ ok: true })

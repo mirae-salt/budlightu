@@ -69,34 +69,32 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
   if (policy.firstCohortAllReview) {
     return {
       status: 'review',
-      reason: 'first_cohort_all_review policy → all receipts route to human review',
+      reason: 'New cohort policy: all receipts reviewed for the first 3 months',
       budLightTotalInclTax: total,
       confidence: conf
     }
   }
   if (duplicateHash) {
-    return { status: 'review', reason: 'duplicate file hash across BAMs', budLightTotalInclTax: total, confidence: conf }
+    return { status: 'review', reason: 'Duplicate image: same file was submitted by another BAM this period', budLightTotalInclTax: total, confidence: conf }
   }
   if (lowResolutionHeuristic) {
-    return { status: 'review', reason: 'low-resolution / non-receipt heuristic fired', budLightTotalInclTax: total, confidence: conf }
+    return { status: 'review', reason: 'Low resolution or non-photo image (screenshot, PDF, etc.)', budLightTotalInclTax: total, confidence: conf }
   }
   if (anyAmbiguous) {
-    return { status: 'review', reason: 'ambiguous line item(s)', budLightTotalInclTax: total, confidence: conf }
+    return { status: 'review', reason: 'Some line items could not be clearly identified as Bud Light', budLightTotalInclTax: total, confidence: conf }
   }
   if (conf < 0.85) {
-    return { status: 'review', reason: `overall confidence ${conf} < 0.85`, budLightTotalInclTax: total, confidence: conf }
+    return { status: 'review', reason: `Low OCR confidence (${Math.round(conf * 100)}%) -- text may be blurry or partially obscured`, budLightTotalInclTax: total, confidence: conf }
   }
   for (const l of ocr.lines) {
     if (l.is_bud_light && l.confidence < 0.8) {
-      return { status: 'review', reason: `bud_light line confidence ${l.confidence} < 0.80 (${l.desc})`, budLightTotalInclTax: total, confidence: conf }
+      return { status: 'review', reason: `Uncertain Bud Light match: "${l.desc}" (${Math.round(l.confidence * 100)}% confidence)`, budLightTotalInclTax: total, confidence: conf }
     }
   }
-  // $150+ always goes to review — Robin confirms any at-or-over-cap receipt.
-  // No review band below cap; underspend threshold is a separate admin decision.
   if (total >= spendableCap) {
     return {
       status: 'review',
-      reason: `total ${total} >= spendable_cap ${spendableCap} — flagged for review`,
+      reason: `Total $${total.toFixed(2)} meets or exceeds $${spendableCap} cap -- needs admin confirmation`,
       budLightTotalInclTax: total,
       confidence: conf
     }

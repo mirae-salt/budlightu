@@ -1,3 +1,189 @@
+'use client'
+
+import { useEffect, useState, useRef } from 'react'
+
+type Notif = {
+  id: string; type: string; title: string; body?: string
+  link?: string; read: boolean; created_at: string
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
+
+const TYPE_ICONS: Record<string, string> = {
+  receipt_review: '⚠',
+  ocr_failed: '✖',
+  shortfall: '▼',
+  invoice_draft: '✉',
+  support_question: '❓',
+  receipt_uploaded: '↑',
+}
+
+function NotificationBell() {
+  const [notifs, setNotifs] = useState<Notif[]>([])
+  const [unread, setUnread] = useState(0)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const load = () => {
+    fetch('/api/admin/data?table=notifications')
+      .then(r => r.json())
+      .then(d => {
+        setNotifs(d.data ?? [])
+        setUnread(d.unreadCount ?? 0)
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const markAllRead = () => {
+    fetch('/api/admin/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark_all_read' })
+    }).then(() => { load() })
+  }
+
+  const markRead = (id: string) => {
+    fetch('/api/admin/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark_read', ids: [id] })
+    }).then(() => { load() })
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          position: 'relative', background: 'none', border: 'none', cursor: 'pointer',
+          padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center',
+        }}
+        title="Notifications"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: 2, right: 2,
+            background: '#DC2626', color: '#fff', fontSize: 10, fontWeight: 700,
+            minWidth: 16, height: 16, borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 4px', lineHeight: 1
+          }}>
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 8,
+          width: 380, maxHeight: 480, overflowY: 'auto',
+          background: 'var(--card-bg, #fff)', border: '1px solid var(--border)',
+          borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+          zIndex: 1000
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '14px 16px 10px', borderBottom: '1px solid var(--border)'
+          }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)' }}>
+              Notifications {unread > 0 && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--midgray)' }}>({unread} new)</span>}
+            </span>
+            {unread > 0 && (
+              <button onClick={markAllRead} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 12, color: 'var(--bl-blue, #0088CE)', fontWeight: 600
+              }}>
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          {notifs.length === 0 ? (
+            <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
+              No notifications yet
+            </div>
+          ) : (
+            notifs.map(n => (
+              <div
+                key={n.id}
+                onClick={() => {
+                  if (!n.read) markRead(n.id)
+                  if (n.link) window.location.href = n.link
+                  setOpen(false)
+                }}
+                style={{
+                  display: 'flex', gap: 10, padding: '10px 16px', cursor: n.link ? 'pointer' : 'default',
+                  background: n.read ? 'transparent' : 'rgba(0,136,206,0.04)',
+                  borderBottom: '1px solid var(--border)',
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.02)')}
+                onMouseLeave={e => (e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(0,136,206,0.04)')}
+              >
+                <span style={{ fontSize: 16, width: 24, textAlign: 'center', flexShrink: 0, paddingTop: 2 }}>
+                  {TYPE_ICONS[n.type] ?? '•'}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: n.read ? 400 : 600, color: 'var(--bl-navy)',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                  }}>
+                    {n.title}
+                  </div>
+                  {n.body && (
+                    <div style={{
+                      fontSize: 12, color: 'var(--midgray)', marginTop: 2,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                    }}>
+                      {n.body}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--midgray)', marginTop: 3 }}>
+                    {timeAgo(n.created_at)}
+                  </div>
+                </div>
+                {!n.read && (
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%', background: 'var(--bl-blue, #0088CE)',
+                    flexShrink: 0, marginTop: 6
+                  }} />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function TopBar({ crumbs = ['Dashboard'] }: { crumbs?: string[] }) {
   return (
     <div className="topbar">
@@ -5,14 +191,17 @@ export function TopBar({ crumbs = ['Dashboard'] }: { crumbs?: string[] }) {
         {crumbs.map((c, i) => (
           <span key={i}>
             <span className={i === crumbs.length - 1 ? 'now' : ''}>{c}</span>
-            {i < crumbs.length - 1 && <span className="sep" style={{ margin: '0 6px' }}>›</span>}
+            {i < crumbs.length - 1 && <span className="sep" style={{ margin: '0 6px' }}>&rsaquo;</span>}
           </span>
         ))}
       </div>
 
-      <div className="searchbar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input placeholder='Search…' />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="searchbar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input placeholder='Search...' />
+        </div>
+        <NotificationBell />
       </div>
     </div>
   )

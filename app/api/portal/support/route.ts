@@ -82,5 +82,16 @@ export async function POST(req: NextRequest) {
     text: `New BAM question\n\nFrom: ${bamName} (${userEmail})\n\n${question.trim()}\n\nReply to: ${userEmail}\n\n— BLU Portal`
   }).catch(() => {})
 
+  // Admin notification
+  import('@/lib/notify-admin').then(({ notifyAdmin }) =>
+    notifyAdmin({
+      type: 'support_question',
+      title: `Support question from ${bamName}`,
+      body: question.trim().slice(0, 120),
+      bam_id: bamId ?? undefined,
+      link: '/admin/questions'
+    })
+  ).catch(() => {})
+
   return NextResponse.json({ ok: true })
 }

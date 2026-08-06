@@ -393,6 +393,22 @@ export async function POST(req: Request) {
     ).catch(e => console.error('[ocr] draft invoice upsert failed:', e))
   }
 
+  // 12. Admin notification for review/ocr_failed
+  if (finalStatus === 'review' || finalStatus === 'ocr_failed') {
+    import('@/lib/notify-admin').then(({ notifyAdmin }) => {
+      const bamLabel = thisReceipt?.bam_id ? `BAM ${thisReceipt.bam_id.slice(0, 8)}` : 'Unknown BAM'
+      notifyAdmin({
+        type: finalStatus === 'ocr_failed' ? 'ocr_failed' : 'receipt_review',
+        title: finalStatus === 'ocr_failed' ? `OCR failed for receipt` : `Receipt needs review`,
+        body: `${bamLabel}: ${decisionReason}`,
+        bam_id: thisReceipt?.bam_id,
+        cohort_id: thisReceipt?.cohort_id,
+        period: thisReceipt?.period,
+        link: '/admin/receipts'
+      })
+    }).catch(() => {})
+  }
+
   return NextResponse.json({
     ok: true,
     status: finalStatus,
