@@ -106,7 +106,11 @@ export default function OnboardingPage() {
         <p className="eyebrow">ALL SET</p>
         <h1>You&rsquo;re onboarded</h1>
         <p className="subtle">Your account is ready. You can now submit receipts and view invoices.</p>
-        <a href="/portal/program" style={{ color: 'var(--bl-blue)' }}>Go to Home &rarr;</a>
+        <a href="/portal/program" style={{
+          display: 'inline-block', marginTop: 16, padding: '10px 24px',
+          background: 'var(--bl-blue)', color: '#fff', borderRadius: 8,
+          fontWeight: 600, fontSize: 14, textDecoration: 'none'
+        }}>Go to Home</a>
       </>
     )
   }
