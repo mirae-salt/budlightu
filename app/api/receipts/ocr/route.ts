@@ -77,6 +77,12 @@ function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
   if (receiptType === 'not_a_receipt')
     flags.push('not_a_receipt: image is not a product receipt (bus ticket, ride receipt, bank notification, etc.)')
 
+  if (receiptType === 'bar_restaurant')
+    flags.push('bar_restaurant: this is a bar or restaurant receipt, not a retail purchase -- not eligible for reimbursement')
+
+  if (receiptType === 'delivery_app')
+    flags.push('delivery_app: this is a delivery app order (Uber Eats, Instacart, etc.) -- needs admin review')
+
   if (!store || store.length < 2) flags.push('no_store: no identifiable store name on receipt')
 
   if (subtotal > 0 && tax > 0) {
