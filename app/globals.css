@@ -144,6 +144,8 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .hero-card .eyebrow { color: rgba(255,255,255,0.6); }
 .hero-card .muted { color: rgba(255,255,255,0.6); }
+.hero-card .btn, .hero-card button { background: #fff; color: var(--bl-blue); }
+.hero-card .btn:hover, .hero-card button:hover { background: rgba(255,255,255,0.85); }
 .card {
   background: var(--paper);
   border: 1px solid var(--stone);

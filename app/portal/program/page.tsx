@@ -2,10 +2,11 @@
 import Link from 'next/link'
 
 const timeline = [
-  { year: '2022', label: 'Western University. 5 BAMs. Where it started.' },
-  { year: '2023', label: '10 schools. 34 BAMs. Coast to coast.' },
-  { year: '2024', label: '16 campuses. 40+ BAMs. Nationwide.' },
-  { year: '2026', label: '58 BAMs. New portal. You.', active: true },
+  { year: '2022' },
+  { year: '2023' },
+  { year: '2024' },
+  { year: '2025' },
+  { year: '2026', active: true },
 ]
 
 const links = [
@@ -41,7 +42,7 @@ export default function ProgramPage() {
             <div key={i} className={`blu-tl-item${t.active ? ' active' : ''}`}>
               <div className="blu-tl-dot" />
               <div className="blu-tl-year">{t.year}</div>
-              <div className="blu-tl-label">{t.label}</div>
+              {t.label && <div className="blu-tl-label">{t.label}</div>}
             </div>
           ))}
         </div>
