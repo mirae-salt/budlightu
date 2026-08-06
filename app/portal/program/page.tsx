@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 
-const timeline = [
+const timeline: { year: string; label?: string; active?: boolean }[] = [
   { year: '2022' },
   { year: '2023' },
   { year: '2024' },

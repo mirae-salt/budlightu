@@ -175,7 +175,33 @@ export default function Roster() {
     setAdding(false)
   }
 
-  function saveEdit(id: string) {
+  async function saveEdit(id: string) {
+    const [firstName, ...rest] = editForm.name.split(' ')
+    const lastName = rest.join(' ')
+    try {
+      const resp = await fetch('/api/admin/roster', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          first_name: firstName,
+          last_name: lastName,
+          email: editForm.email,
+          status: editForm.status,
+          school_id: editForm.school,
+        })
+      })
+      const j = await resp.json()
+      if (!resp.ok || !j.ok) {
+        setEditMsg(`Save failed: ${j.message || resp.statusText}`)
+        setTimeout(() => setEditMsg(null), 4000)
+        return
+      }
+    } catch (e) {
+      setEditMsg(`Save failed: ${(e as Error).message}`)
+      setTimeout(() => setEditMsg(null), 4000)
+      return
+    }
     setBams(prev => prev.map(b => b.id === id ? {
       ...b,
       name: editForm.name,
@@ -186,8 +212,8 @@ export default function Roster() {
       school: editForm.school
     } : b))
     setEditingId(null)
-    setEditMsg('Saved (local only, DB update requires admin auth)')
-    setTimeout(() => setEditMsg(null), 4000)
+    setEditMsg('Saved')
+    setTimeout(() => setEditMsg(null), 3000)
   }
 
   function addBam() {
