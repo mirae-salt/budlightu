@@ -352,7 +352,7 @@ export default function LoginPage() {
                     <strong style={{ color: '#b45309' }}>Using a corporate or work email?</strong>
                   </div>
                   <p style={{ margin: 0 }}>
-                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
+                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> and <strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong> to
                     Outlook Safe Senders so sign-in codes and onboarding emails arrive
                     (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
                   </p>
@@ -417,7 +417,7 @@ export default function LoginPage() {
                     <strong style={{ color: '#b45309' }}>Corporate email (Outlook / Microsoft 365)</strong>
                   </div>
                   <p style={{ margin: 0 }}>
-                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to
+                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> and <strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong> to
                     Outlook Safe Senders so sign-in codes and onboarding emails arrive
                     (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
                   </p>

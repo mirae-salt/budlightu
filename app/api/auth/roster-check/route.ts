@@ -50,7 +50,12 @@ export async function POST(req: NextRequest) {
       // Auth user already exists (prior attempt or token-based onboarding) — find and link
       const { data: { users } } = await db.auth.admin.listUsers({ perPage: 500 })
       const existing = users?.find((u: { email?: string }) => u.email?.toLowerCase() === normEmail)
-      if (existing) authUserId = existing.id
+      if (existing) {
+        authUserId = existing.id
+        await db.auth.admin.updateUserById(existing.id, {
+          user_metadata: { role: 'bam', bam_id: bam.id }
+        })
+      }
     }
 
     if (!authUserId) {
