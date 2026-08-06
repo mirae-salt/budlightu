@@ -24,6 +24,65 @@ function currentPeriod(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
+function PeriodBanner() {
+  const now = new Date()
+  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  const day = now.getDate()
+
+  const deadlineDay = 15
+  const generateDay = 16
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  const deadlinePassed = day > deadlineDay
+  const daysLeft = deadlineDay - day
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+      padding: '14px 20px', borderRadius: 10,
+      background: deadlinePassed
+        ? 'linear-gradient(135deg, rgba(5,150,105,0.06), rgba(5,150,105,0.02))'
+        : 'linear-gradient(135deg, rgba(0,136,206,0.08), rgba(0,136,206,0.02))',
+      border: `1px solid ${deadlinePassed ? 'rgba(5,150,105,0.15)' : 'rgba(0,136,206,0.15)'}`,
+      marginBottom: 20
+    }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)' }}>
+        {monthLabel}
+      </div>
+      <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '3px 10px', borderRadius: 6, fontWeight: 600,
+          background: deadlinePassed ? 'rgba(5,150,105,0.1)' : daysLeft <= 3 ? 'rgba(239,68,68,0.1)' : 'rgba(0,136,206,0.08)',
+          color: deadlinePassed ? '#059669' : daysLeft <= 3 ? '#DC2626' : 'var(--bl-blue, #0088CE)',
+        }}>
+          {deadlinePassed
+            ? <>&#10003; Receipt deadline passed</>
+            : <>Receipt deadline {deadlineDay}th &middot; {daysLeft}d left</>}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '3px 10px', borderRadius: 6, fontWeight: 500,
+          background: 'rgba(0,0,0,0.04)', color: 'var(--slate, #64748b)',
+        }}>
+          Auto-generate invoices on {generateDay}th
+        </span>
+      </div>
+      <div style={{
+        marginLeft: 'auto', fontSize: 11, color: 'var(--midgray)',
+        fontVariantNumeric: 'tabular-nums'
+      }}>
+        Day {day} of {daysInMonth}
+      </div>
+    </div>
+  )
+}
+
 function BamSpendingSection({ bamSpending, spendingView, setSpendingView }: {
   bamSpending: BamSpending[]; spendingView: 'low' | 'all'; setSpendingView: (v: 'low' | 'all') => void
 }) {
@@ -371,6 +430,8 @@ export default function AdminDashboard() {
   return (
     <>
       <TopBar crumbs={['Dashboard', 'Overview']} />
+
+      <PeriodBanner />
 
       <div className="surface">
         <div className="surface-header">

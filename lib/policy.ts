@@ -11,7 +11,7 @@ export const DEFAULT_POLICY: Policy = {
   rolloverMode: 'forfeit',
   capMultiplier: 1,
   reviewBandPaddingCad: 10,
-  firstCohortAllReview: true,
+  firstCohortAllReview: false,
   policyVersion: 1
 }
 
