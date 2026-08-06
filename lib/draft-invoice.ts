@@ -1,8 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
 import { generateInvoicePayload } from './invoice-payload'
 import { formatInvoiceNumber } from './invoice-numbering'
 
-type AdminClient = ReturnType<typeof createClient>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AdminClient = { from: (...args: any[]) => any; rpc: (...args: any[]) => any }
 
 export async function upsertDraftInvoice(
   db: AdminClient,
