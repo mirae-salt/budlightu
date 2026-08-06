@@ -126,7 +126,7 @@ export default function Roster() {
   const [csvRows, setCsvRows] = useState<string[][]>([])
   const [columnMap, setColumnMap] = useState<Record<number, keyof CsvRow | null>>({})
   const [importCohort, setImportCohort] = useState('')
-  const [importResult, setImportResult] = useState<{ ok: boolean; created?: number; skipped?: number; errors?: string[]; email_results?: Array<{ email: string; sent: boolean; error?: string }> } | null>(null)
+  const [importResult, setImportResult] = useState<{ ok: boolean; message?: string; created?: number; skipped?: number; errors?: string[]; email_results?: Array<{ email: string; sent: boolean; error?: string }> } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
