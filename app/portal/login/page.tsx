@@ -115,7 +115,7 @@ export default function LoginPage() {
       setBusy(false)
     }
 
-    window.location.href = '/portal/dashboard'
+    window.location.href = '/portal/program'
   }
 
   return (

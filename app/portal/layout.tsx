@@ -104,12 +104,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <>
           <div className={`sidebar-backdrop${sidebarOpen ? ' open' : ''}`} onClick={close} />
           <aside className={`sidebar portal-sidebar${sidebarOpen ? ' open' : ''}`}>
-            <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px' }}>
+            <Link href="/portal/program" className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px', textDecoration: 'none' }} onClick={close}>
               <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
               <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2, color: 'rgba(255,255,255,0.4)' }}>
                 BAM Portal
               </div>
-            </div>
+            </Link>
 
             {groups.map(g => (
               <div key={g.title}>
@@ -177,10 +177,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             </button>
-            <div className="admin-mobile-brand">
+            <Link href="/portal/program" className="admin-mobile-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
               <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ height: 28 }} />
               <span>Portal</span>
-            </div>
+            </Link>
           </div>
         )}
         <div className={isLogin ? '' : isPreAuth ? 'portal-main portal-main-centered' : 'portal-main'}>{children}</div>
