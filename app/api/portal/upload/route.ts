@@ -60,21 +60,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, message: 'Not authenticated' }, { status: 401 })
     }
     const userRole = (user.user_metadata as { role?: string }).role
-    if (userRole === 'program_admin' || userRole === 'super_admin') {
-      return NextResponse.json({ ok: false, message: 'Admin accounts cannot upload receipts' }, { status: 403 })
+    const isAdmin = userRole === 'program_admin' || userRole === 'super_admin'
+
+    if (isAdmin) {
+      // Admins can upload on behalf of any BAM — just verify the bam_id exists
+      const { data: targetBam } = await admin.from('bams')
+        .select('id, cohort_id')
+        .eq('id', bamId)
+        .single()
+      if (!targetBam) {
+        return NextResponse.json({ ok: false, message: 'BAM not found' }, { status: 404 })
+      }
+      cohortId = cohortId || targetBam.cohort_id
+    } else {
+      // BAMs can only upload for themselves
+      const { data: sessionBam } = await admin.from('bams')
+        .select('id, cohort_id')
+        .eq('auth_user_id', user.id)
+        .single()
+      if (!sessionBam) {
+        return NextResponse.json({ ok: false, message: 'No BAM account found for this user' }, { status: 403 })
+      }
+      if (sessionBam.id !== bamId) {
+        return NextResponse.json({ ok: false, message: 'You can only upload receipts for your own account' }, { status: 403 })
+      }
+      cohortId = cohortId || sessionBam.cohort_id
     }
-    // Look up the BAM linked to this auth user
-    const { data: sessionBam } = await admin.from('bams')
-      .select('id, cohort_id')
-      .eq('auth_user_id', user.id)
-      .single()
-    if (!sessionBam) {
-      return NextResponse.json({ ok: false, message: 'No BAM account found for this user' }, { status: 403 })
-    }
-    if (sessionBam.id !== bamId) {
-      return NextResponse.json({ ok: false, message: 'You can only upload receipts for your own account' }, { status: 403 })
-    }
-    cohortId = cohortId || sessionBam.cohort_id
   }
 
   const isTestReceipt = isDev && sha256 === TEST_RECEIPT_SHA

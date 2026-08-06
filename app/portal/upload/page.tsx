@@ -47,15 +47,12 @@ export default function UploadPage() {
   type PastReceipt = { id: string; created_at: string; storage_mime: string; storage_bytes: number; status: string; bl_total: number | null }
   const [pastReceipts, setPastReceipts] = useState<PastReceipt[]>([])
   const [loadingReceipts, setLoadingReceipts] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
 
   const loadReceipts = useCallback(async (period: string) => {
     setLoadingReceipts(true)
     const sb = browserClient()
     const { data: userRes } = await sb.auth.getUser()
     if (!userRes.user) { setLoadingReceipts(false); return }
-    const role = (userRes.user.user_metadata as { role?: string }).role
-    if (role === 'program_admin' || role === 'super_admin') { setIsAdmin(true); setLoadingReceipts(false); return }
     const bamId = (userRes.user.user_metadata as { bam_id?: string }).bam_id
     if (!bamId) { setLoadingReceipts(false); return }
     const { data } = await sb.from('receipts')
@@ -142,21 +139,6 @@ export default function UploadPage() {
     setFiles([])
     setMsg(`${files.length} receipt${files.length > 1 ? 's' : ''} submitted. You'll hear from your program manager if we need anything.`)
     loadReceipts(selectedPeriod)
-  }
-
-  if (isAdmin) {
-    return (
-      <>
-        <div className="topbar">
-          <div className="crumbs"><span className="now">Upload receipts</span></div>
-        </div>
-        <div style={{ maxWidth: 680 }}>
-          <p className="eyebrow">ADMIN ACCOUNT</p>
-          <h1>Uploads are for BAM accounts only</h1>
-          <p className="subtle">Admin accounts cannot upload receipts. Use the <a href="/admin/receipts" style={{ color: 'var(--bl-blue)' }}>admin receipts page</a> to review BAM submissions.</p>
-        </div>
-      </>
-    )
   }
 
   return (
