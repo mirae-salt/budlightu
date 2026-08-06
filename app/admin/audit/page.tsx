@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
-import { AUDIT_LOG, type AuditRow } from '../_lib/dummy'
+import { type AuditRow } from '../_lib/dummy'
 
 type RoleFilter = 'all' | AuditRow['role']
+
+const PROD_CUTOFF = new Date('2026-08-28T00:00:00').getTime()
 
 type DbAuditLog = {
   ts: string
@@ -20,19 +22,20 @@ function normalizeRole(role: string | null): AuditRow['role'] {
   return 'system'
 }
 
-function mapDbAuditLog(e: DbAuditLog): AuditRow {
+function mapDbAuditLog(e: DbAuditLog): AuditRow & { isTest: boolean } {
   return {
     ts: new Date(e.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
     actor: normalizeRole(e.actor_role) === 'system' ? 'system' : (e.actor_role || 'unknown'),
     role: normalizeRole(e.actor_role),
     entity: e.entity,
     action: e.action,
-    target: e.entity_id || (e.after_json ? JSON.stringify(e.after_json) : '—')
+    target: e.entity_id || (e.after_json ? JSON.stringify(e.after_json) : '—'),
+    isTest: new Date(e.ts).getTime() < PROD_CUTOFF
   }
 }
 
 export default function AuditLog() {
-  const [log, setLog] = useState<AuditRow[]>([])
+  const [log, setLog] = useState<(AuditRow & { isTest?: boolean })[]>([])
   const [useDb, setUseDb] = useState(false)
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [entityFilter, setEntityFilter] = useState<string>('all')
@@ -45,11 +48,11 @@ export default function AuditLog() {
           setLog((data as DbAuditLog[]).map(mapDbAuditLog))
           setUseDb(true)
         } else {
-          setLog(AUDIT_LOG)
+          setLog([])
         }
       })
       .catch(() => {
-        setLog(AUDIT_LOG)
+        setLog([])
       })
   }, [])
 
@@ -121,7 +124,10 @@ export default function AuditLog() {
           <tbody>
             {filtered.map((e, i) => (
               <tr key={i}>
-                <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12.5, whiteSpace: 'nowrap', minWidth: 160 }}>{e.ts}</td>
+                <td className="muted" style={{ fontFamily: 'monospace', fontSize: 12.5, whiteSpace: 'nowrap', minWidth: 160 }}>
+                  {e.ts}
+                  {e.isTest && <span className="badge" style={{ marginLeft: 6, background: 'var(--amber)', color: '#fff', fontSize: 9, padding: '1px 5px' }}>TEST</span>}
+                </td>
                 <td style={{ fontWeight: 600 }}>{e.actor}</td>
                 <td>{roleBadge(e.role)}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{e.entity}</td>
