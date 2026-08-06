@@ -45,7 +45,6 @@ export default function SupportPage() {
       </div>
 
       <div style={{ maxWidth: 680 }}>
-        <p className="eyebrow">SUPPORT</p>
         <h1>Ask a question</h1>
         <p className="subtle">
           Can&rsquo;t submit this month? Not sure about a receipt? Type your question and your program manager will get back to you.

@@ -27,7 +27,7 @@ const TYPE_ICONS: Record<string, string> = {
   receipt_uploaded: '↑',
 }
 
-function NotificationBell() {
+export function NotificationBell() {
   const [notifs, setNotifs] = useState<Notif[]>([])
   const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
@@ -201,7 +201,6 @@ export function TopBar({ crumbs = ['Dashboard'] }: { crumbs?: string[] }) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input placeholder='Search...' />
         </div>
-        <NotificationBell />
       </div>
     </div>
   )

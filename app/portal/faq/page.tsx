@@ -7,7 +7,6 @@ export default function FaqPage() {
         <div className="crumbs"><span className="now">FAQ</span></div>
       </div>
 
-      <p className="eyebrow">HELP</p>
       <h1>Frequently asked questions</h1>
 
       <div style={{ maxWidth: 680 }}>

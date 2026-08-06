@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { type ReactNode, useEffect, useState } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
+import { NotificationBell } from './TopBar'
 
 type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
 type NavGroup = { title: string; items: NavItem[] }
@@ -54,7 +55,12 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px' }}>
-        <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
+          <div style={{ color: 'rgba(255,255,255,0.6)' }}>
+            <NotificationBell />
+          </div>
+        </div>
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Admin</span>
       </div>
 

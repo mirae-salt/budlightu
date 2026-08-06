@@ -326,20 +326,6 @@ export default function LoginPage() {
                   {busy ? 'Sending...' : 'Send verification code'}
                 </button>
 
-                <div className="login-divider">How it works</div>
-
-                <div className="login-info-card blue">
-                  <svg className="login-info-icon" viewBox="0 0 24 24" fill="none" stroke="var(--bl-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
-                  </svg>
-                  <p style={{ margin: 0 }}>We&rsquo;ll email you a <strong>6-digit code</strong> to sign in. No password needed.</p>
-                </div>
-                <div className="login-info-card muted">
-                  <svg className="login-info-icon" style={{ color: 'var(--midgray)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-                  </svg>
-                  <p style={{ margin: 0 }}>First time? Use the <strong>same email</strong> you applied to BLU with.</p>
-                </div>
                 <div style={{
                   marginTop: 12, padding: '14px 16px', borderRadius: 10,
                   background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',

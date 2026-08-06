@@ -293,7 +293,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .blu-timeline {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0;
   position: relative;
 }

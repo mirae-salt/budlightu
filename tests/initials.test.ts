@@ -52,13 +52,14 @@ describe('resolveInitials — P0-1 fix', () => {
     expect(new Set(out.map(o => o.initials)).size).toBe(3)
   })
 
-  it('throws on unresolvable (identical names)', () => {
-    expect(() =>
-      resolveInitials([
-        { id: '1', firstName: 'Alex', lastName: 'Kim' },
-        { id: '2', firstName: 'Alex', lastName: 'Kim' }
-      ])
-    ).toThrow(/Unresolvable/)
+  it('falls back to numeric suffix on identical names', () => {
+    const out = resolveInitials([
+      { id: '1', firstName: 'Alex', lastName: 'Kim' },
+      { id: '2', firstName: 'Alex', lastName: 'Kim' }
+    ])
+    const initials = new Map(out.map(o => [o.bamId, o.initials]))
+    expect(initials.get('1')).toBe('AK1')
+    expect(initials.get('2')).toBe('AK2')
   })
 
   it('preserves single-BAM cohorts (no collision)', () => {

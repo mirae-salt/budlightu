@@ -67,10 +67,10 @@ export function resolveInitials(bams: Bam[]): ResolvedInitials[] {
     }
 
     if (!resolved) {
-      const names = group.map(b => `${b.firstName} ${b.lastName}`).join(', ')
-      throw new Error(
-        `Unresolvable initials collision for cohort BAMs: ${names}. Admin must set initials manually.`
-      )
+      const base = baseInitials(group[0])
+      for (let idx = 0; idx < group.length; idx++) {
+        result.push({ bamId: group[idx].id, initials: `${base}${idx + 1}` })
+      }
     }
   }
 

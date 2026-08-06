@@ -148,7 +148,6 @@ export default function UploadPage() {
       </div>
 
       <div style={{ maxWidth: 680 }}>
-        <p className="eyebrow">SUBMIT RECEIPTS</p>
         <h1>Upload this month&rsquo;s Bud Light receipts</h1>
         <p className="subtle">Multiple receipts OK. JPG, PNG, WebP, or PDF. Under {MAX_MB}&nbsp;MB each.</p>
 
