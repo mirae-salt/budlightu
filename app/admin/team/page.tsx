@@ -74,7 +74,7 @@ export default function TeamPage() {
   return (
     <>
       <TopBar crumbs={['System', 'Admin Team']} />
-      <div className="surface" style={{ maxWidth: 800 }}>
+      <div className="surface">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <div>
             <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 4 }}>

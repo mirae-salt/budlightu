@@ -9,7 +9,7 @@ export default function GuidePage() {
     <>
       <TopBar crumbs={['System', 'BLU Internal Guide']} />
 
-      <div className="surface" style={{ maxWidth: 1100 }} data-author="mirae">
+      <div className="surface" data-author="mirae">
         <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 4 }}>
           BLU Internal Guide
         </h2>
@@ -420,7 +420,7 @@ function BamUxPanel() {
         </div>
         <div className="info-box info-you" style={{ marginTop: 8 }}>
           <strong style={{ color: 'var(--red, #ef4444)' }}>Common question:</strong> &quot;I didn&apos;t get the code.&quot;
-          Have them check their spam/junk folder first. The email comes from <strong>budlightu.portal@gmail.com</strong>. If they still can&apos;t find it, they can click &quot;Resend code&quot; on the login screen.
+          Have them check their spam/junk folder first. The email comes from <strong>noreply@budlightu.com</strong>. If they still can&apos;t find it, they can click &quot;Resend code&quot; on the login screen.
         </div>
       </div>
 
@@ -879,8 +879,68 @@ function EmailsPanel() {
       </div>
 
       <div className="info-box info-you">
-        <strong>Email provider:</strong> All emails go through Resend (budlightu.com domain).
-        AP invoices use MS Graph (Outlook) in production.
+        <strong>Email provider:</strong> All emails are sent from <strong>noreply@budlightu.com</strong> via Resend.
+      </div>
+
+      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)', margin: '24px 0 12px' }}>
+        Email deliverability (IMPORTANT)
+      </h3>
+      <div style={{ padding: '16px', border: '2px solid #dc2626', borderRadius: 8, marginBottom: 16, background: 'rgba(239,68,68,0.04)' }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>
+          Salt employees must add budlightu.com to Safe Senders
+        </p>
+        <p style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 12 }}>
+          Microsoft 365 (Salt&apos;s email system) may block emails from <strong>budlightu.com</strong> because it is a new sending domain.
+          Blocked emails go to <strong>quarantine</strong> (not junk) and never appear in your inbox.
+          Each person who needs to receive BLU emails must add the domain to their safe senders list. This is a one-time setup.
+        </p>
+        <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 8 }}>Who needs to do this:</p>
+        <div className="table-scroll">
+          <table className="admin-table" style={{ fontSize: 13 }}>
+            <thead><tr><th>Person</th><th>Email</th><th>Why they receive BLU emails</th></tr></thead>
+            <tbody>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Robin Graham</td>
+                <td>robin.graham@ilovesalt.com</td>
+                <td>CC on every AP invoice, low-spend alerts, support questions</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Nathan Brown</td>
+                <td>nb@ilovesalt.com</td>
+                <td>CC on every AP invoice</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Accounts Payable</td>
+                <td>accounts.payable@ilovesalt.com</td>
+                <td>Receives all invoice PDFs (primary recipient)</td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Mirae Lee</td>
+                <td>mirae.lee@ilovesalt.com</td>
+                <td>System admin, test emails</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 8 }}>
+          How to add Safe Senders in Outlook
+        </p>
+        <ol style={{ fontSize: 13, lineHeight: 1.8, paddingLeft: 20, margin: 0 }}>
+          <li>Open <strong>Outlook</strong> (web or desktop)</li>
+          <li>Go to <strong>Settings</strong> (gear icon, top right)</li>
+          <li>Click <strong>Mail</strong>, then <strong>Junk email</strong></li>
+          <li>Under <strong>Safe senders and domains</strong>, click <strong>+ Add</strong></li>
+          <li>Type <strong>budlightu.com</strong> and press Enter</li>
+          <li>Click <strong>Save</strong></li>
+        </ol>
+      </div>
+
+      <div className="info-box info-note">
+        <strong>BAM students don&apos;t need to do this.</strong> BAMs use personal email (Gmail, school email, etc.) which handles new domains normally.
+        This is only an issue with Salt&apos;s corporate Microsoft 365 security settings.
       </div>
     </>
   )

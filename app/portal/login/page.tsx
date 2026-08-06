@@ -340,6 +340,23 @@ export default function LoginPage() {
                   </svg>
                   <p style={{ margin: 0 }}>First time? Use the <strong>same email</strong> you applied to BLU with.</p>
                 </div>
+                <div style={{
+                  marginTop: 12, padding: '14px 16px', borderRadius: 10,
+                  background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+                  fontSize: 13, lineHeight: 1.6, color: '#92400e'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    <strong style={{ color: '#b45309' }}>Using a corporate or work email?</strong>
+                  </div>
+                  <p style={{ margin: 0 }}>
+                    Outlook and Microsoft 365 may block emails from new domains.
+                    Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> to your
+                    Safe Senders list so sign-in codes and onboarding emails arrive in your inbox, not quarantine.
+                  </p>
+                </div>
               </>
             )}
 
@@ -381,6 +398,16 @@ export default function LoginPage() {
                   <button className="resend-btn" onClick={sendOtp} disabled={busy}>
                     {busy ? 'Sending...' : 'Resend code'}
                   </button>
+                </div>
+                <div style={{
+                  marginTop: 16, padding: '12px 14px', borderRadius: 10,
+                  background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.15)',
+                  fontSize: 12.5, lineHeight: 1.6, color: '#92400e'
+                }}>
+                  <strong style={{ color: '#b45309' }}>Not seeing the code?</strong> Check your spam or junk folder.
+                  Corporate email (Outlook, Microsoft 365) may quarantine it.
+                  Add <strong>noreply@budlightu.com</strong> to Safe Senders:
+                  Outlook Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders.
                 </div>
               </>
             )}

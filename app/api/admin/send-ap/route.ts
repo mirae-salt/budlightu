@@ -15,6 +15,8 @@ import { cookies } from 'next/headers'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../../lib/invoice-numbering'
+import { renderInvoicePdfToBuffer } from '../../../../lib/render-pdf'
+import type { InvoicePayload } from '../../../../lib/invoice-payload'
 
 const AP_TO = process.env.AP_EMAIL || 'accounts.payable@ilovesalt.com'
 const AP_CC = (process.env.AP_CC_EMAILS || 'robin.graham@ilovesalt.com,nb@ilovesalt.com')
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
 async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoiceId: string, testEmail?: string): Promise<SendOutcome> {
   const { data: inv, error: invErr } = await admin
     .from('invoices')
-    .select('*, bams(first_name, last_name, email), cohorts(po_number, program_label)')
+    .select('*, payload_json, bams(first_name, last_name, email), cohorts(po_number, program_label)')
     .eq('id', invoiceId)
     .single()
 
@@ -110,9 +112,16 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   const bodyText = apEmailBody(monthLong, cohort.program_label, cohort.po_number)
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
 
-  // Best-effort PDF attachment if one has already been rendered to storage.
+  // Render PDF from payload_json (or download from storage if pre-rendered).
   let attachments: Array<{ filename: string; content: Buffer }> | undefined
-  if (inv.pdf_key) {
+  if (inv.payload_json && typeof inv.payload_json === 'object' && 'invoiceNumber' in (inv.payload_json as object)) {
+    try {
+      const pdfBuffer = await renderInvoicePdfToBuffer(inv.payload_json as unknown as InvoicePayload)
+      attachments = [{ filename, content: pdfBuffer }]
+    } catch (e) {
+      console.error(`PDF render failed for ${invoiceId}:`, e)
+    }
+  } else if (inv.pdf_key) {
     const { data: pdfFile } = await admin.storage.from('invoices').download(inv.pdf_key)
     if (pdfFile) {
       attachments = [{ filename, content: Buffer.from(await pdfFile.arrayBuffer()) }]
