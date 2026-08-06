@@ -31,7 +31,7 @@ export async function GET(req: Request) {
   switch (table) {
     case 'bams': {
       const { data, error } = await admin.from('bams')
-        .select('id, first_name, last_name, email, status, bank_name, initials_resolved, invite_token_hash, school_id, cohort_id, cohorts(name)')
+        .select('id, first_name, last_name, email, status, bank_name, initials_resolved, invite_token_hash, school_id, cohort_id, is_test, cohorts(name)')
       return NextResponse.json({ data, error: error?.message ?? null })
     }
 

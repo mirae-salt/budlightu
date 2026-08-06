@@ -38,6 +38,7 @@ type DbBam = {
   initials_resolved: string | null
   school_id: string | null
   cohorts: { name: string } | null
+  is_test: boolean | null
 }
 
 type FullRow = BamRow & { id: string }
@@ -51,7 +52,8 @@ function mapDbBam(b: DbBam): FullRow {
     bank: b.bank_name || '—',
     invoiceCode: b.initials_resolved ? `INV-${b.initials_resolved}` : null,
     cohort: b.cohorts?.name || '—',
-    school: b.school_id || '—'
+    school: b.school_id || '—',
+    isTest: b.is_test ?? false
   }
 }
 
@@ -114,7 +116,7 @@ export default function Roster() {
   const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohort: '', school: '' })
   const [editMsg, setEditMsg] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
-  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohort: '' })
+  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohort: '', isTest: false })
   const [cohortList, setCohortList] = useState<string[]>([])
   const [cohortOptions, setCohortOptions] = useState<CohortOption[]>([])
 
@@ -201,7 +203,7 @@ export default function Roster() {
       school: addForm.school || '—',
     }
     setBams(prev => [...prev, newBam])
-    setAddForm({ firstName: '', lastName: '', email: '', school: '', cohort: '' })
+    setAddForm({ firstName: '', lastName: '', email: '', school: '', cohort: '', isTest: false })
     setAdding(false)
     setEditMsg('Added (local only, DB insert requires admin auth)')
     setTimeout(() => setEditMsg(null), 4000)
@@ -496,6 +498,11 @@ export default function Roster() {
                 </select>
               </div>
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', margin: '4px 0 8px' }}>
+              <input type="checkbox" checked={addForm.isTest} onChange={e => setAddForm(f => ({ ...f, isTest: e.target.checked }))} />
+              Test account
+              <span style={{ fontSize: 11, color: 'var(--midgray)' }}>-- excluded from reports and AP sends</span>
+            </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={addBam} disabled={!addForm.firstName.trim() || !addForm.email.trim()}>Add to roster</button>
               <button className="btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
@@ -514,7 +521,10 @@ export default function Roster() {
               {rows.map((b) => (
                 <Fragment key={b.id}>
                   <tr>
-                    <td style={{ fontWeight: 600 }}>{b.name}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      {b.name}
+                      {b.isTest && <span className="badge" style={{ marginLeft: 6, background: 'var(--amber)', color: '#fff', fontSize: 9, padding: '1px 5px', verticalAlign: 'middle' }}>TEST</span>}
+                    </td>
                     <td className="muted" style={{ fontSize: 12.5 }}>{b.email}</td>
                     <td className="muted">{b.school}</td>
                     <td className="muted">{b.cohort}</td>

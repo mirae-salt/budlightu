@@ -11,6 +11,7 @@ export type BamRow = {
   status: 'active' | 'pending' | 'archived'
   bank: string
   invoiceCode: string | null
+  isTest?: boolean
 }
 
 export const BAMS: BamRow[] = [
