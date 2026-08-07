@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS admin_notifications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_admin_notif_read ON admin_notifications(read, created_at DESC);
-CREATE INDEX idx_admin_notif_created ON admin_notifications(created_at DESC);
+-- IF NOT EXISTS because part of this migration had already been run by hand in the
+-- SQL editor, so the indexes existed while the migration was still unrecorded.
+CREATE INDEX IF NOT EXISTS idx_admin_notif_read ON admin_notifications(read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_notif_created ON admin_notifications(created_at DESC);
 
 -- RLS: service role only (admin data route uses service key)
 ALTER TABLE admin_notifications ENABLE ROW LEVEL SECURITY;
