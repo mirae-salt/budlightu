@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     bank_name:     bank.displayName,
     consent_ap_cc: form.consent_ap_cc,
     // T&C acceptance was collected by the form and thrown away. Stamped
-    // server-side, never taken from the client, and versioned (see 0019).
+    // server-side, never taken from the client, and versioned (see 0020).
     consent_terms_at: form.consent_terms ? new Date().toISOString() : null,
     consent_terms_version: form.consent_terms ? '2026-09-01' : null,
     status:        'active',

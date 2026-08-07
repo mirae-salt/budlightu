@@ -1,4 +1,4 @@
--- 0019_terms_revert_and_bank_codes.sql
+-- 0020_terms_revert_and_bank_codes.sql
 --
 -- Three unrelated corrections, all from the 2026-08-07 review:
 --   1. T&C acceptance was collected in the UI and never stored.
