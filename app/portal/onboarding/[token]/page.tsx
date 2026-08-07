@@ -204,6 +204,24 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
             <p style={{ color: '#A31212', fontSize: 13, marginTop: 10 }}>{signInError}</p>
           )}
 
+          <div style={{
+            marginTop: 14, padding: '10px 14px', borderRadius: 8,
+            background: 'rgba(180,83,9,0.06)', border: '1px solid rgba(180,83,9,0.12)',
+            fontSize: 13, lineHeight: 1.6
+          }}>
+            <strong style={{ color: '#b45309' }}>No code on a work email?</strong>
+            <p style={{ margin: '4px 0 6px' }}>
+              Add these two senders to your safe list, then resend:
+            </p>
+            <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
+              <li><strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong></li>
+              <li><strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong></li>
+            </ul>
+            <p style={{ margin: 0, fontSize: 12 }}>
+              In Outlook: Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders
+            </p>
+          </div>
+
           <p className="subtle" style={{ fontSize: 12, marginTop: 12 }}>
             Having trouble? You can also <a href="/portal/login" style={{ color: 'var(--teal-sub)' }}>sign in from the login page</a>.
           </p>

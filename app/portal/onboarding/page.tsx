@@ -147,10 +147,18 @@ export default function OnboardingPage() {
           background: 'rgba(180,83,9,0.06)', border: '1px solid rgba(180,83,9,0.12)',
           fontSize: 13, lineHeight: 1.6, color: 'var(--bl-navy)'
         }}>
-          <strong style={{ color: '#b45309' }}>Using Outlook?</strong>{' '}
-          Add <strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong> and <strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong> to
-          Outlook Safe Senders so sign-in codes and onboarding emails arrive
-          (Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders).
+          <strong style={{ color: '#b45309' }}>Using a work email?</strong>
+          <p style={{ margin: '4px 0 6px' }}>
+            Company spam filters often block our emails. Add these two senders
+            to your safe list:
+          </p>
+          <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
+            <li><strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong></li>
+            <li><strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong></li>
+          </ul>
+          <p style={{ margin: 0, fontSize: 12 }}>
+            In Outlook: Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders
+          </p>
         </div>
 
         <div className="stack" style={{ marginTop: 20 }}>
