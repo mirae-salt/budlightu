@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
   }
 
   // --- generate invite tokens + send emails ---
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
   const emailResults: Array<{ email: string; sent: boolean; error?: string }> = []
 
   for (const bam of inserted as { id: string; email: string; first_name: string }[]) {

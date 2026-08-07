@@ -103,7 +103,7 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
   const period = new Date(inv.period)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
   const portalUrl = `${appUrl}/portal/dashboard`
 
   let attachments: Array<{ filename: string; content: Buffer }> | undefined

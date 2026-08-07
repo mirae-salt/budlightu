@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
 
   // Trigger shortfall warning if approved but below soft floor
   if (decision === 'approved' && softFloorBreach) {
-    const baseUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const baseUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
     const warnHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
 
     // 1. Email the BAM about underspending

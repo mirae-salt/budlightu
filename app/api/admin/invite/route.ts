@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 })
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
   const inviteUrl = `${appUrl}/portal/onboarding/${rawToken}`
 
   // --- send invite email (Resend by default, MS Graph if configured) ---
