@@ -115,6 +115,7 @@ export default function Roster() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohort: '', school: '' })
   const [editMsg, setEditMsg] = useState<string | null>(null)
+  const [inviting, setInviting] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohort: '', isTest: false })
   const [cohortList, setCohortList] = useState<string[]>([])
@@ -614,9 +615,39 @@ export default function Roster() {
                               </select>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', gap: 8 }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <button onClick={() => saveEdit(b.id)}>Save</button>
                             <button className="btn-ghost" onClick={() => setEditingId(null)}>Cancel</button>
+                            {b.status === 'pending' && (
+                              <button
+                                className="btn-ghost"
+                                disabled={inviting}
+                                style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue)' }}
+                                onClick={async () => {
+                                  setInviting(true)
+                                  try {
+                                    const res = await fetch('/api/admin/invite', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ bam_id: b.id })
+                                    })
+                                    const j = await res.json()
+                                    if (j.ok) {
+                                      setEditMsg(j.email_sent ? `Invite sent to ${b.email}` : `Invite created (email failed: ${j.email_error})`)
+                                    } else {
+                                      setEditMsg(`Invite failed: ${j.message}`)
+                                    }
+                                  } catch (e) {
+                                    setEditMsg(`Invite failed: ${(e as Error).message}`)
+                                  } finally {
+                                    setInviting(false)
+                                    setTimeout(() => setEditMsg(null), 5000)
+                                  }
+                                }}
+                              >
+                                {inviting ? 'Sending...' : 'Send Invite'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </td>

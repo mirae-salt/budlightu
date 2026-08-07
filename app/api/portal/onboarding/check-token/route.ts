@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   const { data: pendingBam, error } = await db
     .from('bams')
-    .select('first_name, updated_at')
+    .select('first_name, last_name, email, updated_at')
     .eq('invite_token_hash', tokenHash)
     .eq('status', 'pending')
     .single()
@@ -42,5 +42,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, expired: true })
   }
 
-  return NextResponse.json({ ok: true, first_name: pendingBam.first_name ?? null })
+  return NextResponse.json({ ok: true, first_name: pendingBam.first_name ?? null, last_name: pendingBam.last_name ?? null, email: pendingBam.email ?? null })
 }

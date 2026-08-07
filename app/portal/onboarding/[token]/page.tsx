@@ -4,14 +4,13 @@ import { BANK_SEED } from '@/lib/banks'
 
 /**
  * Onboarding form — invite-token gated (P0-3).
- * Three-step: (0) upfront token validity check, (1) email confirm, (2) banking details.
- * Banking fields only rendered after step 1 passes.
+ * Token check auto-fills email + first name, then shows the full form directly.
  */
 export default function OnboardingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const [checking, setChecking] = useState(true)
   const [tokenValid, setTokenValid] = useState(false)
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<'form' | 'done'>('form')
   const [email, setEmail] = useState('')
   const [form, setForm] = useState({
     first_name: '', last_name: '', phone: '',
@@ -32,6 +31,12 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
         const resp = await fetch(`/api/portal/onboarding/check-token?token=${encodeURIComponent(token)}`)
         const j = await resp.json()
         setTokenValid(!!j.ok)
+        if (j.ok && j.email) setEmail(j.email)
+        if (j.ok) setForm(f => ({
+          ...f,
+          ...(j.first_name ? { first_name: j.first_name } : {}),
+          ...(j.last_name ? { last_name: j.last_name } : {})
+        }))
       } catch {
         setTokenValid(false)
       } finally {
@@ -75,7 +80,7 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
       const j = await resp.json()
       if (!resp.ok || !j.ok) { setError(j.message ?? 'Failed'); setBusy(false); return }
       setDone(j.message)
-      setStep(3)
+      setStep('done')
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -109,14 +114,14 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
     )
   }
 
-  if (step === 3 && done) {
+  if (step === 'done' && done) {
     return (
       <main className="container" style={{ maxWidth: 680 }}>
         <p className="eyebrow">ALL SET</p>
         <h1>You&rsquo;re onboarded 🎉</h1>
         <p className="subtle">{done}</p>
         <p className="subtle">
-          <a href="/portal/login" style={{ color: 'var(--teal-sub)' }}>Sign in →</a>
+          <a href="/portal/login" style={{ color: 'var(--teal-sub)' }}>Go to portal →</a>
         </p>
       </main>
     )
@@ -128,20 +133,8 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
       <h1>Set up your account</h1>
       <p className="subtle">Takes about 3 minutes. Your banking info is encrypted before it&rsquo;s stored.</p>
 
-      {/* Step 1: email confirm */}
-      {step === 1 && (
-        <div className="surface stack" style={{ marginTop: 24 }}>
-          <div className="field">
-            <label>Confirm your email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@school.edu" />
-            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>Must match the address your program manager invited.</p>
-          </div>
-          <button onClick={() => setStep(2)} disabled={!email.includes('@')}>Continue</button>
-        </div>
-      )}
-
-      {/* Step 2: full form */}
-      {step === 2 && (
+      {/* Full form — email auto-filled from invite token */}
+      {step === 'form' && (
         <div className="stack" style={{ marginTop: 24 }}>
 
           <div className="surface">
