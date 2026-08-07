@@ -45,7 +45,11 @@ export default function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const isLate = selectedPeriod !== currentMonth.value
 
-  type PastReceipt = { id: string; created_at: string; storage_mime: string; storage_bytes: number; status: string; bl_total: number | null }
+  // Column names must match the receipts table exactly: it is `uploaded_at`, not
+  // `created_at`, and `bud_light_total_incl_tax`, not `bl_total`. Selecting the
+  // wrong names made the whole query error, and because only `data` was
+  // destructured the student simply saw an empty receipt list forever.
+  type PastReceipt = { id: string; uploaded_at: string; storage_mime: string; storage_bytes: number; status: string; bud_light_total_incl_tax: number | null }
   const [pastReceipts, setPastReceipts] = useState<PastReceipt[]>([])
   const [loadingReceipts, setLoadingReceipts] = useState(false)
 
@@ -57,10 +61,10 @@ export default function UploadPage() {
     const bamId = await resolveBamId(sb, userRes.user)
     if (!bamId) { setLoadingReceipts(false); return }
     const { data } = await sb.from('receipts')
-      .select('id, created_at, storage_mime, storage_bytes, status, bl_total')
+      .select('id, uploaded_at, storage_mime, storage_bytes, status, bud_light_total_incl_tax')
       .eq('bam_id', bamId)
       .eq('period', period)
-      .order('created_at', { ascending: false })
+      .order('uploaded_at', { ascending: false })
     setPastReceipts(data ?? [])
     setLoadingReceipts(false)
   }, [])
@@ -304,9 +308,9 @@ export default function UploadPage() {
                   }}>
                     <span style={{ fontSize: 16, flexShrink: 0 }}>{r.storage_mime === 'application/pdf' ? '\u{1F4C4}' : '\u{1F4F8}'}</span>
                     <span className="muted" style={{ flex: 1 }}>
-                      {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      {new Date(r.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                     </span>
-                    {r.bl_total != null && <span style={{ fontWeight: 600, fontSize: 12 }}>${r.bl_total.toFixed(2)}</span>}
+                    {r.bud_light_total_incl_tax != null && <span style={{ fontWeight: 600, fontSize: 12 }}>${r.bud_light_total_incl_tax.toFixed(2)}</span>}
                     <span style={{
                       fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
                       background: (statusColor[r.status] ?? 'var(--midgray)') + '1a',
@@ -318,11 +322,11 @@ export default function UploadPage() {
                 )
               })}
             </div>
-            {pastReceipts.some(r => r.bl_total != null) && (
+            {pastReceipts.some(r => r.bud_light_total_incl_tax != null) && (
               <div style={{ marginTop: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600 }}>
                 <span>BL total this month</span>
-                <span style={{ color: pastReceipts.reduce((s, r) => s + (r.bl_total ?? 0), 0) >= 150 ? 'var(--green)' : 'var(--amber)' }}>
-                  ${pastReceipts.reduce((s, r) => s + (r.bl_total ?? 0), 0).toFixed(2)} / $150
+                <span style={{ color: pastReceipts.reduce((s, r) => s + (r.bud_light_total_incl_tax ?? 0), 0) >= 150 ? 'var(--green)' : 'var(--amber)' }}>
+                  ${pastReceipts.reduce((s, r) => s + (r.bud_light_total_incl_tax ?? 0), 0).toFixed(2)} / $150
                 </span>
               </div>
             )}

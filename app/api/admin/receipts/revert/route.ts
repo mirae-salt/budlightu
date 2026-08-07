@@ -129,7 +129,11 @@ async function recomputeLedger(
 ): Promise<{ ok: true; paidCad: number } | { ok: false; error: string }> {
   const { data: cohort, error: cohortErr } = await admin
     .from('cohorts')
-    .select('reimbursement_max, rollover_mode, cap_multiplier, review_band_padding_cad, first_cohort_all_review')
+    // No review_band_padding_cad here: that is a policy default, not a cohorts
+    // column. Selecting it made this whole query error, so every revert failed
+    // with "cohort read failed". Found by scripts/probe/schema-drift.js, which
+    // exists because a column name inside a string literal is invisible to tsc.
+    .select('reimbursement_max, rollover_mode, cap_multiplier, first_cohort_all_review')
     .eq('id', receipt.cohort_id)
     .maybeSingle()
   if (cohortErr) return { ok: false, error: `cohort read failed: ${cohortErr.message}` }
