@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-// relative (not '@/') so validatePeriod is directly unit-testable under vitest
+import { validatePeriod } from '../../../../lib/period'
 import { triggerOcr } from '../../../../lib/ocr-trigger'
 import { requireAdmin, requireBam, denied } from '../../../../lib/admin-auth'
 
@@ -8,57 +8,6 @@ const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 const TEST_RECEIPT_SHA = '52076429a897991a9afc42187ca2a04c3beed099955d0675cb180352d09a268d'
 const MAX_BYTES = 10 * 1024 * 1024
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
-
-/** month index since year 0, for comparing YYYY-MM values without timezone drift */
-function monthIndex(year: number, month1to12: number): number {
-  return year * 12 + (month1to12 - 1)
-}
-
-function currentMonthIndex(now: Date): number {
-  return monthIndex(now.getUTCFullYear(), now.getUTCMonth() + 1)
-}
-
-/**
- * P1-24: `period` used to be taken straight from the client, so a BAM could post
- * any month they liked and get a fresh $150 cap per fabricated month (or write a
- * receipt into a month that is already closed and invoiced).
- *
- * Accepted: "YYYY-MM" or "YYYY-MM-01", limited to the current or previous month,
- * and inside the cohort's start_date..end_date month range.
- */
-export function validatePeriod(
-  raw: string,
-  cohort: { start_date?: string | null; end_date?: string | null } | null,
-  now: Date = new Date()
-): { ok: true; period: string } | { ok: false; message: string } {
-  const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(String(raw).trim())
-  if (!m) return { ok: false, message: 'Invalid month. Expected YYYY-MM.' }
-  const year = Number(m[1])
-  const month = Number(m[2])
-  if (month < 1 || month > 12) return { ok: false, message: 'Invalid month.' }
-
-  const idx = monthIndex(year, month)
-  const cur = currentMonthIndex(now)
-  if (idx > cur) return { ok: false, message: 'You cannot submit receipts for a future month.' }
-  if (idx < cur - 1) return { ok: false, message: 'That month is closed. You can only submit for the current or previous month.' }
-
-  const period = `${m[1]}-${m[2]}-01`
-
-  const range = (d?: string | null) => {
-    const mm = d ? /^(\d{4})-(\d{2})/.exec(d) : null
-    return mm ? monthIndex(Number(mm[1]), Number(mm[2])) : null
-  }
-  const startIdx = range(cohort?.start_date)
-  const endIdx = range(cohort?.end_date)
-  if (startIdx === null || endIdx === null) {
-    return { ok: false, message: 'Your program dates are not set up yet. Please contact your program manager.' }
-  }
-  if (idx < startIdx || idx > endIdx) {
-    return { ok: false, message: 'That month is outside your program dates.' }
-  }
-
-  return { ok: true, period }
-}
 
 export async function POST(req: NextRequest) {
   const isDev = process.env.NODE_ENV === 'development'

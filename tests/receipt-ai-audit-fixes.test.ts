@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { classifyReceipt, recomputeBudLightTotal } from '../lib/classify-receipt'
 import { DEFAULT_POLICY } from '../lib/policy'
 import { parseMoney, parseNonNegativeMoney } from '../lib/money'
-import { validatePeriod } from '../app/api/portal/upload/route'
+import { validatePeriod } from '../lib/period'
 
 const P = { ...DEFAULT_POLICY, firstCohortAllReview: false }
 
