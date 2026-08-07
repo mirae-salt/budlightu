@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../../lib/send-email'
-import { DEFAULT_POLICY, softFloorFor } from '../../../../../lib/policy'
+import { DEFAULT_POLICY, shortfallWarnBelow } from '../../../../../lib/policy'
 import { requireAdmin } from '../../../../../lib/admin-auth'
 import { cleanEnvValue } from '../../../../../lib/sanitize'
 
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     ...DEFAULT_POLICY,
     reimbursementMax: Number(cohort?.reimbursement_max ?? DEFAULT_POLICY.reimbursementMax)
   }
-  const SOFT_FLOOR = softFloorFor(policy)
+  const SOFT_FLOOR = shortfallWarnBelow(policy)
 
   const total = receipt.bud_light_total_incl_tax ?? 0
   if (total >= SOFT_FLOOR) {

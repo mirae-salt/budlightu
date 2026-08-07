@@ -23,6 +23,7 @@ import { invoicePdfFilename } from '../../../../lib/invoice-numbering'
 import { appBaseUrl } from '../../../../lib/app-url'
 import { addressProblem, cleanAddress } from '../../../../lib/sanitize'
 import { claimSend, markSendFailed, markSendSucceeded } from '../../../../lib/send-guard'
+import { ensureInvoicePdf } from '../../../../lib/invoice-pdf'
 
 interface SendOutcome {
   invoice_id: string
@@ -42,6 +43,16 @@ export async function POST(req: NextRequest) {
   // --- auth: admin only (P0-A). Role from app_metadata via lib/admin-auth.
   const auth = await requireAdmin()
   if (!auth.ok) return denied(auth)
+
+  // F13: same rule as the AP route. The dev bypass has no real session and is
+  // normally pointed at the production Supabase project; it must not be able to
+  // mail a student a PDF containing their bank account number.
+  if (auth.devBypass) {
+    return NextResponse.json({
+      ok: false,
+      message: 'Dev auth bypass is active. A live BAM copy send is refused. Sign in as a real admin.'
+    }, { status: 403 })
+  }
 
   const admin = serviceClient()
   const outcomes: SendOutcome[] = []
@@ -106,14 +117,18 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
   const appUrl = appBaseUrl()
   const portalUrl = `${appUrl}/portal/dashboard`
 
-  let attachments: Array<{ filename: string; content: Buffer }> | undefined
-  if (inv.pdf_key) {
-    const { data: pdfFile, error: dlErr } = await admin.storage.from('invoices').download(inv.pdf_key)
-    if (dlErr) return blocked(`PDF download from storage failed: ${dlErr.message}`)
-    if (pdfFile) {
-      attachments = [{ filename, content: Buffer.from(await pdfFile.arrayBuffer()) }]
-    }
-  }
+  // F1: `if (inv.pdf_key)` meant the attachment was ALWAYS absent, because
+  // nothing wrote pdf_key. The BAM's "copy for your records" carried no invoice.
+  // Shared render+archive path; reuses the object AP received when there is one.
+  const pdf = await ensureInvoicePdf(admin, {
+    id: inv.id,
+    period: inv.period,
+    invoice_number: inv.invoice_number,
+    pdf_key: inv.pdf_key,
+    payload_json: inv.payload_json
+  }, filename)
+  if (!pdf.ok) return blocked(pdf.error)
+  const attachments = [{ filename, content: Buffer.from(pdf.bytes) }]
 
   const subject = `Your ${monthLong} invoice is ready — Bud Light U`
   const html = bamCopyEmailHtml(bam.first_name, monthLong, inv.invoice_number, portalUrl, Boolean(attachments))
@@ -140,11 +155,15 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
   }
 
   const marked = await markSendSucceeded(admin, claim.sendRowId, { messageId: result.messageId })
+  const trailing = [
+    marked.error ? `send record update failed: ${marked.error}` : null,
+    pdf.warning
+  ].filter(Boolean).join(' | ')
   return {
     invoice_id: invoiceId,
     ok: true,
     provider: result.provider,
-    error: marked.error ? `SENT, but send record update failed: ${marked.error}` : undefined
+    error: trailing ? `SENT, but ${trailing}` : undefined
   }
 }
 

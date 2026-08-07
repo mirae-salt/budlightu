@@ -164,12 +164,47 @@ export default function ReceiptsQueue() {
     }
   }
 
-  function revertToReview(row: Row) {
-    setHistory(h => h.filter(r => r.id !== row.id))
-    const reverted: Row = { ...row, status: 'review', decidedAt: undefined, decidedReason: undefined }
-    setQueue(q => [...q, reverted])
-    setMessage(`${row.bam} reverted to review queue`)
-    setTimeout(() => setMessage(null), 4000)
+  /**
+   * Reopen a decided receipt. This used to only mutate local state, so it looked
+   * like it worked and silently reverted on refresh. It now calls the server,
+   * which also recomputes the reimbursement ledger.
+   */
+  async function revertToReview(row: Row) {
+    const reason = window.prompt(
+      `Reopen ${row.bam}'s receipt for another decision?\n\nWhy are you reopening it? (required, saved to the audit log)`
+    )
+    if (reason === null) return
+    if (reason.trim().length < 3) {
+      setMessage('Reopen cancelled: a reason is required')
+      setTimeout(() => setMessage(null), 4000)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/admin/receipts/revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receipt_id: row.id, reason: reason.trim() })
+      })
+      const j = await res.json()
+      if (!res.ok || !j.ok) {
+        setMessage(`Reopen failed: ${j.message ?? j.error ?? res.status}`)
+        setTimeout(() => setMessage(null), 6000)
+        return
+      }
+
+      setHistory(h => h.filter(r => r.id !== row.id))
+      setQueue(q => [...q, { ...row, status: 'review', decidedAt: undefined, decidedReason: undefined }])
+      setMessage(
+        j.warning
+          ? `${row.bam} reopened, but ${j.warning}`
+          : `${row.bam} reopened for review. Reimbursement now $${Number(j.ledger_paid_cad ?? 0).toFixed(2)}`
+      )
+      setTimeout(() => setMessage(null), 6000)
+    } catch (e) {
+      setMessage(`Reopen failed: ${(e as Error).message}`)
+      setTimeout(() => setMessage(null), 6000)
+    }
   }
 
   const activeList = tab === 'queue' ? queue : history

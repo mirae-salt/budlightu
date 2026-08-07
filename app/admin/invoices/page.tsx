@@ -447,9 +447,9 @@ export default function InvoiceBatch() {
                             onClick={() => openApPreview(inv)}
                             title={inv.status === 'approved'
                               ? 'Approved but not marked sent. Retry the AP send.'
-                              : 'Send to AP'}
+                              : 'Test send only. Run batch approval before this invoice can go to AP.'}
                           >
-                            {inv.status === 'approved' ? 'Retry AP' : 'Send AP'}
+                            {inv.status === 'approved' ? 'Retry AP' : 'Test AP'}
                           </button>
                         )}
                         <button
@@ -615,6 +615,11 @@ export default function InvoiceBatch() {
                 padding: '12px 20px', borderTop: '1px solid var(--border, #e5e7eb)',
                 display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center',
               }}>
+                {inv.status !== 'approved' && (
+                  <span className="muted" style={{ fontSize: 11, marginRight: 'auto', maxWidth: 260, lineHeight: 1.4 }}>
+                    This invoice is not approved yet. Test sends are allowed; run batch approval before sending to AP.
+                  </span>
+                )}
                 <button className="btn-ghost" onClick={() => setApPreview(null)}>
                   Cancel
                 </button>
@@ -628,7 +633,10 @@ export default function InvoiceBatch() {
                 </button>
                 <button
                   onClick={() => confirmSendAp()}
-                  disabled={apPreview.sending}
+                  disabled={apPreview.sending || inv.status !== 'approved'}
+                  title={inv.status !== 'approved'
+                    ? 'Only an approved invoice can go to AP. Run batch approval first.'
+                    : undefined}
                   style={{ background: 'var(--bl-blue)' }}
                 >
                   {apPreview.sending ? 'Sending…' : 'Send to AP'}

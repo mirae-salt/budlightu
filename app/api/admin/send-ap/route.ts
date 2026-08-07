@@ -21,17 +21,28 @@
  *    read it, and the UI calls this route, so one click sent real mail to AP.
  *  - P1-18: AP_EMAIL / AP_CC_EMAILS are sanitized and validated (BOM class).
  *  - P0-H: every supabase error is inspected.
+ *
+ * CRITIC GATE 2026-08-07 fixes in this file:
+ *  - F1: the PDF comes from lib/invoice-pdf.ts:ensureInvoicePdf, the single
+ *    render+archive path shared with batch-approve and the Edge Functions, so
+ *    `invoices.pdf_key` is actually written. This route also now requires
+ *    status='approved' unless an explicit test_email is supplied, so touchpoint
+ *    2 (batch approval) cannot be bypassed by clicking "Send AP" on a draft.
+ *  - F4: the BAM is CC'd only when bams.email_verified_at is set AND they
+ *    consented (bams.consent_ap_cc). A roster typo otherwise mails a stranger a
+ *    PDF containing a home address and a full bank account number.
+ *  - F13: the dev auth bypass can no longer perform a live AP send.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../../lib/invoice-numbering'
-import { renderInvoicePdfToBuffer } from '../../../../lib/render-pdf'
 import type { InvoicePayload } from '../../../../lib/invoice-payload'
 import { addressProblem, cleanAddress, envAddressOr, envAddressListOr } from '../../../../lib/sanitize'
 import { claimSend, markSendFailed, markSendSucceeded } from '../../../../lib/send-guard'
-import { assertPdfRenderable } from '../../../../lib/pdf-text'
+import { ensureInvoicePdf } from '../../../../lib/invoice-pdf'
+import { bamCcProblem } from '../../../../lib/bam-cc'
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../../lib/invoice-ledger'
 
 const AP_TO = envAddressOr('AP_EMAIL', 'accounts.payable@ilovesalt.com')
@@ -43,6 +54,8 @@ interface SendOutcome {
   blocked?: boolean
   provider?: string
   error?: string
+  /** Non-fatal notes: PDF not archived, BAM not CC'd, etc. */
+  warnings?: string[]
 }
 
 export async function POST(req: NextRequest) {
@@ -59,6 +72,20 @@ export async function POST(req: NextRequest) {
   // instead of skipping the check.
   const auth = await requireAdmin()
   if (!auth.ok) return denied(auth)
+
+  // F13: the two-flag dev bypass (NODE_ENV=development AND ALLOW_DEV_AUTH_BYPASS)
+  // is unreachable in a Vercel production build, but a developer running locally
+  // is usually pointed at the PRODUCTION Supabase project. Nothing about that
+  // combination should be able to mail accounts.payable@. A test send to an
+  // explicit address is still allowed — that is how the pipeline gets verified.
+  if (auth.devBypass && !testEmail) {
+    return NextResponse.json({
+      ok: false,
+      message:
+        'Dev auth bypass is active. A live AP send is refused. ' +
+        'Sign in as a real admin, or pass test_email to send to yourself.'
+    }, { status: 403 })
+  }
 
   const admin = serviceClient()
   const outcomes: SendOutcome[] = []
@@ -79,7 +106,10 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
 
   const { data: inv, error: invErr } = await admin
     .from('invoices')
-    .select('*, payload_json, bams(first_name, last_name, email), cohorts(po_number, program_label, send_mode)')
+    // NOTE: keep this as ONE string literal. supabase-js infers the row type from
+    // the literal; a concatenated expression degrades it to GenericStringError and
+    // every field access below becomes a type error.
+    .select('*, payload_json, bams(first_name, last_name, email, email_verified_at, consent_ap_cc), cohorts(po_number, program_label, send_mode)')
     .eq('id', invoiceId)
     .single()
 
@@ -93,8 +123,24 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   if (!testEmail && (inv.status === 'sent' || inv.status === 'paid')) {
     return blocked(`invoice status is already ${inv.status} — refusing to re-send to AP`)
   }
+  // F1: touchpoint 2 is the approval gate. A draft has not been through it, so
+  // this endpoint refuses it rather than letting one click bypass batch approval.
+  if (!testEmail && inv.status !== 'approved') {
+    return blocked(
+      `invoice status is "${inv.status}" — only an approved invoice can be sent to AP. ` +
+      'Run batch approval (touchpoint 2) first, or use a test send.'
+    )
+  }
 
-  const bam = (inv as { bams?: { first_name: string; last_name: string; email: string } }).bams
+  const bam = (inv as {
+    bams?: {
+      first_name: string
+      last_name: string
+      email: string
+      email_verified_at: string | null
+      consent_ap_cc: boolean | null
+    }
+  }).bams
   const cohort = (inv as { cohorts?: { po_number: string | null; program_label: string; send_mode: string } }).cohorts
   if (!bam) return blocked('bam not found for invoice')
   if (!cohort) return blocked('cohort not found for invoice')
@@ -120,6 +166,7 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   if (recipientProblem) return blocked(recipientProblem)
 
   const ccList: string[] = []
+  let ccNote: string | undefined
   if (!testEmail) {
     for (const [i, raw] of AP_CC.entries()) {
       const addr = cleanAddress(raw)
@@ -127,9 +174,18 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
       if (problem) return blocked(problem)
       ccList.push(addr)
     }
-    const bamEmail = cleanAddress(bam.email)
-    if (bamEmail && !addressProblem('bam.email', bamEmail) && !ccList.some(e => e.toLowerCase() === bamEmail.toLowerCase())) {
-      ccList.push(bamEmail)
+    // F4: verified + consented only. See lib/bam-cc.ts.
+    const ccProblem = bamCcProblem(bam)
+    if (ccProblem) {
+      ccNote = ccProblem
+    } else {
+      const bamEmail = cleanAddress(bam.email)
+      const formatProblem = addressProblem('bam.email', bamEmail)
+      if (formatProblem) {
+        ccNote = `BAM not CC'd: ${formatProblem}`
+      } else if (!ccList.some(e => e.toLowerCase() === bamEmail.toLowerCase())) {
+        ccList.push(bamEmail)
+      }
     }
   }
 
@@ -149,20 +205,19 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   const bodyText = apEmailBody(monthLong, cohort.program_label, cohort.po_number)
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
 
-  // Render the PDF before claiming the send: a render failure then costs nothing.
-  // AP requires 1 PDF per email — hard-block if we can't produce the attachment.
-  let attachments: Array<{ filename: string; content: Buffer }>
-  try {
-    // P1-9: report *which* field/character is unprintable. Thrown from inside
-    // the react-pdf render it would surface as "Cannot read properties of null".
-    assertPdfRenderable(payload)
-    const pdfBuffer = await renderInvoicePdfToBuffer(payload as unknown as InvoicePayload)
-    attachments = [{ filename, content: pdfBuffer }]
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error(`PDF render failed for ${invoiceId}:`, e)
-    return blocked(`PDF render failed: ${msg}`)
-  }
+  // F1: ONE render+archive path (lib/invoice-pdf.ts). It writes invoices.pdf_key,
+  // so SharePoint and the BAM copy later attach the SAME bytes AP received rather
+  // than three independent re-renders. Done before claiming the send: a render
+  // failure then costs nothing.
+  const pdf = await ensureInvoicePdf(admin, {
+    id: inv.id,
+    period: inv.period,
+    invoice_number: inv.invoice_number,
+    pdf_key: inv.pdf_key,
+    payload_json: payload
+  }, filename)
+  if (!pdf.ok) return blocked(pdf.error)
+  const attachments = [{ filename, content: Buffer.from(pdf.bytes) }]
 
   const html = textToEmailHtml(bodyText, {
     invoiceNumber: inv.invoice_number,
@@ -191,9 +246,17 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
     attachments
   })
 
+  const warnings = [pdf.warning, ccNote].filter((w): w is string => Boolean(w))
+
   if (!sendRowId) {
     // test send — never recorded, never flips invoice status
-    return { invoice_id: invoiceId, ok: result.sent, provider: result.provider, error: result.error }
+    return {
+      invoice_id: invoiceId,
+      ok: result.sent,
+      provider: result.provider,
+      error: result.error,
+      ...(warnings.length ? { warnings } : {})
+    }
   }
 
   if (!result.sent) {
@@ -202,7 +265,8 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
       invoice_id: invoiceId,
       ok: false,
       provider: result.provider,
-      error: [result.error ?? 'send failed', failMark.error].filter(Boolean).join(' | ')
+      error: [result.error ?? 'send failed', failMark.error].filter(Boolean).join(' | '),
+      ...(warnings.length ? { warnings } : {})
     }
   }
 
@@ -218,7 +282,8 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
         invoice_id: invoiceId,
         ok: true,
         provider: result.provider,
-        error: `SENT, but invoices.status update failed: ${statusErr.message} — fix manually before any retry`
+        error: `SENT, but invoices.status update failed: ${statusErr.message} — fix manually before any retry`,
+        ...(warnings.length ? { warnings } : {})
       }
     }
   }
@@ -227,7 +292,8 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
     invoice_id: invoiceId,
     ok: true,
     provider: result.provider,
-    error: marked.error ? `SENT, but send record update failed: ${marked.error}` : undefined
+    error: marked.error ? `SENT, but send record update failed: ${marked.error}` : undefined,
+    ...(warnings.length ? { warnings } : {})
   }
 }
 

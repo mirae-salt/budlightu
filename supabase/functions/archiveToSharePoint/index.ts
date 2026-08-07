@@ -11,6 +11,7 @@
 import { serviceClient } from '../_shared/supabase-admin'
 import { invoicePdfFilename } from '../../../lib/invoice-numbering'
 import { slugifySegment, cleanText } from '../../../lib/sanitize'
+import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
 
 const SITE_HOST = 'ilovesalt.sharepoint.com'
 const SITE_PATH = '/sites/Labatt'
@@ -36,7 +37,6 @@ export async function handler(req: { invoice_id: string }) {
 
   const { data: inv, error } = await db.from('invoices').select('*, bams(*), cohorts(*)').eq('id', req.invoice_id).single()
   if (error || !inv) return { ok: false, error: `invoice not found: ${error?.message}` }
-  if (!inv.pdf_key) return { ok: false, error: 'pdf not rendered yet' }
 
   const bam = (inv as any).bams
   const cohort = (inv as any).cohorts
@@ -54,9 +54,18 @@ export async function handler(req: { invoice_id: string }) {
   }
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
 
-  const { data: pdfFile, error: pdfErr } = await db.storage.from('invoices').download(inv.pdf_key)
-  if (pdfErr || !pdfFile) return { ok: false, error: `pdf download failed: ${pdfErr?.message}` }
-  const bytes = new Uint8Array(await pdfFile.arrayBuffer())
+  // F1: `if (!inv.pdf_key) return 'pdf not rendered yet'` could never pass —
+  // nothing in the codebase wrote pdf_key, so nothing was ever archived. Shared
+  // render+archive path; reuses the stored object when there is one.
+  const pdf = await ensureInvoicePdf(db, {
+    id: inv.id,
+    period: inv.period,
+    invoice_number: inv.invoice_number,
+    pdf_key: inv.pdf_key,
+    payload_json: inv.payload_json
+  }, filename)
+  if (!pdf.ok) return { ok: false, error: pdf.error }
+  const bytes = pdf.bytes
 
   const token = await getGraphToken()
   if (!token) return { ok: false, error: 'graph auth failed' }
@@ -122,7 +131,7 @@ export async function handler(req: { invoice_id: string }) {
     }
   }
 
-  return { ok: true, sharepoint_url: webUrl }
+  return { ok: true, sharepoint_url: webUrl, ...(pdf.warning ? { warning: pdf.warning } : {}) }
 }
 
 async function getGraphToken(): Promise<string | null> {

@@ -1,10 +1,17 @@
 'use client'
 import { useState, useEffect, use } from 'react'
 import { BANK_SEED } from '@/lib/banks'
+import { browserClient } from '@/lib/supabase-browser'
 
 /**
  * Onboarding form — invite-token gated (P0-3).
  * Token check auto-fills email + first name, then shows the full form directly.
+ *
+ * Sign-in on completion: onboarding creates the auth user server-side, so the
+ * browser has no session yet. Sending the BAM to /portal/login made them retype
+ * the email they just confirmed and start the whole code flow over. Instead the
+ * OTP is requested automatically as soon as the form is submitted, and the code
+ * is entered right here, so finishing onboarding lands them in the portal.
  */
 export default function OnboardingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -22,6 +29,49 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [done, setDone] = useState<string | null>(null)
+
+  // Sign-in state for the done screen
+  const [otp, setOtp] = useState('')
+  const [codeSent, setCodeSent] = useState(false)
+  const [signingIn, setSigningIn] = useState(false)
+  const [signInError, setSignInError] = useState<string | null>(null)
+
+  async function sendCode() {
+    setSignInError(null)
+    const sb = browserClient()
+    const { error: otpErr } = await sb.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false }
+    })
+    if (otpErr) {
+      setSignInError(`We could not send your sign-in code: ${otpErr.message}`)
+      return
+    }
+    setCodeSent(true)
+  }
+
+  async function verifyCode() {
+    const code = otp.replace(/\D/g, '')
+    if (code.length !== 6) {
+      setSignInError('Enter the 6 digit code from your email.')
+      return
+    }
+    setSigningIn(true); setSignInError(null)
+    const sb = browserClient()
+    let { error: verifyErr } = await sb.auth.verifyOtp({ email, token: code, type: 'email' })
+    if (verifyErr) {
+      const fallback = await sb.auth.verifyOtp({ email, token: code, type: 'magiclink' })
+      if (!fallback.error) verifyErr = null
+    }
+    if (verifyErr) {
+      setSigningIn(false)
+      const msg = verifyErr.message || 'Verification failed'
+      setSignInError(msg.includes('expired') ? 'That code expired. Send a new one below.' : msg)
+      setOtp('')
+      return
+    }
+    window.location.href = '/portal/program'
+  }
 
   // Upfront token validity check — surfaces a dead/used invite link
   // immediately instead of after the whole form is filled out.
@@ -81,6 +131,8 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
       if (!resp.ok || !j.ok) { setError(j.message ?? 'Failed'); setBusy(false); return }
       setDone(j.message)
       setStep('done')
+      // Request the sign-in code immediately so the BAM never sees a login form.
+      void sendCode()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -120,9 +172,42 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
         <p className="eyebrow">ALL SET</p>
         <h1>You&rsquo;re onboarded 🎉</h1>
         <p className="subtle">{done}</p>
-        <p className="subtle">
-          <a href="/portal/login" style={{ color: 'var(--teal-sub)' }}>Go to portal →</a>
-        </p>
+
+        <div className="surface" style={{ marginTop: 24 }}>
+          <h3 style={{ marginTop: 0, fontSize: 16 }}>One last step: sign in</h3>
+          <p className="subtle" style={{ fontSize: 14 }}>
+            {codeSent
+              ? <>We sent a 6 digit code to <strong>{email}</strong>. Enter it below to open your portal.</>
+              : <>Sending a 6 digit sign-in code to <strong>{email}</strong>…</>}
+          </p>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
+            <input
+              value={otp}
+              onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={e => { if (e.key === 'Enter') void verifyCode() }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              aria-label="6 digit sign-in code"
+              style={{ width: 140, fontSize: 20, letterSpacing: '0.25em', textAlign: 'center' }}
+            />
+            <button onClick={verifyCode} disabled={signingIn || otp.replace(/\D/g, '').length !== 6}>
+              {signingIn ? 'Signing in…' : 'Open my portal'}
+            </button>
+            <button className="btn-ghost" onClick={sendCode} disabled={signingIn} style={{ fontSize: 13 }}>
+              Resend code
+            </button>
+          </div>
+
+          {signInError && (
+            <p style={{ color: '#A31212', fontSize: 13, marginTop: 10 }}>{signInError}</p>
+          )}
+
+          <p className="subtle" style={{ fontSize: 12, marginTop: 12 }}>
+            Having trouble? You can also <a href="/portal/login" style={{ color: 'var(--teal-sub)' }}>sign in from the login page</a>.
+          </p>
+        </div>
       </main>
     )
   }

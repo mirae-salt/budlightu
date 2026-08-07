@@ -27,6 +27,9 @@ import { validateInstitution, validateTransit, validateAccount, isValidHst } fro
 import { normalizeBankName, lookupBank } from '../../../lib/banks'
 import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 
+/** Bump when the program terms text changes. Stored with each acceptance. */
+const TERMS_VERSION = '2026-09-01'
+
 type FormPayload = {
   email: string
   first_name: string
@@ -43,6 +46,7 @@ type FormPayload = {
   account_no: string
   hst_number?: string
   consent_ap_cc: boolean
+  consent_terms?: boolean
 }
 
 export async function handler(req: {
@@ -190,6 +194,11 @@ export async function handler(req: {
     school_id:    req.form.school_id,
     bank_name:    bank.displayName,
     consent_ap_cc: req.form.consent_ap_cc,
+    // The T&C checkbox gated the submit button but was never stored, so there was
+    // no record a BAM had agreed to anything. Stamped server-side (never from the
+    // client) and versioned so a later revision cannot reinterpret an old accept.
+    consent_terms_at: req.form.consent_terms ? new Date().toISOString() : null,
+    consent_terms_version: req.form.consent_terms ? TERMS_VERSION : null,
     status:       'active',
     auth_user_id: authUser.user.id,
     invite_token_hash: null                // one-time — burn it

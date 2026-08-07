@@ -98,9 +98,21 @@ export async function claimSend(
   const existing = rows.find(r => r.mode === mode)
 
   if (existing) {
-    // Re-claim a failed or stale attempt. `.is('sent_at', null)` makes this a
-    // compare-and-set: if a concurrent worker completed it, 0 rows come back.
-    const { data: updated, error: updErr } = await db
+    // Re-claim a failed or stale attempt as a COMPARE-AND-SET on the exact row
+    // state we read.
+    //
+    // AUDIT-2026-08-07 F2: this used to filter on `.is('sent_at', null)` alone.
+    // For the common retry shape {mode:'live', status:'failed', sent_at:null},
+    // two concurrent retries both SELECTed the same row, both UPDATEd it with a
+    // predicate that was still true for both, both got 1 row back, and both
+    // called sendEmail. The partial unique index only trips at
+    // markSendSucceeded, i.e. AFTER the second AP email has already gone out —
+    // a duplicate real payment. This is precisely the retry path an operator
+    // uses after a transient provider failure.
+    //
+    // Matching on (status, started_at) as they were at SELECT time means the
+    // loser matches 0 rows and gets reason:'race' before touching the provider.
+    let q = db
       .from('invoice_sends')
       .update({
         status: 'sending',
@@ -111,12 +123,26 @@ export async function claimSend(
       })
       .eq('id', existing.id)
       .is('sent_at', null)
-      .select('id, attempts')
+
+    q = existing.status === null || existing.status === undefined
+      ? q.is('status', null)
+      : q.eq('status', existing.status)
+    q = existing.started_at === null || existing.started_at === undefined
+      ? q.is('started_at', null)
+      : q.eq('started_at', existing.started_at)
+
+    const { data: updated, error: updErr } = await q.select('id, attempts')
 
     if (updErr) return { ok: false, reason: 'db_error', error: `invoice_sends claim failed: ${updErr.message}` }
     const row = (updated ?? [])[0]
     if (!row) {
-      return { ok: false, reason: 'race', error: 'send row was completed by another worker while claiming' }
+      return {
+        ok: false,
+        reason: 'race',
+        error:
+          'send row changed while we were claiming it (another worker took the claim or completed the send) ' +
+          '— not sending a second copy'
+      }
     }
     return { ok: true, sendRowId: row.id, attempts: Number(row.attempts ?? 1) }
   }

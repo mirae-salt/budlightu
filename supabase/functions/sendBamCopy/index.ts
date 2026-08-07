@@ -11,11 +11,19 @@
  * retryable instead of permanently blocking (P0-C), MS_SENDER_MAILBOX /
  * MS_TENANT_ID are sanitized and URL-encoded (P1-18), and bam/cohort presence
  * plus every supabase error is checked (P0-H).
+ *
+ * CRITIC GATE 2026-08-07:
+ *  - F1: the `if (!inv.pdf_key)` precondition was unsatisfiable (nothing wrote
+ *    pdf_key), so BAM copies never went out. Now uses the shared
+ *    lib/invoice-pdf.ts render+archive path.
+ *  - F16: chunked base64. The old btoa(String.fromCharCode(...bytes)) throws
+ *    RangeError on any PDF above roughly 100 KB.
  */
 import { serviceClient } from '../_shared/supabase-admin'
 import { invoicePdfFilename } from '../../../lib/invoice-numbering'
 import { addressProblem, cleanAddress, envAddressOr, envToken, tokenProblem } from '../../../lib/sanitize'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
+import { ensureInvoicePdf, bytesToBase64 } from '../../../lib/invoice-pdf'
 
 export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' }) {
   const db = serviceClient()
@@ -46,7 +54,6 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
   if (req.mode === 'live' && cohort.bam_copy_mode !== 'live') {
     return { ok: false, error: `cohort.bam_copy_mode=${cohort.bam_copy_mode} does not permit live send` }
   }
-  if (!inv.pdf_key) return { ok: false, error: 'pdf not rendered yet' }
 
   const recipient = cleanAddress(bam.email)
   const recipientProblem = addressProblem('bam.email', recipient)
@@ -71,10 +78,17 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
     'Bud Light U program'
   ].join('\n')
 
-  const { data: pdfFile, error: pdfErr } = await db.storage.from('invoices').download(inv.pdf_key)
-  if (pdfErr || !pdfFile) return { ok: false, error: `pdf download failed: ${pdfErr?.message}` }
-  const bytes = new Uint8Array(await pdfFile.arrayBuffer())
-  const base64 = btoa(String.fromCharCode(...bytes))
+  // F1: shared render+archive path. Reuses the object AP received when pdf_key
+  // is already set, so the BAM's copy is byte-identical to the one AP holds.
+  const pdf = await ensureInvoicePdf(db, {
+    id: inv.id,
+    period: inv.period,
+    invoice_number: inv.invoice_number,
+    pdf_key: inv.pdf_key,
+    payload_json: inv.payload_json
+  }, filename)
+  if (!pdf.ok) return { ok: false, error: pdf.error }
+  const base64 = bytesToBase64(pdf.bytes)   // F16
 
   const token = await getGraphToken()
   if (!token.ok) return { ok: false, error: token.error }
@@ -126,7 +140,8 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
     ? await markSendSucceeded(db, claim.sendRowId, { messageId })
     : await markSendDrafted(db, claim.sendRowId, { messageId })
 
-  return { ok: true, mode: req.mode, message_id: messageId, warning: recorded.error }
+  const warning = [recorded.error, pdf.warning].filter(Boolean).join(' | ')
+  return { ok: true, mode: req.mode, message_id: messageId, warning: warning || undefined }
 }
 
 async function getGraphToken(): Promise<{ ok: true; value: string } | { ok: false; error: string }> {

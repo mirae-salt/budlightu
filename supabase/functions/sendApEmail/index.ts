@@ -20,12 +20,27 @@
  *    URL-encoded. A BOM in either becomes %EF%BB%BF in the Graph path and 404s
  *    invisibly — the exact bug class as the invite-link incident.
  *  - P0-H: bam/cohort presence and every supabase error are checked.
+ *
+ * CRITIC GATE 2026-08-07 fixes:
+ *  - F1: `if (!inv.pdf_key) return {ok:false,'pdf not rendered yet'}` was an
+ *    unsatisfiable precondition — nothing in the codebase wrote pdf_key, so this
+ *    function could never send and batch-approve could never approve. The PDF
+ *    now comes from lib/invoice-pdf.ts:ensureInvoicePdf, which renders from
+ *    payload_json, archives to the `invoices` bucket and writes pdf_key.
+ *  - F4: the BAM is CC'd only when email_verified_at is set AND consent_ap_cc is
+ *    true. It used to be CC'd after nothing but a format check, which walked
+ *    around the P0-4 control that sendBamCopy enforces two files over.
+ *  - F16: base64 goes through bytesToBase64. `btoa(String.fromCharCode(...bytes))`
+ *    spreads every byte as an argument and throws RangeError above ~100 KB, i.e.
+ *    on any real invoice PDF.
  */
 import { serviceClient } from '../_shared/supabase-admin'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../lib/invoice-numbering'
 import { addressProblem, cleanAddress, envAddressOr, envAddressListOr, envToken, tokenProblem } from '../../../lib/sanitize'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../lib/invoice-ledger'
+import { ensureInvoicePdf, bytesToBase64 } from '../../../lib/invoice-pdf'
+import { bamCcProblem } from '../../../lib/bam-cc'
 import type { InvoicePayload } from '../../../lib/invoice-payload'
 
 export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live' }) {
@@ -52,7 +67,6 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   if (req.mode === 'live' && cohort.send_mode !== 'live') {
     return { ok: false, error: `cohort.send_mode="${cohort.send_mode}" does not permit a live AP send` }
   }
-  if (!inv.pdf_key) return { ok: false, error: 'pdf not rendered yet' }
 
   // P0-D: the document must agree with the ledger before anything leaves.
   const ledger = await lookupReimbursement(db, inv.bam_id, inv.cohort_id, inv.period)
@@ -72,9 +86,17 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     if (problem) return { ok: false, error: problem }
     ccList.push(addr)
   }
-  const bamEmail = cleanAddress(bam.email)
-  if (bamEmail && !addressProblem('bam.email', bamEmail) && !ccList.some(e => e.toLowerCase() === bamEmail.toLowerCase())) {
-    ccList.push(bamEmail)
+  // F4: verified + consented only (lib/bam-cc.ts). Never blocks the AP email
+  // itself; AP still has to be paid.
+  let ccNote: string | undefined = bamCcProblem(bam) ?? undefined
+  if (!ccNote) {
+    const bamEmail = cleanAddress(bam.email)
+    const formatProblem = addressProblem('bam.email', bamEmail)
+    if (formatProblem) {
+      ccNote = `BAM not CC'd: ${formatProblem}`
+    } else if (!ccList.some(e => e.toLowerCase() === bamEmail.toLowerCase())) {
+      ccList.push(bamEmail)
+    }
   }
 
   const sender = envAddressOr('MS_SENDER_MAILBOX', 'accounts.payable.dryrun@ilovesalt.com')
@@ -87,11 +109,17 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   const body = apEmailBody(monthLong, cohort.program_label, cohort.po_number)
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
 
-  // Fetch PDF bytes from Storage
-  const { data: pdfFile, error: pdfErr } = await db.storage.from('invoices').download(inv.pdf_key)
-  if (pdfErr || !pdfFile) return { ok: false, error: `pdf download failed: ${pdfErr?.message}` }
-  const bytes = new Uint8Array(await pdfFile.arrayBuffer())
-  const base64 = btoa(String.fromCharCode(...bytes))
+  // F1: single render/archive path — reuses the stored object when pdf_key is
+  // already set, otherwise renders from payload_json, uploads and records the key.
+  const pdf = await ensureInvoicePdf(db, {
+    id: inv.id,
+    period: inv.period,
+    invoice_number: inv.invoice_number,
+    pdf_key: inv.pdf_key,
+    payload_json: inv.payload_json
+  }, filename)
+  if (!pdf.ok) return { ok: false, error: pdf.error }
+  const base64 = bytesToBase64(pdf.bytes)   // F16: chunked, no argument spread
 
   // Get Graph token (client credentials flow)
   const token = await getGraphToken()
@@ -151,7 +179,8 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     // Draft only — nothing was sent, so sent_at stays NULL and the later live
     // send is not blocked (P0-C).
     const drafted = await markSendDrafted(db, claim.sendRowId, { messageId })
-    return { ok: true, mode: req.mode, message_id: messageId, warning: drafted.error }
+    const draftWarning = [drafted.error, pdf.warning, ccNote].filter(Boolean).join(' | ')
+    return { ok: true, mode: req.mode, message_id: messageId, warning: draftWarning || undefined }
   }
 
   const marked = await markSendSucceeded(db, claim.sendRowId, { messageId })
@@ -159,7 +188,12 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     .update({ status: 'sent', sent_at: new Date().toISOString() })
     .eq('id', req.invoice_id)
 
-  const warning = [marked.error, statusErr ? `invoices.status update failed: ${statusErr.message}` : null]
+  const warning = [
+    marked.error,
+    statusErr ? `invoices.status update failed: ${statusErr.message}` : null,
+    pdf.warning,
+    ccNote
+  ]
     .filter(Boolean)
     .join(' | ')
 

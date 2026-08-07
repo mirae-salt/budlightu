@@ -37,10 +37,15 @@ describe('lookupBank — seed integrity', () => {
     ['Coast Capital Savings',  '809'],
     ['Vancity',                '809'],
     ['Wealthsimple',           '703'],
-    ['Affinity Credit Union',  '839'],
-    ['Conexus Credit Union',   '839'],
-    ['Servus Credit Union',    '839'],
-    ['Meridian Credit Union',  '839'],
+    // 2026-08-07: these four were all seeded 839 (Atlantic Central). None of them
+    // clears through Atlantic Central. Canada has one central PER REGION.
+    ['Affinity Credit Union',  '889'],   // Saskatchewan central
+    ['Conexus Credit Union',   '889'],   // Saskatchewan central
+    ['Servus Credit Union',    '899'],   // Alberta central
+    ['Meridian Credit Union',  '837'],   // holds its OWN number, not a central
+    ['Libro Credit Union',     '828'],   // Central 1 Ontario
+    ['EQ Bank',                '623'],
+    ['Laurentian Bank',        '039'],
   ]
 
   it.each(cases)('%s → %s', (raw, expected) => {
@@ -58,6 +63,30 @@ describe('lookupBank — seed integrity', () => {
   it('unknown bank returns null (caller must HARD FAIL)', () => {
     expect(lookupBank('Bank of Zamunda')).toBeNull()
   })
+
+  it('a bare "Caisse Populaire" no longer falls through to Desjardins', () => {
+    // There are three unrelated caisse networks: Desjardins Quebec (815),
+    // Desjardins Ontario (829) and Alliance (890), plus UNI/Acadienne (865).
+    // A bare "caisse populaire" alias sent all of them to 815. Hard-failing sends
+    // the student to a human instead of to the wrong clearing stream.
+    expect(lookupBank('Caisse Populaire')).toBeNull()
+  })
+
+  it('no bank is left on 839 unless it genuinely clears through Atlantic Central', () => {
+    // 839 is Atlantic Central (NS/NB/PE/NL). Seven credit unions from Ontario,
+    // Alberta, Saskatchewan and Manitoba were seeded to it.
+    const on839 = BANK_SEED.filter(b => b.institutionNo === '839').map(b => b.displayName)
+    expect(on839).toEqual([])
+  })
+
+  it('dead institutions are absent, since a dead code routes into a closed lane', () => {
+    // HSBC Canada (016) migrated to RBC in 2024; Canadian Western (030) to National
+    // Bank in 2025; motusbank (374) into Meridian. An unlisted name hard-fails
+    // safely and reaches a human, which is strictly better.
+    for (const dead of ['016', '030', '374']) {
+      expect(BANK_SEED.find(b => b.institutionNo === dead)).toBeUndefined()
+    }
+  })
 })
 
 describe('P1-28 · lookupBank is EXACT, never a substring match', () => {
@@ -71,7 +100,7 @@ describe('P1-28 · lookupBank is EXACT, never a substring match', () => {
 
   it('documents the old behaviour so this cannot regress unnoticed', () => {
     const substringMatch = BANK_SEED.find(b => normalizeBankName('Unity Credit Union').includes(b.normalized))
-    expect(substringMatch?.institutionNo).toBe('815')   // the wrong answer it used to give
+    expect(substringMatch?.institutionNo).toBe('865')   // UNI's number; the wrong bank for Unity CU
     expect(lookupBank('Unity Credit Union')).toBeNull() // the right answer now
   })
 
@@ -81,9 +110,19 @@ describe('P1-28 · lookupBank is EXACT, never a substring match', () => {
     expect(lookupBank('National Western Life')).toBeNull()
   })
 
-  it('exact UNI still resolves', () => {
-    expect(lookupBank('UNI Financial Cooperation')?.institutionNo).toBe('815')
-    expect(lookupBank('UNI')?.institutionNo).toBe('815')
+  it('exact UNI still resolves, and to its OWN number not Desjardins', () => {
+    // UNI is the former Caisse populaire acadienne (NB) at 865. It was seeded 815,
+    // which is Desjardins Quebec — a live number, so the payment would have passed
+    // every format check and entered the wrong clearing stream.
+    expect(lookupBank('UNI Financial Cooperation')?.institutionNo).toBe('865')
+    expect(lookupBank('UNI')?.institutionNo).toBe('865')
+    expect(lookupBank('Caisse Populaire Acadienne')?.institutionNo).toBe('865')
+  })
+
+  it('the other caisses resolve to their own numbers, not Desjardins 815', () => {
+    expect(lookupBank('Caisse Alliance')?.institutionNo).toBe('890')
+    expect(lookupBank('Desjardins Ontario')?.institutionNo).toBe('829')
+    expect(lookupBank('Desjardins')?.institutionNo).toBe('815')
   })
 
   it('aliases cover the real spellings people type', () => {
@@ -95,10 +134,11 @@ describe('P1-28 · lookupBank is EXACT, never a substring match', () => {
       ['Canadian Imperial Bank of Commerce',      '010'],
       ['National Bank of Canada',                 '006'],
       ['Banque Nationale',                        '006'],
-      ['Caisse Populaire',                        '815'],
       ['Alberta Treasury Branches',               '219'],
-      ['Steinbach Credit Union',                  '839'],
-      ['Connect First Credit Union',              '839'],
+      ['Steinbach Credit Union',                  '879'],   // Manitoba central
+      ['Connect First Credit Union',              '899'],   // Alberta central
+      ['KOHO',                                    '621'],   // account is Peoples Trust
+      ['Equitable Bank',                          '623'],
     ]
     for (const [raw, expected] of cases) {
       const b = lookupBank(raw)

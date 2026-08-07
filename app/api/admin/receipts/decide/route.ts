@@ -19,7 +19,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
-import { DEFAULT_POLICY, softFloorFor } from '../../../../../lib/policy'
+import { DEFAULT_POLICY, shortfallWarnBelow } from '../../../../../lib/policy'
 import { sendEmail } from '../../../../../lib/send-email'
 import { appBaseUrl } from '../../../../../lib/app-url'
 import { parseNonNegativeMoney } from '../../../../../lib/money'
@@ -193,7 +193,7 @@ export async function POST(req: NextRequest) {
   }
 
   let softFloorBreach = false
-  let softFloorValue = softFloorFor(DEFAULT_POLICY)
+  let softFloorValue = shortfallWarnBelow(DEFAULT_POLICY)
   let totalSpentThisPeriod = 0
   let ledgerPaid: number | null = null
 
@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
     // Soft-floor breach (for the warning email) is distinct from the ledger's
     // shortfallFlag (spent < full entitlement) — the warning only fires when
     // spend falls below entitlement - reviewBandPadding (e.g. $150 - $10 = $140).
-    softFloorValue = softFloorFor(policy)
+    softFloorValue = shortfallWarnBelow(policy)
     softFloorBreach = receiptsTotal < softFloorValue
 
     // P0-H: THIS is the write that decides what the BAM is paid. Its error was

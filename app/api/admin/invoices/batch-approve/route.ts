@@ -21,6 +21,15 @@
  *  - Partial failure is reported per invoice and is safe to re-run: sends that
  *    succeeded are blocked by the invoice_sends guard, sends that failed are
  *    retryable.
+ *
+ * CRITIC GATE 2026-08-07 · F1: this endpoint was still inoperable after the P1-2
+ * fix, for a different reason. All three downstream handlers required
+ * `invoices.pdf_key` and NOTHING in the codebase ever wrote it, so `ap.ok` was
+ * never true, status never became 'approved', nothing was archived, and BAM
+ * copies had no attachment. Robin would have selected 58 drafts and collected 58
+ * failures. The PDF is now rendered and archived once per invoice here, via the
+ * shared lib/invoice-pdf.ts path, BEFORE the three sends — so all three attach
+ * the same bytes and pdf_key is written exactly once.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
@@ -30,6 +39,8 @@ import { handler as archive }     from '../../../../../supabase/functions/archiv
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../../../lib/invoice-ledger'
 import type { InvoicePayload } from '../../../../../lib/invoice-payload'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
+import { ensureInvoicePdf } from '../../../../../lib/invoice-pdf'
+import { invoicePdfFilename } from '../../../../../lib/invoice-numbering'
 
 type StepResult = { ok: boolean; error?: string; skipped?: boolean }
 
@@ -38,6 +49,8 @@ interface BatchItemResult {
   invoice_number?: string
   blocked?: string
   approved?: boolean
+  pdf_key?: string | null
+  warnings?: string[]
   ap?: StepResult
   sharepoint?: StepResult
   bam?: StepResult
@@ -55,7 +68,7 @@ export async function POST(req: NextRequest) {
   const admin = serviceClient()
 
   const { data: invoices, error: invErr } = await admin.from('invoices')
-    .select('id, cohort_id, bam_id, period, invoice_number, status, payload_json')
+    .select('id, cohort_id, bam_id, period, invoice_number, status, payload_json, pdf_key, bams(first_name, last_name)')
     .in('id', invoiceIds)
     .eq('status', 'draft')
   if (invErr) return NextResponse.json({ ok: false, message: `invoices read failed: ${invErr.message}` }, { status: 500 })
@@ -93,6 +106,32 @@ export async function POST(req: NextRequest) {
       continue
     }
 
+    // F1: render + archive ONCE, before any send. This is what writes pdf_key.
+    // A render failure blocks this invoice only (AP requires 1 PDF per email —
+    // an email with no attachment is worse than a reported failure).
+    // supabase-js types an embedded one-to-one as an array; take the first row.
+    const bamRel = (inv as unknown as {
+      bams?: { first_name?: string | null; last_name?: string | null } | Array<{ first_name?: string | null; last_name?: string | null }> | null
+    }).bams
+    const bamRow = Array.isArray(bamRel) ? bamRel[0] : bamRel
+    const filename = invoicePdfFilename(
+      bamRow?.first_name ?? '',
+      bamRow?.last_name ?? '',
+      new Date(inv.period),
+      inv.invoice_number
+    )
+    const pdf = await ensureInvoicePdf(admin, {
+      id: inv.id,
+      period: inv.period,
+      invoice_number: inv.invoice_number,
+      pdf_key: inv.pdf_key,
+      payload_json: inv.payload_json
+    }, filename)
+    if (!pdf.ok) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: pdf.error })
+      continue
+    }
+
     const ap = await step(() => sendAp({ invoice_id: inv.id, mode: cohort.send_mode }))
     const sharepoint = await step(() => archive({ invoice_id: inv.id }))
     const bam = cohort.bam_copy_mode === 'off'
@@ -117,6 +156,8 @@ export async function POST(req: NextRequest) {
       id: inv.id,
       invoice_number: inv.invoice_number,
       approved,
+      pdf_key: pdf.pdfKey,
+      ...(pdf.warning ? { warnings: [pdf.warning] } : {}),
       ap: approveError ? { ok: ap.ok, error: [ap.error, approveError].filter(Boolean).join(' | ') } : ap,
       sharepoint,
       bam
