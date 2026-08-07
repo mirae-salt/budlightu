@@ -58,25 +58,69 @@ export default function VerifyAccountPage() {
         Before we send anything with your banking info, let&rsquo;s make sure this is really you.
       </p>
 
+      {/*
+        The last 4 digits are the entire point of this screen, so they get the
+        strongest contrast on the page. They used to be rendered in var(--bl-blue)
+        on a .hero-card whose background is also var(--bl-blue), i.e. invisible,
+        which silently defeated the P0-4 check: the student confirmed without ever
+        seeing the number they were confirming.
+      */}
       <div className="hero-card" style={{ marginTop: 20 }}>
-        <div className="muted" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+        <div style={{
+          fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em',
+          marginBottom: 10, color: 'rgba(255,255,255,0.85)'
+        }}>
           Your account on file
         </div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--bl-navy)', fontFamily: 'monospace' }}>
-          {bank ?? '—'} · ending in <span style={{ color: 'var(--bl-blue)' }}>{tail ?? '••••'}</span>
+
+        <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 10 }}>
+          {bank ?? 'Bank not set'}
         </div>
-        <p className="muted" style={{ fontSize: 13, marginTop: 12 }}>
-          If those last 4 digits don&rsquo;t match your bank account, <strong>do NOT confirm</strong>. Email
-          robin.graham@ilovesalt.com immediately. Someone else may have completed your onboarding form.
+
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)' }}>Account ending in</span>
+          <span style={{
+            fontFamily: 'monospace', fontSize: 30, fontWeight: 700, letterSpacing: '0.12em',
+            color: 'var(--bl-navy)', background: '#fff',
+            padding: '4px 14px', borderRadius: 8, lineHeight: 1.25
+          }}>
+            {tail ?? '••••'}
+          </span>
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: 12, padding: '12px 14px', borderRadius: 10,
+        background: 'rgba(163,18,18,0.06)', border: '1px solid rgba(163,18,18,0.25)',
+        fontSize: 13, lineHeight: 1.6
+      }}>
+        <strong style={{ color: '#A31212' }}>Do these 4 digits match your own bank account?</strong>
+        <p style={{ margin: '4px 0 0' }}>
+          If they do not, <strong>do not confirm</strong>. Someone else may have completed your
+          onboarding form. Tell Robin right away using the button below.
         </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-        <button onClick={confirm}>Yes, that&rsquo;s me. Confirm</button>
-        <a href="mailto:robin.graham@ilovesalt.com?subject=BLU%20account%20verification%20issue" className="btn-ghost" style={{ textDecoration: 'none', padding: '9px 16px' }}>
-          Something&rsquo;s wrong
+      <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
+        <button onClick={confirm}>Yes, that&rsquo;s my account. Confirm</button>
+        <a
+          href={`mailto:robin.graham@ilovesalt.com?subject=${encodeURIComponent('Bud Light U — account verification issue')}&body=${encodeURIComponent(
+            `Hi Robin,\n\nThe banking details on my Bud Light U account do not look right.\n\n` +
+            `Shown to me: ${bank ?? 'bank not set'}, account ending in ${tail ?? '????'}\n` +
+            `My account actually ends in: \n\n` +
+            `Please do not send anything until this is sorted out.\n\nThanks`
+          )}`}
+          className="btn-ghost"
+          style={{ textDecoration: 'none', padding: '9px 16px' }}
+        >
+          These are not my details
         </a>
       </div>
+
+      <p className="subtle" style={{ fontSize: 12, marginTop: 14 }}>
+        Banking details cannot be changed from the portal. Robin updates them for you, so that a
+        payment can never be redirected by someone who gets into your account.
+      </p>
     </main>
   )
 }
