@@ -116,6 +116,7 @@ export default function Roster() {
   const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohort: '', school: '' })
   const [editMsg, setEditMsg] = useState<string | null>(null)
   const [inviting, setInviting] = useState(false)
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohort: '', isTest: false })
   const [cohortList, setCohortList] = useState<string[]>([])
@@ -342,6 +343,22 @@ export default function Roster() {
 
       {editMsg && (
         <div className={editMsg.startsWith('Save failed') ? 'badge badge-red' : 'badge badge-green'} style={{ marginBottom: 12, display: 'inline-block' }}>{editMsg}</div>
+      )}
+
+      {inviteUrl && (
+        <div className="surface" style={{ marginBottom: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Onboarding link</span>
+            <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setInviteUrl(null)}>Dismiss</button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <a href={inviteUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all', flex: 1, minWidth: 240 }}>{inviteUrl}</a>
+            <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => navigator.clipboard.writeText(inviteUrl)}>Copy</button>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            Send this manually if the email link does not work. One-time use.
+          </div>
+        </div>
       )}
 
       <div className="surface">
@@ -633,6 +650,7 @@ export default function Roster() {
                                     })
                                     const j = await res.json()
                                     if (j.ok) {
+                                      setInviteUrl(j.invite_url ?? null)
                                       setEditMsg(j.email_sent ? `Invite sent to ${b.email}` : `Invite created (email failed: ${j.email_error})`)
                                     } else {
                                       setEditMsg(`Invite failed: ${j.message}`)

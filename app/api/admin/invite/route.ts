@@ -73,7 +73,8 @@ export async function POST(req: NextRequest) {
   const result = await sendEmail({
     to: bam.email,
     subject: `You're invited to Bud Light U — set up your account`,
-    html: inviteEmailHtml(bam.first_name, inviteUrl)
+    html: inviteEmailHtml(bam.first_name, inviteUrl),
+    text: `Hi ${bam.first_name},\n\nYou've been selected as a Bud Light U Brand Ambassador! Set up your account here:\n\n${inviteUrl}\n\nThis link is one-time use and tied to your email. If you have any questions, reply to this email or contact your program manager.\n\nBud Light U - Campus Ambassador Program`
   })
 
   const actorId = user.user?.id ?? 'dev'
@@ -110,12 +111,23 @@ function inviteEmailHtml(firstName: string, inviteUrl: string): string {
       and banking details so we can process your monthly payments.
     </p>
 
-    <div style="text-align: center; margin: 32px 0;">
-      <a href="${inviteUrl}"
-         style="background: #0073cf; color: #ffffff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block;">
-        Set up my account
-      </a>
-    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 32px auto;">
+      <tr>
+        <td align="center" bgcolor="#0073cf" style="border-radius: 8px;">
+          <a href="${inviteUrl}"
+             style="background: #0073cf; color: #ffffff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block;">
+            Set up my account
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">
+      If the button above does not work, copy and paste this link into your browser:
+    </p>
+    <p style="font-size: 12px; line-height: 1.5; word-break: break-all;">
+      <a href="${inviteUrl}" style="color: #0073cf;">${inviteUrl}</a>
+    </p>
 
     <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">
       This link is one-time use and tied to your email. If you have any questions,
