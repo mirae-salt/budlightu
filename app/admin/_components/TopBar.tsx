@@ -31,7 +31,9 @@ export function NotificationBell() {
   const [notifs, setNotifs] = useState<Notif[]>([])
   const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
+  const [dropPos, setDropPos] = useState<{ top: number; left: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
 
   const load = () => {
     fetch('/api/admin/data?table=notifications')
@@ -76,7 +78,14 @@ export function NotificationBell() {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
-        onClick={() => setOpen(!open)}
+        ref={btnRef}
+        onClick={() => {
+          if (!open && btnRef.current) {
+            const r = btnRef.current.getBoundingClientRect()
+            setDropPos({ top: r.bottom + 8, left: r.left })
+          }
+          setOpen(!open)
+        }}
         style={{
           position: 'relative', background: 'none', border: 'none', cursor: 'pointer',
           padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center',
@@ -100,9 +109,9 @@ export function NotificationBell() {
         )}
       </button>
 
-      {open && (
+      {open && dropPos && (
         <div style={{
-          position: 'absolute', top: '100%', right: 0, marginTop: 8,
+          position: 'fixed', top: dropPos.top, left: dropPos.left,
           width: 380, maxHeight: 480, overflowY: 'auto',
           background: 'var(--card-bg, #fff)', border: '1px solid var(--border)',
           borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',

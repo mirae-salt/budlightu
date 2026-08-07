@@ -104,7 +104,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <>
           <div className={`sidebar-backdrop${sidebarOpen ? ' open' : ''}`} onClick={close} />
           <aside className={`sidebar portal-sidebar${sidebarOpen ? ' open' : ''}`}>
-            <Link href="/portal/program" className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px', textDecoration: 'none' }} onClick={close}>
+            <Link href="/portal/program" className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px', textDecoration: 'none' }} onClick={(e) => { if (path === '/portal/program') { e.preventDefault(); window.location.reload() } close() }}>
               <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
               <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2, color: 'rgba(255,255,255,0.4)' }}>
                 BAM Portal
