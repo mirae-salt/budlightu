@@ -9,6 +9,7 @@ import { cookies } from 'next/headers'
 import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
 import { DEFAULT_POLICY, softFloorFor } from '../../../../../lib/policy'
 import { sendEmail } from '../../../../../lib/send-email'
+import { appBaseUrl } from '../../../../../lib/app-url'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
 
   // Trigger shortfall warning if approved but below soft floor
   if (decision === 'approved' && softFloorBreach) {
-    const baseUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
+    const baseUrl = req.nextUrl?.origin || appBaseUrl()
     const warnHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
 
     // 1. Email the BAM about underspending

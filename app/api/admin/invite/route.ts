@@ -10,6 +10,7 @@ import { cookies } from 'next/headers'
 import { randomBytes, createHash } from 'crypto'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
+import { appBaseUrl } from '../../../../lib/app-url'
 
 export async function POST(req: NextRequest) {
   const { bam_id } = await req.json()
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 })
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
+  const appUrl = appBaseUrl()
   const inviteUrl = `${appUrl}/portal/onboarding/${rawToken}`
 
   // --- send invite email (Resend by default, MS Graph if configured) ---

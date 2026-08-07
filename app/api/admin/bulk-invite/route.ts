@@ -13,6 +13,7 @@ import { randomBytes, createHash } from 'crypto'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { resolveInitials, type Bam } from '../../../../lib/initials'
+import { appBaseUrl } from '../../../../lib/app-url'
 
 const MAX_BATCH = 100
 
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
   }
 
   // --- generate invite tokens + send emails ---
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://budlightu.com'
+  const appUrl = appBaseUrl()
   const emailResults: Array<{ email: string; sent: boolean; error?: string }> = []
 
   for (const bam of inserted as { id: string; email: string; first_name: string }[]) {
