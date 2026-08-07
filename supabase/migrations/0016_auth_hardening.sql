@@ -85,13 +85,24 @@ end $$;
 -- 3a. Admin roles. Only 'program_admin' and 'super_admin' are copied, and ONLY
 --     when app_metadata carries no role yet, so re-running can never resurrect a
 --     role that was deliberately revoked afterwards.
+--
+-- CRITIC GATE 2026-08-07 F8: the guard used to be
+--   coalesce(u.raw_app_meta_data->>'role', '') = ''
+-- which is TRUE for {"role": null} — and {"role": null} is EXACTLY what
+-- revocation writes (lib/auth-claims.ts roleClaimPatch uses an explicit null
+-- because GoTrue only treats null, not a missing key, as "delete this claim").
+-- So re-running this migration resurrected a revoked admin from the still-present
+-- user_metadata.role. The `-> 'role' is null` form is TRUE only when the key is
+-- absent: a JSON null returns jsonb 'null', which is not SQL NULL. Equivalent to
+-- `not (raw_app_meta_data ? 'role')` but also correct when raw_app_meta_data
+-- itself is NULL (that row does need the backfill).
 with promoted as (
   update auth.users u
   set raw_app_meta_data =
         coalesce(u.raw_app_meta_data, '{}'::jsonb)
         || jsonb_build_object('role', u.raw_user_meta_data->>'role')
   where u.raw_user_meta_data->>'role' in ('program_admin', 'super_admin')
-    and coalesce(u.raw_app_meta_data->>'role', '') = ''
+    and u.raw_app_meta_data -> 'role' is null      -- F8: key absent, NOT an explicit JSON null
   returning u.id, u.email, u.raw_user_meta_data->>'role' as role
 )
 insert into audit_log (actor_role, entity, entity_id, action, after_json)
@@ -105,13 +116,13 @@ update auth.users u
 set raw_app_meta_data =
       coalesce(u.raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'bam')
 where u.raw_user_meta_data->>'role' = 'bam'
-  and coalesce(u.raw_app_meta_data->>'role', '') = '';
+  and u.raw_app_meta_data -> 'role' is null;        -- F8: see 3a
 
 -- 3c. Anyone linked to a bams row but carrying no role at all.
 update auth.users u
 set raw_app_meta_data =
       coalesce(u.raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'bam')
-where coalesce(u.raw_app_meta_data->>'role', '') = ''
+where u.raw_app_meta_data -> 'role' is null         -- F8: see 3a
   and exists (select 1 from bams b where b.auth_user_id = u.id);
 
 -- 3d. bam_id claim, taken from the bams table (authoritative) rather than from

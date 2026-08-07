@@ -491,7 +491,15 @@ export async function POST(req: Request) {
     scheduleBackground(async () => {
       try {
         const { upsertDraftInvoice } = await import('@/lib/draft-invoice')
-        await upsertDraftInvoice(db, thisReceipt.bam_id, thisReceipt.cohort_id, thisReceipt.period)
+        // F5: quietWhenLedgerPending. Ledger rows are written by receipts/decide
+        // and scheduler-audit, never by OCR, and first_cohort_all_review sends
+        // every receipt to `review`, so on this path "no ledger row yet" is the
+        // expected state, not an incident. Without this flag every upload fired a
+        // false "Invoice generation blocked" notification. Every other block
+        // (missing banking, missing PO, cross-cohort, insert failure) stays loud.
+        await upsertDraftInvoice(db, thisReceipt.bam_id, thisReceipt.cohort_id, thisReceipt.period, {
+          quietWhenLedgerPending: true
+        })
       } catch (e) {
         console.error('[ocr] draft invoice upsert failed:', e)
       }

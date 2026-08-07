@@ -109,7 +109,10 @@ async function runGenerate(db: ReturnType<typeof serviceClient>, period: string)
     }
   }
 
-  return { ok: true, generated, skipped, errors }
+  // CRITIC GATE 2026-08-07 F12: this used to be a hardcoded `ok: true`, so a run
+  // where all 58 generations failed reported a clean success and nobody looked at
+  // `errors`. Mirrors scheduler-audit: any per-BAM error fails the run.
+  return { ok: errors.length === 0, generated, skipped, errors }
 }
 
 function firstOfCurrentMonth(): string {

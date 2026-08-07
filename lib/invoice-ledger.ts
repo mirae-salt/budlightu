@@ -15,9 +15,24 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type LedgerDbClient = { from: (...args: any[]) => any }
 
-export type ReimbursementLookup =
-  | { ok: true; paidCad: number; source: 'ledger' | 'no_receipts' }
-  | { ok: false; error: string }
+/**
+ * Machine-readable failure kinds so callers can tell "this month has not been
+ * computed yet" (an ordinary, expected state during the upload window) apart from
+ * "something is actually wrong". Critic gate F5: without this distinction every
+ * single receipt upload raised a "Invoice generation blocked" admin notification,
+ * roughly 150 false alarms a month at 58 BAMs, in the same queue as the genuine
+ * blocks (missing banking, missing PO). Alert fatigue on the one notification
+ * that has to be believed.
+ */
+export type ReimbursementLookupFailure =
+  /** Ledger row for this (bam, cohort, period) does not exist yet, but receipts do. */
+  | 'ledger_pending'
+  /** Read error, ambiguous duplicate rows, or an unusable paid_cad. */
+  | 'unreadable'
+
+export type ReimbursementLookup
+  = | { ok: true; paidCad: number; source: 'ledger' | 'no_receipts' }
+    | { ok: false; error: string; failure: ReimbursementLookupFailure }
 
 /** Receipt states that mean "money for this month is still in play". */
 const RECEIPT_STATES_WITH_MONEY = ['pending', 'auto_pass', 'review', 'approved']
@@ -46,13 +61,14 @@ export async function lookupReimbursement(
     .eq('period', period)
 
   if (error) {
-    return { ok: false, error: `reimbursement_ledger read failed: ${error.message}` }
+    return { ok: false, failure: 'unreadable', error: `reimbursement_ledger read failed: ${error.message}` }
   }
 
   const ledgerRows: Array<{ paid_cad: unknown }> = rows ?? []
   if (ledgerRows.length > 1) {
     return {
       ok: false,
+      failure: 'unreadable',
       error: `${ledgerRows.length} reimbursement_ledger rows for bam ${bamId} / period ${period} — refusing to guess which amount is real`
     }
   }
@@ -60,7 +76,11 @@ export async function lookupReimbursement(
   if (ledgerRows.length === 1) {
     const paidCad = Number(ledgerRows[0].paid_cad)
     if (!Number.isFinite(paidCad) || paidCad < 0) {
-      return { ok: false, error: `reimbursement_ledger.paid_cad is not a usable amount: ${JSON.stringify(ledgerRows[0].paid_cad)}` }
+      return {
+        ok: false,
+        failure: 'unreadable',
+        error: `reimbursement_ledger.paid_cad is not a usable amount: ${JSON.stringify(ledgerRows[0].paid_cad)}`
+      }
     }
     return { ok: true, paidCad: round2(paidCad), source: 'ledger' }
   }
@@ -75,12 +95,17 @@ export async function lookupReimbursement(
     .limit(1)
 
   if (rErr) {
-    return { ok: false, error: `receipts read failed while checking for a missing ledger row: ${rErr.message}` }
+    return {
+      ok: false,
+      failure: 'unreadable',
+      error: `receipts read failed while checking for a missing ledger row: ${rErr.message}`
+    }
   }
 
   if ((receiptRows ?? []).length > 0) {
     return {
       ok: false,
+      failure: 'ledger_pending',
       error:
         `no reimbursement_ledger row for period ${period} but receipts exist — ` +
         `the ledger has not been computed yet. Invoice blocked so the BAM is not underpaid. ` +

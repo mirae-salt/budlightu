@@ -32,13 +32,34 @@ type AdminClient = { from: (...args: any[]) => any; rpc: (...args: any[]) => any
 
 export type UpsertDraftInvoiceResult =
   | { ok: true; invoiceId: string; invoiceNumber: string; created: boolean; reimbursementCad: number }
-  | { ok: false; blocked: true; reason: string }
+  /** `quiet: true` = an expected not-yet state, logged only, no admin notification. */
+  | { ok: false; blocked: true; reason: string; quiet?: true }
+
+export type UpsertDraftInvoiceOptions = {
+  /**
+   * CRITIC GATE 2026-08-07 F5.
+   *
+   * Set this on the receipt-UPLOAD path. Ledger rows are written only by
+   * `receipts/decide` and `scheduler-audit`, and `first_cohort_all_review`
+   * defaults to true so every freshly OCR'd receipt lands in `review` with no
+   * ledger row yet. That made every single upload raise
+   * "Invoice generation blocked", ~150 false alarms/month at 58 BAMs, drowning
+   * the genuine blocks (missing banking, missing PO) in the same queue.
+   *
+   * It is not a real block: scheduler-audit writes a ledger row for every active
+   * BAM before scheduler-generate runs on the 16th, so the draft is created then.
+   * With this flag the "ledger not computed yet" case logs and returns quietly.
+   * EVERY other block stays loud, including here.
+   */
+  quietWhenLedgerPending?: boolean
+}
 
 export async function upsertDraftInvoice(
   db: AdminClient,
   bamId: string,
   cohortId: string,
-  period: string
+  period: string,
+  opts: UpsertDraftInvoiceOptions = {}
 ): Promise<UpsertDraftInvoiceResult> {
   const block = async (reason: string): Promise<UpsertDraftInvoiceResult> => {
     console.error(`[draft-invoice] BLOCKED bam=${bamId} cohort=${cohortId} period=${period}: ${reason}`)
@@ -52,6 +73,12 @@ export async function upsertDraftInvoice(
       link: '/admin/invoices'
     })
     return { ok: false, blocked: true, reason }
+  }
+
+  /** F5: expected not-yet state. Logged, never notified. */
+  const skip = (reason: string): UpsertDraftInvoiceResult => {
+    console.info(`[draft-invoice] deferred bam=${bamId} cohort=${cohortId} period=${period}: ${reason}`)
+    return { ok: false, blocked: true, reason, quiet: true }
   }
 
   // ── 1. inputs. Every error inspected; arrays instead of maybeSingle() ──────
@@ -96,7 +123,14 @@ export async function upsertDraftInvoice(
 
   // ── 3. money comes from the ledger only (P0-D) ────────────────────────────
   const ledger = await lookupReimbursement(db, bamId, cohortId, period)
-  if (!ledger.ok) return block(ledger.error)
+  if (!ledger.ok) {
+    // F5: "the ledger has not been computed yet" is the normal state during the
+    // upload window. On the upload path that is a defer, not an incident.
+    if (ledger.failure === 'ledger_pending' && opts.quietWhenLedgerPending) {
+      return skip(ledger.error)
+    }
+    return block(ledger.error)
+  }
 
   // ── 4. initials (P1-8 / P1-11) ────────────────────────────────────────────
   const initials = await ensureInitialsResolved(db, bamId, cohortId)

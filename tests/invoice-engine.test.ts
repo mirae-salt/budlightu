@@ -164,6 +164,53 @@ describe('P0-B/P0-C send idempotency', () => {
     expect(db._tables.invoice_sends.filter((r: Row) => r.sent_at).length).toBe(1)
   })
 
+  it('F2: two CONCURRENT retries of a failed send — exactly one may claim it', async () => {
+    // The duplicate-payment case. Every other test here is sequential, and the bug
+    // was invisible to sequential tests: both callers SELECT the same failed row,
+    // both UPDATE it with a predicate that is still true for both, both get a row
+    // back, and both call sendEmail. The unique index only trips afterwards, once
+    // the second AP email has already gone out.
+    //
+    // This is the shape an operator produces by double-clicking Retry, or by two
+    // scheduler workers overlapping.
+    const failedRow: Row = {
+      id: 'r1', invoice_id: 'inv1', target: 'ap', mode: 'live',
+      status: 'failed', sent_at: null, started_at: null, attempts: 1,
+      last_error: 'smtp down'
+    }
+    const db: any = fakeDb({ invoice_sends: [failedRow] })
+
+    // Start both before awaiting either, so they interleave at the await between
+    // the SELECT and the compare-and-set UPDATE.
+    const [a, b] = await Promise.all([
+      claimSend(db, { invoiceId: 'inv1', target: 'ap', mode: 'live', address: 'ap@x.com' }),
+      claimSend(db, { invoiceId: 'inv1', target: 'ap', mode: 'live', address: 'ap@x.com' })
+    ])
+
+    const winners = [a, b].filter(r => r.ok)
+    const losers = [a, b].filter(r => !r.ok)
+    expect(winners).toHaveLength(1)
+    expect(losers).toHaveLength(1)
+    expect((losers[0] as any).reason).toBe('race')
+
+    // And the row was claimed exactly once, not incremented twice.
+    expect(db._tables.invoice_sends).toHaveLength(1)
+    expect(db._tables.invoice_sends[0].status).toBe('sending')
+    expect(db._tables.invoice_sends[0].attempts).toBe(2)
+  })
+
+  it('F2: concurrent FIRST attempts (no existing row) also yield one winner', async () => {
+    // The insert path is protected by UNIQUE(invoice_id,target,mode) rather than by
+    // the compare-and-set, so cover it too.
+    const db: any = fakeDb({ invoice_sends: [] })
+    const [a, b] = await Promise.all([
+      claimSend(db, { invoiceId: 'inv2', target: 'ap', mode: 'live', address: 'ap@x.com' }),
+      claimSend(db, { invoiceId: 'inv2', target: 'ap', mode: 'live', address: 'ap@x.com' })
+    ])
+    expect([a, b].filter(r => r.ok)).toHaveLength(1)
+    expect(db._tables.invoice_sends).toHaveLength(1)
+  })
+
   it('two rows for target=ap do not let the guard pass (the old maybeSingle bug)', async () => {
     const db: any = fakeDb({
       invoice_sends: [

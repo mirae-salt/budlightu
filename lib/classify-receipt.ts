@@ -52,7 +52,9 @@ export type ClassifyInput = {
 
 export type RecomputeBasis =
   | 'lines_incl_tax'      // line totals reconcile to grand_total → already tax-inclusive
-  | 'lines_grossed_up'    // line totals reconcile to pre-tax subtotal → grossed up by the receipt's own tax rate
+  | 'lines_grossed_up'    // ALL lines are Bud Light and reconcile to the pre-tax subtotal → grossed up by the receipt's own tax rate
+  | 'lines_mixed_rate_validated' // mixed receipt, reported figure implies a real rate inside the bounds → accepted (F9)
+  | 'lines_mixed_pretax'  // mixed receipt on a pre-tax basis → Bud Light PRE-TAX sum kept as-is, always forces REVIEW (F9)
   | 'lines_raw'           // could not reconcile → raw sum of Bud Light lines (always forces REVIEW)
 
 export type RecomputedTotal = {
@@ -78,6 +80,16 @@ export type RecomputedTotal = {
   unparsableLines: number
   /** count of lines classified as Bud Light. */
   budLightLineCount: number
+  /** count of parsed lines NOT classified as Bud Light. >0 means a mixed receipt. */
+  nonBudLightLineCount: number
+  /**
+   * F9: true when the receipt is MIXED and its lines are on a pre-tax basis, so the
+   * receipt's blended tax rate cannot legitimately be applied to the Bud Light
+   * lines. `total` is then the PRE-TAX Bud Light sum and REVIEW is forced.
+   */
+  mixedPreTax: boolean
+  /** Pre-tax sum of the Bud Light lines, before any gross-up. Always populated. */
+  budLightPreTax: number
   notes: string[]
 }
 
@@ -97,6 +109,46 @@ export type ClassifyOutput = {
 export const TOTAL_MISMATCH_TOLERANCE_CAD = 1.0
 
 /** How closely the sum of line totals must land on subtotal / grand_total to pick a basis. */
+/**
+ * Combined sales-tax rates actually charged in Canada, as of 2026.
+ * GST-only 5% · SK 11% · BC 12% · ON 13% · NS 14% (dropped from 15% on 2025-04-01)
+ * · QC 14.975% · NB/NL/PE 15%.
+ */
+const CANADIAN_TAX_RATES = [0.05, 0.11, 0.12, 0.13, 0.14, 0.14975, 0.15]
+
+/** Half a percentage point, to absorb rounding in the OCR'd figures. */
+const RATE_TOLERANCE = 0.005
+
+/**
+ * On a mixed receipt the beer rate cannot be derived from the receipt alone, only
+ * bounded: `blendedRate <= beerRate <= maxRate`. Rather than trust the model's
+ * reported tax-inclusive figure (it has been seen to return the receipt's grand
+ * total instead), we check whether the rate that figure implies is both inside
+ * those bounds and an actual Canadian rate. If it is, the figure is arithmetically
+ * corroborated and we can use it; otherwise the caller falls back to the pre-tax
+ * sum and forces REVIEW.
+ */
+function validateModelRate(
+  modelValue: unknown,
+  blSum: number,
+  blendedRate: number,
+  maxRate: number
+): { total: number; impliedRate: number; matchedRate: number } | null {
+  const modelTotal = parseNonNegativeMoney(modelValue)
+  if (modelTotal === null || blSum <= 0) return null
+  // The tax-inclusive figure can never be below the pre-tax sum.
+  if (modelTotal < blSum) return null
+
+  const impliedRate = modelTotal / blSum - 1
+  if (impliedRate < blendedRate - RATE_TOLERANCE) return null
+  if (impliedRate > maxRate + RATE_TOLERANCE) return null
+
+  const matchedRate = CANADIAN_TAX_RATES.find(r => Math.abs(impliedRate - r) <= RATE_TOLERANCE)
+  if (matchedRate === undefined) return null
+
+  return { total: modelTotal, impliedRate, matchedRate }
+}
+
 function reconcileTolerance(reference: number): number {
   return Math.max(0.5, Math.abs(reference) * 0.02)
 }
@@ -114,6 +166,21 @@ function reconcileTolerance(reference: number): number {
  * line totals are on by reconciling their sum against the receipt's own
  * subtotal / grand_total, and gross up by the receipt's own tax rate when the
  * lines are pre-tax. If neither reconciles we use the raw sum and force REVIEW.
+ *
+ * F9 (critic gate 2026-08-07): the gross-up now only runs when EVERY parsed line
+ * is Bud Light. `rate = tax / subtotal` is the receipt's BLENDED rate, and beer is
+ * fully taxable while groceries are zero-rated, so on a mixed receipt the blend is
+ * always too low. Ontario worked example: groceries $50 at 0% + Bud Light $100 at
+ * 13% gives subtotal 150, tax 13.00, blended rate 8.67%, so the old code returned
+ * $108.67 where the truth is $113.00 — understated by $4.33 on every mixed
+ * receipt, AND the model's (correct) $113.00 then tripped the >$1 mismatch rule,
+ * so mixed receipts both under-reported and flooded the review queue.
+ *
+ * Mixed receipts now keep the raw PRE-TAX Bud Light sum ($100.00) and are routed
+ * to REVIEW with both figures surfaced, so Robin sets the real amount with
+ * `override_total`. Deliberately conservative: the critic confirmed there is no
+ * OVER-pay case here, and inventing a provincial rate we did not read off the
+ * receipt would create one.
  */
 export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): RecomputedTotal {
   const notes: string[] = []
@@ -125,18 +192,22 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   let allSum = 0
   let unparsableLines = 0
   let budLightLineCount = 0
+  let nonBudLightLineCount = 0
 
   for (const l of lines) {
     const t = parseMoney(l?.total)
     if (t === null) {
       unparsableLines++
       if (l?.is_bud_light === true) budLightLineCount++
+      else nonBudLightLineCount++
       continue
     }
     allSum = round2(allSum + t)
     if (l?.is_bud_light === true) {
       blSum = round2(blSum + t)
       budLightLineCount++
+    } else {
+      nonBudLightLineCount++
     }
   }
   if (unparsableLines > 0) {
@@ -146,6 +217,8 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   const subtotal = parseNonNegativeMoney(ocr?.subtotal)
   const tax = parseNonNegativeMoney(ocr?.tax)
   const grandTotal = parseNonNegativeMoney(ocr?.grand_total)
+
+  const budLightPreTax = blSum
 
   let basis: RecomputeBasis = 'lines_raw'
   let total = blSum
@@ -159,9 +232,53 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
     Math.abs(allSum - subtotal) <= reconcileTolerance(subtotal)
   ) {
     const rate = tax / subtotal
-    basis = 'lines_grossed_up'
-    total = round2(blSum * (1 + rate))
-    notes.push(`line totals reconcile to the pre-tax subtotal, grossed up by the receipt's own ${(rate * 100).toFixed(2)}% tax rate`)
+    if (nonBudLightLineCount === 0) {
+      // Every line is Bud Light, so the receipt's own rate IS the Bud Light rate.
+      basis = 'lines_grossed_up'
+      total = round2(blSum * (1 + rate))
+      notes.push(`every line is Bud Light and the line totals reconcile to the pre-tax subtotal, grossed up by the receipt's own ${(rate * 100).toFixed(2)}% tax rate`)
+    } else {
+      // F9: mixed receipt. `tax / subtotal` is a BLENDED rate, and beer is always
+      // fully taxable while groceries are zero-rated, so the blend is a LOWER bound
+      // on the real beer rate. The UPPER bound is `tax / blSum`, which is the rate
+      // you get if every non-Bud-Light line were zero-rated and all of the tax on
+      // the receipt is attributable to the beer. The true rate lies in between.
+      //
+      // Bounds alone do not pin it down, so we use them to VALIDATE the model's
+      // reported tax-inclusive figure rather than to trust it: accept it only when
+      // the rate it implies sits inside those bounds AND matches a real Canadian
+      // rate. Both worked examples land correctly:
+      //   groceries $50 @0% + BL $100 @13%: bounds [8.67%, 13.00%], model implies
+      //     13.00% -> accept $113.00 (the old blended maths gave $108.67)
+      //   bread $8 @13% + BL $30 @13%: bounds [13.00%, 16.47%], model implies
+      //     13.00% -> accept $33.90
+      // Anything outside the bounds, or at a rate that is not a real one, falls
+      // through to the pre-tax sum and REVIEW.
+      const maxRate = blSum > 0 ? tax / blSum : Infinity
+      const validated = validateModelRate(ocr?.bud_light_total_incl_tax, blSum, rate, maxRate)
+
+      if (validated) {
+        basis = 'lines_mixed_rate_validated'
+        total = validated.total
+        notes.push(
+          `mixed receipt: ${nonBudLightLineCount} of ${budLightLineCount + nonBudLightLineCount} lines are not Bud Light, ` +
+          `so the blended ${(rate * 100).toFixed(2)}% rate is only a lower bound. The reported tax-inclusive figure ` +
+          `$${validated.total.toFixed(2)} implies ${(validated.impliedRate * 100).toFixed(2)}%, which is inside the ` +
+          `[${(rate * 100).toFixed(2)}%, ${(maxRate * 100).toFixed(2)}%] bound and matches the standard ` +
+          `${(validated.matchedRate * 100).toFixed(2)}% rate, so it is accepted.`
+        )
+      } else {
+        basis = 'lines_mixed_pretax'
+        total = blSum
+        notes.push(
+          `mixed receipt: ${nonBudLightLineCount} of ${budLightLineCount + nonBudLightLineCount} lines are not Bud Light. ` +
+          `The blended ${(rate * 100).toFixed(2)}% rate is NOT applied because beer is fully taxable while other items ` +
+          `may be zero-rated, and the reported tax-inclusive figure does not imply a plausible rate inside the ` +
+          `[${(rate * 100).toFixed(2)}%, ${(maxRate * 100).toFixed(2)}%] bound. ` +
+          `Reporting the PRE-TAX Bud Light sum of $${blSum.toFixed(2)}; an admin must confirm the tax-inclusive amount.`
+        )
+      }
+    }
   } else {
     notes.push('line totals do not reconcile to subtotal or grand_total, using the raw sum of Bud Light lines')
   }
@@ -201,6 +318,9 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
     unreconciledDespiteTotals,
     unparsableLines,
     budLightLineCount,
+    nonBudLightLineCount,
+    mixedPreTax: basis === 'lines_mixed_pretax',
+    budLightPreTax,
     notes
   }
 }
@@ -231,6 +351,30 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
   const reimbursementMax = Number.isFinite(policy?.reimbursementMax) ? policy.reimbursementMax : spendableCap
   const padding = Number.isFinite(policy?.reviewBandPaddingCad) ? policy.reviewBandPaddingCad : 0
 
+  // ── Force-REVIEW conditions (any → REVIEW, no auto_pass) ──────────────────
+
+  // P0-G: this safeguard is the first-cohort kill switch. Nothing auto-DECIDES while
+  // it is on.
+  //
+  // CRITIC GATE 2026-08-07 F6: this check used to sit BELOW the zero-Bud-Light
+  // branch, so the kill switch stopped auto_pass but not auto-REJECT. A thermal
+  // receipt OCR'd as "BJD LIOT" (a real LCBO artifact, see the prompt) classified
+  // zero lines as Bud Light and was terminally rejected, costing the student $150,
+  // while the setting promised "nothing auto-decides for the first 3 months".
+  // Auto-rejection is a money decision and belongs behind the same switch.
+  //
+  // Nothing below this line runs while the switch is on.
+  if (policy.firstCohortAllReview) {
+    if (rc.budLightLineCount === 0) {
+      return out(
+        'review',
+        'first_cohort_all_review: no line item was classified as Bud Light, but nothing is auto-rejected ' +
+        'while the new-cohort review policy is on -- admin must confirm'
+      )
+    }
+    return out('review', 'first_cohort_all_review: new cohort policy, every receipt is reviewed for the first 3 months')
+  }
+
   // No Bud Light line items at all.
   if (rc.budLightLineCount === 0) {
     if ((rc.modelTotal ?? 0) > 0) {
@@ -243,11 +387,18 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
     return out('rejected', 'No Bud Light items detected on this receipt')
   }
 
-  // ── Force-REVIEW conditions (any → REVIEW, no auto_pass) ──────────────────
-
-  // P0-G: this safeguard is the first-cohort kill switch. Nothing auto-passes while it is on.
-  if (policy.firstCohortAllReview) {
-    return out('review', 'first_cohort_all_review: new cohort policy, every receipt is reviewed for the first 3 months')
+  // F9: mixed receipt on a pre-tax basis. Both figures are surfaced because the
+  // amount stored is deliberately the conservative pre-tax one and only Robin can
+  // set the true tax-inclusive value (decide + override_total).
+  if (rc.mixedPreTax) {
+    const claimed = rc.modelTotal === null ? 'no usable figure' : `$${rc.modelTotal.toFixed(2)}`
+    return out(
+      'review',
+      `mixed_receipt_pretax: ${rc.nonBudLightLineCount} of ${rc.budLightLineCount + rc.nonBudLightLineCount} lines are not Bud Light, ` +
+      `so this receipt's blended tax rate cannot be applied to the Bud Light lines. ` +
+      `Bud Light pre-tax total $${rc.budLightPreTax.toFixed(2)}; the model reported ${claimed} tax-inclusive. ` +
+      `Stored the pre-tax figure -- admin must confirm the tax-inclusive amount`
+    )
   }
 
   // P0-F (a): server recompute disagrees with the model's own summary field.

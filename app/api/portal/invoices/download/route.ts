@@ -1,8 +1,27 @@
+/**
+ * GET /api/portal/invoices/download?id=<invoice_id>
+ * Streams the BAM's own invoice PDF back to the browser.
+ *
+ * CRITIC GATE 2026-08-07 F3: this route was the better of the two portal invoice
+ * routes (it did at least 401 on a missing session) but it still resolved the BAM
+ * with an `else if (userRes.user)` chain and then skipped the ownership compare
+ * whenever `isDev` was true. Both routes now go through `requireBam()`:
+ *   - no session                -> 401
+ *   - session that is not a BAM -> 403
+ *   - archived BAM              -> 403
+ *   - BAM that does not own it  -> 403
+ * There is no dev bypass in requireBam(), on purpose: this response body contains
+ * a home address, bank name, institution number, transit number and full account
+ * number.
+ *
+ * The dev-only DEMO_INVOICES fixture is retained for local UI work. It renders
+ * fabricated data via buildSamplePayload (no database read, no real PII) and is
+ * unreachable in a production build because NODE_ENV is 'production' there.
+ */
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { renderInvoicePdfToBuffer, buildSamplePayload } from '../../../../../lib/render-pdf'
+import { requireBam, denied } from '../../../../../lib/admin-auth'
 import type { InvoicePayload } from '../../../../../lib/invoice-payload'
 
 const DEMO_INVOICES: Record<string, { number: string; bam: string; amount: string; period: string }> = {
@@ -16,6 +35,7 @@ export async function GET(req: NextRequest) {
 
   const isDev = process.env.NODE_ENV === 'development'
 
+  // Fabricated sample payload only. No DB read, no real BAM data.
   if (isDev && DEMO_INVOICES[invoiceId]) {
     const payload = buildSamplePayload(DEMO_INVOICES[invoiceId])
     const buffer = await renderInvoicePdfToBuffer(payload)
@@ -27,36 +47,24 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const cookieStore = await cookies()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supa = createServerClient(url, anon, {
-    cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-  })
-  const { data: userRes } = await supa.auth.getUser()
+  // F3: authenticate FIRST, fail closed, no dev exemption for real invoices.
+  const bamAuth = await requireBam()
+  if (!bamAuth.ok) return denied(bamAuth)
 
-  if (!isDev && !userRes.user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  let admin
+  try {
+    admin = serviceClient()
+  } catch {
+    return NextResponse.json({ error: 'Server is not configured.' }, { status: 503 })
   }
 
-  const admin = serviceClient()
-
-  let bamId: string | null = null
-  if (isDev && !userRes.user) {
-    bamId = '00000000-0000-0000-0000-000000000000'
-  } else if (userRes.user) {
-    const { data: bamRow } = await admin.from('bams')
-      .select('id').eq('auth_user_id', userRes.user.id).single()
-    bamId = bamRow?.id ?? null
-  }
-
-  if (!bamId) return NextResponse.json({ error: 'No BAM account found' }, { status: 403 })
-  const { data: inv } = await admin.from('invoices')
+  const { data: inv, error: invErr } = await admin.from('invoices')
     .select('id, invoice_number, bam_id, payload_json')
-    .eq('id', invoiceId).single()
+    .eq('id', invoiceId).maybeSingle()
+  if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
   if (!inv) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
 
-  if (!isDev && inv.bam_id !== bamId) {
+  if (inv.bam_id !== bamAuth.bamId) {
     return NextResponse.json({ error: 'Access denied' }, { status: 403 })
   }
 
@@ -71,6 +79,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(uint8, {
     headers: {
       'Content-Type': 'application/pdf',
+      // invoice_number is `INV-[A-Z]+<seq>`, always ASCII (P1-16).
       'Content-Disposition': `inline; filename="${inv.invoice_number}.pdf"`
     }
   })

@@ -24,10 +24,19 @@ describe('P0-F: the audit scenario', () => {
     overall_confidence: 0.96
   }
 
-  it('recompute ignores the model field and derives $42 -> grossed up ~$47.4', () => {
+  // F9 (critic gate 2026-08-07): this used to assert basis 'lines_grossed_up' and
+  // $41.98, i.e. $37.15 of Bud Light grossed up by the receipt's BLENDED 13.0%
+  // rate. That blend is wrong on a mixed receipt (see the Ontario case below), so
+  // the amount is now the conservative PRE-TAX sum and REVIEW is forced.
+  // The load-bearing assertion is unchanged and still holds: the stored amount is
+  // neither the model's $187 nor the $150 cap.
+  it('recompute ignores the model field and derives the pre-tax BL sum, not 187', () => {
     const rc = recomputeBudLightTotal(mixed as any)
-    expect(rc.basis).toBe('lines_grossed_up')
-    expect(rc.total).toBeCloseTo(41.98, 2)
+    expect(rc.basis).toBe('lines_mixed_pretax')
+    expect(rc.mixedPreTax).toBe(true)
+    expect(rc.total).toBeCloseTo(37.15, 2)      // 14.99 + 22.16, no blended gross-up
+    expect(rc.budLightPreTax).toBeCloseTo(37.15, 2)
+    expect(rc.nonBudLightLineCount).toBe(2)
     expect(rc.modelTotal).toBe(187)
     expect(rc.mismatch).toBe(true)
   })
@@ -35,9 +44,106 @@ describe('P0-F: the audit scenario', () => {
   it('classify forces review and returns the recomputed amount, NOT 187 (and not $150)', () => {
     const out = classifyReceipt({ ocr: mixed as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
     expect(out.status).toBe('review')
-    expect(out.reason).toContain('total_mismatch')
+    expect(out.reason).toContain('mixed_receipt_pretax')
+    // Both figures reach Robin so she can set the true amount with override_total.
+    expect(out.reason).toContain('37.15')
+    expect(out.reason).toContain('187.00')
     expect(out.budLightTotalInclTax).toBeLessThan(50)
     expect(out.modelReportedTotal).toBe(187)
+  })
+})
+
+describe('F9: mixed-receipt gross-up (the Ontario worked example)', () => {
+  // groceries $50 zero-rated + Bud Light $100 at 13% HST.
+  // subtotal 150.00, tax 13.00 -> blended rate 8.67%.
+  // Old code: 100 * 1.0867 = $108.67 stored. True tax-inclusive BL: $113.00.
+  // Understated by $4.33 per receipt, and the model's correct 113.00 then tripped
+  // the >$1 mismatch rule, so it went to review anyway.
+  const ontarioMixed = {
+    store: 'Metro', date: '2026-09-04',
+    lines: [
+      { desc: 'GROCERIES', qty: 1, unit: 50.0, total: 50.0, is_bud_light: false, confidence: 0.99 },
+      { desc: 'BUD LIGHT 24C', qty: 1, unit: 100.0, total: 100.0, is_bud_light: true, confidence: 0.98 }
+    ],
+    subtotal: 150.0,
+    tax: 13.0,
+    grand_total: 163.0,
+    bud_light_total_incl_tax: 113.0,
+    overall_confidence: 0.97
+  }
+
+  it('does NOT apply the blended 8.67% rate, and lands on the true $113.00', () => {
+    const rc = recomputeBudLightTotal(ontarioMixed as any)
+    // The blend is only a LOWER bound on the beer rate; the upper bound is
+    // tax/blSum = 13.00/100 = 13.00%. The reported 113.00 implies exactly 13.00%,
+    // which is inside [8.67%, 13.00%] and is Ontario's real rate, so it is
+    // corroborated rather than trusted.
+    expect(rc.basis).toBe('lines_mixed_rate_validated')
+    expect(rc.total).toBe(113)
+    expect(rc.total).not.toBeCloseTo(108.67, 2)   // the old, understated figure
+    expect(rc.budLightPreTax).toBe(100)
+    expect(rc.nonBudLightLineCount).toBe(1)
+    expect(rc.budLightLineCount).toBe(1)
+  })
+
+  it('a corroborated mixed receipt auto-passes instead of flooding the queue', () => {
+    const out = classifyReceipt({
+      ocr: ontarioMixed as any, spendableCap: 150, policy: { ...P, firstCohortAllReview: false },
+      duplicateHash: false, lowResolutionHeuristic: false
+    })
+    expect(out.budLightTotalInclTax).toBe(113)
+    expect(out.modelReportedTotal).toBe(113)
+    // Under $140, so the REVIEW band does not catch it either.
+    expect(out.status).toBe('auto_pass')
+  })
+
+  it('falls back to the pre-tax sum and REVIEW when the reported figure is not corroborated', () => {
+    // Same receipt, but the model returned the grand total (163.00) instead of the
+    // Bud Light portion. That implies a 63% rate, far outside [8.67%, 13.00%], so
+    // it must not be accepted. This is the original overpayment bug.
+    const modelReturnedGrandTotal = { ...ontarioMixed, bud_light_total_incl_tax: 163.0 }
+    const rc = recomputeBudLightTotal(modelReturnedGrandTotal as any)
+    expect(rc.basis).toBe('lines_mixed_pretax')
+    expect(rc.total).toBe(100)
+
+    const out = classifyReceipt({
+      ocr: modelReturnedGrandTotal as any, spendableCap: 150, policy: { ...P, firstCohortAllReview: false },
+      duplicateHash: false, lowResolutionHeuristic: false
+    })
+    expect(out.status).toBe('review')
+    expect(out.budLightTotalInclTax).toBe(100)
+    expect(out.modelReportedTotal).toBe(163)
+  })
+
+  it('rejects a reported figure at an implausible rate even inside the bounds', () => {
+    // bread $8 and BL $30 both at 13%: bounds are [13.00%, 16.47%]. A reported
+    // 34.80 implies 16.00%, which is inside the bounds but is not a Canadian rate.
+    const notARealRate = {
+      store: 'Loblaws', date: '2026-08-03',
+      lines: [
+        { desc: 'BUD LIGHT 15C', qty: 1, unit: 30.0, total: 30.0, is_bud_light: true, confidence: 0.98 },
+        { desc: 'BREAD', qty: 2, unit: 4.0, total: 8.0, is_bud_light: false, confidence: 0.99 }
+      ],
+      subtotal: 38.0, tax: 4.94, grand_total: 42.94,
+      bud_light_total_incl_tax: 34.8, overall_confidence: 0.97
+    }
+    const rc = recomputeBudLightTotal(notARealRate as any)
+    expect(rc.basis).toBe('lines_mixed_pretax')
+    expect(rc.total).toBe(30)
+  })
+
+  it('an all-Bud-Light receipt on the same pre-tax basis IS still grossed up', () => {
+    const allBl = {
+      store: 'The Beer Store', date: '2026-09-04',
+      lines: [{ desc: 'BUD LIGHT 24C', qty: 1, unit: 100.0, total: 100.0, is_bud_light: true, confidence: 0.98 }],
+      subtotal: 100.0, tax: 13.0, grand_total: 113.0,
+      bud_light_total_incl_tax: 113.0, overall_confidence: 0.98
+    }
+    const rc = recomputeBudLightTotal(allBl as any)
+    expect(rc.basis).toBe('lines_grossed_up')
+    expect(rc.mixedPreTax).toBe(false)
+    expect(rc.total).toBe(113)
+    expect(rc.mismatch).toBe(false)
   })
 })
 

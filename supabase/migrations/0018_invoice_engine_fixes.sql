@@ -19,13 +19,26 @@
 --   drafted -> dryrun/draft only, nothing left the building (sent_at NULL)
 --   failed  -> retryable (sent_at NULL)
 
-alter table invoice_sends add column if not exists status text not null default 'sent';
+-- CRITIC GATE 2026-08-07 F14: this column used to be added as
+--   status text not null default 'sent'
+-- so ADD COLUMN stamped every pre-existing row with 'sent', and the backfill
+-- below (`where status is null or status not in (...)`) then matched ZERO rows.
+-- Legacy FAILED attempts kept status='sent' while sent_at was NULL, i.e. the
+-- audit trail claimed sends that never happened. Added nullable, backfilled from
+-- the only honest evidence we have (sent_at), and only then made NOT NULL.
+alter table invoice_sends add column if not exists status text;
 alter table invoice_sends add column if not exists started_at timestamptz;
 
 -- Backfill legacy rows honestly: rows without sent_at were failed attempts.
 update invoice_sends
    set status = case when sent_at is not null then 'sent' else 'failed' end
  where status is null or status not in ('sending','sent','drafted','failed');
+
+-- Now that every row carries a real value, lock the column down. No default:
+-- every writer (lib/send-guard.ts) sets status explicitly, and a default would
+-- silently re-introduce the same lie for any future insert that forgets it.
+alter table invoice_sends alter column status set not null;
+alter table invoice_sends alter column status drop default;
 
 do $$
 begin

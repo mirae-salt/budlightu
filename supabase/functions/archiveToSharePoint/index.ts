@@ -116,6 +116,9 @@ export async function handler(req: { invoice_id: string }) {
     address: webUrl,
     message_id: item.id,
     attempts: 1,
+    // F14: invoice_sends.status is NOT NULL with no default (0018). Every writer
+    // states the outcome explicitly; the archive has completed by this point.
+    status: 'sent',
     sent_at: new Date().toISOString()
   })
 
