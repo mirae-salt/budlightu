@@ -1,9 +1,20 @@
+/**
+ * POST /api/admin/invoices/preview-pdf  { invoice_id } | { row }
+ *
+ * P0-A: no authorization check existed. The rendered PDF carries the BAM's bank
+ * name, institution number, transit number and account number, so any anonymous
+ * caller with an invoice id got a BAM's banking details. Admin-only now.
+ */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderInvoicePdfToBuffer, buildSamplePayload } from '../../../../../lib/render-pdf'
 import type { InvoicePayload } from '../../../../../lib/invoice-payload'
+import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 
 export async function POST(req: Request) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
+
   const body = await req.json()
   const { invoice_id, row } = body as {
     invoice_id?: string

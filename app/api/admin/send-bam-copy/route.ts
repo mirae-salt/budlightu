@@ -7,14 +7,22 @@
  * logged in via OTP at least once) before we will email anything containing
  * banking-adjacent invoice details to their address. This prevents a typo'd
  * onboarding email from silently receiving someone else's invoice.
+ *
+ * AUDIT-2026-08-07 fixes: same duplicate/retry defects as the AP route
+ * (P0-B/P0-C) — the guard used .maybeSingle() without .eq('mode') and discarded
+ * the error, and failures were recorded as mode:'dryrun' which then blocked
+ * every retry permanently. Sends are now claimed via lib/send-guard.ts, and
+ * cohort.bam_copy_mode is enforced (P1-1 class: this route ignored it except
+ * for 'off').
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { invoicePdfFilename } from '../../../../lib/invoice-numbering'
 import { appBaseUrl } from '../../../../lib/app-url'
+import { addressProblem, cleanAddress } from '../../../../lib/sanitize'
+import { claimSend, markSendFailed, markSendSucceeded } from '../../../../lib/send-guard'
 
 interface SendOutcome {
   invoice_id: string
@@ -31,22 +39,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'invoice_id or invoice_ids required' }, { status: 400 })
   }
 
-  // --- auth: admin only, skip in dev ---
-  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
-  if (!isDev) {
-    const cookieStore = await cookies()
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    const supa = createServerClient(url, anon, {
-      cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-    })
-    const { data: user } = await supa.auth.getUser()
-    if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
-    const role = (user.user.user_metadata as { role?: string }).role
-    if (!role || !['program_admin', 'super_admin'].includes(role)) {
-      return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
-    }
-  }
+  // --- auth: admin only (P0-A). Role from app_metadata via lib/admin-auth.
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   const admin = serviceClient()
   const outcomes: SendOutcome[] = []
@@ -58,10 +53,12 @@ export async function POST(req: NextRequest) {
   const blocked = outcomes.filter(o => o.blocked).length
   const failed = outcomes.length - sent - blocked
 
-  return NextResponse.json({ ok: failed === 0, sent, blocked, failed, results: outcomes })
+  return NextResponse.json({ ok: failed === 0 && blocked === 0, sent, blocked, failed, results: outcomes })
 }
 
 async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId: string): Promise<SendOutcome> {
+  const blocked = (error: string): SendOutcome => ({ invoice_id: invoiceId, ok: false, blocked: true, error })
+
   const { data: inv, error: invErr } = await admin
     .from('invoices')
     .select('*, bams(first_name, last_name, email, email_verified_at), cohorts(bam_copy_mode)')
@@ -72,34 +69,36 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
     return { invoice_id: invoiceId, ok: false, error: `invoice not found: ${invErr?.message ?? 'unknown'}` }
   }
 
+  if (inv.status === 'void') return blocked('invoice is voided — no BAM copy')
+
   const bam = (inv as { bams?: { first_name: string; last_name: string; email: string; email_verified_at: string | null } }).bams
   const cohort = (inv as { cohorts?: { bam_copy_mode: string } }).cohorts
   if (!bam) return { invoice_id: invoiceId, ok: false, error: 'bam not found for invoice' }
+  if (!cohort) return { invoice_id: invoiceId, ok: false, error: 'cohort not found for invoice' }
 
   // --- P0-4 HARD BLOCK ---
   if (!bam.email_verified_at) {
-    return {
-      invoice_id: invoiceId,
-      ok: false,
-      blocked: true,
-      error: 'BAM email not verified — bams.email_verified_at is NULL. Student must log in via OTP at least once before receiving invoice copies.'
-    }
+    return blocked(
+      'BAM email not verified — bams.email_verified_at is NULL. Student must log in via OTP at least once before receiving invoice copies.'
+    )
   }
 
-  if (cohort?.bam_copy_mode === 'off') {
-    return { invoice_id: invoiceId, ok: false, blocked: true, error: 'cohort.bam_copy_mode=off — BAM copies disabled for this cohort' }
+  if (cohort.bam_copy_mode === 'off') {
+    return blocked('cohort.bam_copy_mode=off — BAM copies disabled for this cohort')
+  }
+  // This route can only send for real; it has no draft capability (that is the
+  // sendBamCopy Edge Function, which creates an Outlook draft). Fail closed
+  // rather than turning the first-cycle "draft" safety setting into a live send.
+  if (cohort.bam_copy_mode !== 'live') {
+    return blocked(
+      `cohort.bam_copy_mode="${cohort.bam_copy_mode}" — this endpoint only performs live sends. ` +
+      'Use the draft flow, or set the cohort to live once addresses are confirmed.'
+    )
   }
 
-  // duplicate-send guard (P0-5a)
-  const { data: existingSend } = await admin
-    .from('invoice_sends')
-    .select('id')
-    .eq('invoice_id', invoiceId)
-    .eq('target', 'bam')
-    .maybeSingle()
-  if (existingSend) {
-    return { invoice_id: invoiceId, ok: false, error: 'already sent BAM copy for this invoice (invoice_sends dupe guard)' }
-  }
+  const recipient = cleanAddress(bam.email)
+  const recipientProblem = addressProblem('bam.email', recipient)
+  if (recipientProblem) return blocked(recipientProblem)
 
   const period = new Date(inv.period)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
@@ -109,7 +108,8 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
 
   let attachments: Array<{ filename: string; content: Buffer }> | undefined
   if (inv.pdf_key) {
-    const { data: pdfFile } = await admin.storage.from('invoices').download(inv.pdf_key)
+    const { data: pdfFile, error: dlErr } = await admin.storage.from('invoices').download(inv.pdf_key)
+    if (dlErr) return blocked(`PDF download from storage failed: ${dlErr.message}`)
     if (pdfFile) {
       attachments = [{ filename, content: Buffer.from(await pdfFile.arrayBuffer()) }]
     }
@@ -118,25 +118,34 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
   const subject = `Your ${monthLong} invoice is ready — Bud Light U`
   const html = bamCopyEmailHtml(bam.first_name, monthLong, inv.invoice_number, portalUrl, Boolean(attachments))
 
+  // Claim BEFORE sending (P0-B). A failed attempt stays retryable (P0-C).
+  const claim = await claimSend(admin, { invoiceId, target: 'bam', mode: 'live', address: recipient })
+  if (!claim.ok) return blocked(`${claim.reason}: ${claim.error}`)
+
   const result = await sendEmail({
-    to: bam.email,
+    to: recipient,
     subject,
     html,
     attachments
   })
 
-  await admin.from('invoice_sends').insert({
-    invoice_id: invoiceId,
-    target: 'bam',
-    mode: result.sent ? 'live' : 'dryrun',
-    address: bam.email,
-    message_id: result.messageId ?? null,
-    attempts: 1,
-    last_error: result.error ?? null,
-    sent_at: result.sent ? new Date().toISOString() : null
-  })
+  if (!result.sent) {
+    const failMark = await markSendFailed(admin, claim.sendRowId, result.error ?? 'send returned sent=false')
+    return {
+      invoice_id: invoiceId,
+      ok: false,
+      provider: result.provider,
+      error: [result.error ?? 'send failed', failMark.error].filter(Boolean).join(' | ')
+    }
+  }
 
-  return { invoice_id: invoiceId, ok: result.sent, provider: result.provider, error: result.error }
+  const marked = await markSendSucceeded(admin, claim.sendRowId, { messageId: result.messageId })
+  return {
+    invoice_id: invoiceId,
+    ok: true,
+    provider: result.provider,
+    error: marked.error ? `SENT, but send record update failed: ${marked.error}` : undefined
+  }
 }
 
 function bamCopyEmailHtml(firstName: string, month: string, invoiceNumber: string, portalUrl: string, attached: boolean): string {

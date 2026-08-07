@@ -1,11 +1,27 @@
 /**
- * Server-side admin data fetcher — bypasses RLS using service role key.
- * Returns data for all admin pages so client doesn't need to query Supabase directly.
+ * Server-side admin data fetcher — bypasses RLS using the service role key.
+ * Returns data for all admin pages so the client never queries Supabase directly.
  *
  * GET /api/admin/data?table=bams|receipts|invoices|cohorts|unmatched|audit|dashboard
+ *                          |notifications|bam_spending
+ *
+ * P1-9b: this route holds the service role key, so it must authorize itself.
+ * It used to rely entirely on middleware, and middleware used to fail OPEN when
+ * an env var was missing (P0-A2). It also returned `invite_token_hash` and the
+ * decrypted `directDeposit` block inside `payload_json`. Both are now stripped:
+ * no admin page needs them, and the invoice page only reads `payload_json.total`.
+ *
+ * P1-15: budget spend is capped per BAM-month, not per receipt. Three $100
+ * receipts in one month are $150 of reimbursement, not $300.
+ *
+ * P0-H: every `error` is inspected and surfaced. supabase-js does not throw.
  */
 import { NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
+import { requireAdmin, denied } from '../../../../lib/admin-auth'
+
+/** $150/month, no rollover (Robin confirmed 2026-08-04). */
+const MONTHLY_CAP_CAD = 150
 
 function countConsecutiveLow(monthly: Record<string, number>, threshold: number): number {
   const months = Object.keys(monthly).sort()
@@ -17,7 +33,20 @@ function countConsecutiveLow(monthly: Record<string, number>, threshold: number)
   return maxStreak
 }
 
+/** Banking + secret fields that must never reach the browser. */
+const REDACTED_PAYLOAD_KEYS = ['directDeposit', 'hstNumber', 'hst_number'] as const
+
+function redactPayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const out: Record<string, unknown> = { ...(payload as Record<string, unknown>) }
+  for (const k of REDACTED_PAYLOAD_KEYS) delete out[k]
+  return out
+}
+
 export async function GET(req: Request) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
+
   const url = new URL(req.url)
   const table = url.searchParams.get('table')
 
@@ -30,16 +59,26 @@ export async function GET(req: Request) {
 
   switch (table) {
     case 'bams': {
+      // invite_token_hash removed: the roster UI never used it and shipping a
+      // token hash to the browser has no upside. `has_invite` is enough to show
+      // whether an invite is outstanding.
       const { data, error } = await admin.from('bams')
         .select('id, first_name, last_name, email, status, bank_name, initials_resolved, invite_token_hash, school_id, cohort_id, is_test, cohorts(name)')
-      return NextResponse.json({ data, error: error?.message ?? null })
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+
+      const scrubbed = (data ?? []).map((row: Record<string, unknown>) => {
+        const { invite_token_hash, ...rest } = row
+        return { ...rest, has_invite: Boolean(invite_token_hash) }
+      })
+      return NextResponse.json({ data: scrubbed, error: null })
     }
 
     case 'receipts': {
       const { data, error } = await admin.from('receipts')
         .select('id, status, uploaded_at, bud_light_total_incl_tax, ambiguous_flags, decided_at, decision_reason, storage_key, storage_mime, ocr_json, bams(first_name, last_name)')
         .order('uploaded_at', { ascending: false })
-      return NextResponse.json({ data, error: error?.message ?? null })
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+      return NextResponse.json({ data, error: null })
     }
 
     case 'invoices': {
@@ -47,27 +86,32 @@ export async function GET(req: Request) {
         .select('id, invoice_number, period, status, cohort_id, bam_id, payload_json, bams(first_name, last_name)')
         .in('status', ['draft', 'sent'])
         .order('created_at', { ascending: false })
-      if (error || !invoices) return NextResponse.json({ data: null, error: error?.message ?? null })
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+      if (!invoices) return NextResponse.json({ data: [], error: null })
 
       const bamIds = [...new Set((invoices as { bam_id: string }[]).map(i => i.bam_id))]
       const periods = [...new Set((invoices as { period: string }[]).map(i => i.period))]
 
-      let receiptMap: Record<string, { status: string; total: number | null }> = {}
+      const receiptMap: Record<string, { status: string; total: number | null }> = {}
       if (bamIds.length > 0 && periods.length > 0) {
-        const { data: receipts } = await admin.from('receipts')
+        const { data: receipts, error: rErr } = await admin.from('receipts')
           .select('bam_id, period, status, bud_light_total_incl_tax')
           .in('bam_id', bamIds)
           .in('period', periods)
-        if (receipts) {
-          for (const r of receipts as { bam_id: string; period: string; status: string; bud_light_total_incl_tax: number | null }[]) {
-            receiptMap[`${r.bam_id}_${r.period}`] = { status: r.status, total: r.bud_light_total_incl_tax }
-          }
+        if (rErr) return NextResponse.json({ data: null, error: rErr.message }, { status: 500 })
+        for (const r of (receipts ?? []) as { bam_id: string; period: string; status: string; bud_light_total_incl_tax: number | null }[]) {
+          receiptMap[`${r.bam_id}_${r.period}`] = { status: r.status, total: r.bud_light_total_incl_tax }
         }
       }
 
-      const enriched = (invoices as { bam_id: string; period: string; [k: string]: unknown }[]).map(inv => {
+      const enriched = (invoices as { bam_id: string; period: string; payload_json?: unknown; [k: string]: unknown }[]).map(inv => {
         const receipt = receiptMap[`${inv.bam_id}_${inv.period}`]
-        return { ...inv, receipt_status: receipt?.status ?? null, receipt_total: receipt?.total ?? null }
+        return {
+          ...inv,
+          payload_json: redactPayload(inv.payload_json),
+          receipt_status: receipt?.status ?? null,
+          receipt_total: receipt?.total ?? null
+        }
       })
       return NextResponse.json({ data: enriched, error: null })
     }
@@ -75,21 +119,28 @@ export async function GET(req: Request) {
     case 'cohorts': {
       const { data: cohorts, error } = await admin.from('cohorts')
         .select('id, name, program_label, po_number, start_date, end_date, send_mode, bam_copy_mode')
-      if (error || !cohorts) return NextResponse.json({ data: null, error: error?.message ?? null })
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+      if (!cohorts) return NextResponse.json({ data: [], error: null })
 
       const withCounts = await Promise.all(cohorts.map(async (c: Record<string, unknown>) => {
-        const { count } = await admin.from('bams').select('id', { count: 'exact', head: true }).eq('cohort_id', c.id)
-        return { ...c, bam_count: count ?? 0 }
+        const { count, error: cErr } = await admin.from('bams')
+          .select('id', { count: 'exact', head: true })
+          .eq('cohort_id', c.id)
+        if (cErr) console.error('[admin/data] cohort bam count failed:', cErr.message)
+        return { ...c, bam_count: count ?? 0, bam_count_error: cErr ? cErr.message : null }
       }))
       return NextResponse.json({ data: withCounts, error: null })
     }
 
     case 'unmatched': {
+      // Parked onboarding submissions. Banking fields are never stored here
+      // (P0-3), and form_json_meta is already the stripped subset.
       const { data, error } = await admin.from('onboarding_submissions')
         .select('id, submitted_email, submitted_at, flag_reason, form_json_meta')
         .eq('status', 'unmatched')
         .order('submitted_at', { ascending: false })
-      return NextResponse.json({ data, error: error?.message ?? null })
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+      return NextResponse.json({ data, error: null })
     }
 
     case 'audit': {
@@ -97,7 +148,8 @@ export async function GET(req: Request) {
         .select('ts, actor_role, entity, entity_id, action, after_json')
         .order('ts', { ascending: false })
         .limit(200)
-      return NextResponse.json({ data, error: error?.message ?? null })
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+      return NextResponse.json({ data, error: null })
     }
 
     case 'dashboard': {
@@ -110,32 +162,80 @@ export async function GET(req: Request) {
         admin.from('invoices').select('id', { count: 'exact', head: true }).eq('status', 'sent')
       ])
 
-      // Receipt status breakdown (current period)
-      const { data: periodReceipts } = await admin.from('receipts')
-        .select('status, bud_light_total_incl_tax')
+      const countErr = [activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent]
+        .map(r => r.error?.message).find(Boolean)
+      if (countErr) return NextResponse.json({ data: null, error: countErr }, { status: 500 })
+
+      // Receipt status breakdown for the period, grouped by BAM so the cap can
+      // be applied once per BAM-month.
+      const { data: periodReceipts, error: prErr } = await admin.from('receipts')
+        .select('bam_id, status, bud_light_total_incl_tax')
         .eq('period', period)
+      if (prErr) return NextResponse.json({ data: null, error: prErr.message }, { status: 500 })
+
       const receiptBreakdown: Record<string, { count: number; total: number }> = {}
-      let totalReimbSpent = 0
-      for (const r of (periodReceipts ?? []) as { status: string; bud_light_total_incl_tax: number | null }[]) {
+      const eligiblePerBam: Record<string, number> = {}
+      for (const r of (periodReceipts ?? []) as { bam_id: string; status: string; bud_light_total_incl_tax: number | null }[]) {
         if (!receiptBreakdown[r.status]) receiptBreakdown[r.status] = { count: 0, total: 0 }
         receiptBreakdown[r.status].count++
-        const amt = Math.min(r.bud_light_total_incl_tax ?? 0, 150)
+        const amt = r.bud_light_total_incl_tax ?? 0
+        // Raw receipt total for this status. NOT capped: this is "what was
+        // submitted", and capping here made the number mean nothing.
         receiptBreakdown[r.status].total += amt
-        if (r.status === 'auto_pass' || r.status === 'approved') totalReimbSpent += amt
+        if (r.status === 'auto_pass' || r.status === 'approved') {
+          eligiblePerBam[r.bam_id] = (eligiblePerBam[r.bam_id] ?? 0) + amt
+        }
       }
 
+      // P1-15: cap once per BAM for the month.
+      const receiptDerivedSpend = Object.values(eligiblePerBam)
+        .reduce((sum, v) => sum + Math.min(v, MONTHLY_CAP_CAD), 0)
+
+      // Truth source for money is the ledger (ENGINEERING-RULES 7.2). Use it when
+      // it has rows for this period; otherwise say so explicitly.
+      //
+      // A ledger query failure does NOT fail the whole endpoint: the KPIs above do
+      // not depend on it, and blanking the entire dashboard over one unavailable
+      // table hides more than it reveals. It IS reported in `warnings` and shown in
+      // the UI, so it can never pass as "no spend yet".
+      const warnings: string[] = []
+
+      const { data: periodLedger, error: plErr } = await admin.from('reimbursement_ledger')
+        .select('paid_cad')
+        .eq('period', period)
+      if (plErr) {
+        console.error('[admin/data] period ledger query failed:', plErr.message)
+        warnings.push(`Reimbursement ledger is unreadable (${plErr.message}). Budget figures are estimated from receipts.`)
+      }
+
+      const ledgerRows = (periodLedger ?? []) as { paid_cad: number | null }[]
+      const ledgerSpend = ledgerRows.reduce((sum, r) => sum + (r.paid_cad ?? 0), 0)
+      const useLedger = !plErr && ledgerRows.length > 0
+
+      const totalReimbSpent = Math.round((useLedger ? ledgerSpend : receiptDerivedSpend) * 100) / 100
+      const budgetSource: 'ledger' | 'receipts_capped' = useLedger ? 'ledger' : 'receipts_capped'
+
       const nActive = activeBams.count ?? 0
-      const budgetCap = nActive * 150
+      const budgetCap = nActive * MONTHLY_CAP_CAD
       const budgetPct = budgetCap > 0 ? Math.round((totalReimbSpent / budgetCap) * 100) : 0
 
       // Monthly chart data
-      const { data: monthlyInvoices } = await admin.from('invoices')
+      const { data: monthlyInvoices, error: miErr } = await admin.from('invoices')
         .select('period, status')
         .in('status', ['sent', 'draft'])
         .order('period', { ascending: true })
-      const { data: monthlyLedger } = await admin.from('reimbursement_ledger')
-        .select('period, spent_cad')
+      if (miErr) return NextResponse.json({ data: null, error: miErr.message }, { status: 500 })
+
+      const { data: monthlyLedger, error: mlErr } = await admin.from('reimbursement_ledger')
+        .select('period, paid_cad')
         .order('period', { ascending: true })
+      if (mlErr) {
+        // The old code discarded this error, which is why the "Monthly
+        // reimbursement" chart could render as a confident empty chart while the
+        // query was in fact failing.
+        console.error('[admin/data] monthly ledger query failed:', mlErr.message)
+        warnings.push(`Monthly reimbursement history is unreadable (${mlErr.message}).`)
+      }
 
       const invoicesByMonth: Record<string, number> = {}
       const reimbByMonth: Record<string, number> = {}
@@ -143,9 +243,9 @@ export async function GET(req: Request) {
         const m = inv.period.slice(0, 7)
         invoicesByMonth[m] = (invoicesByMonth[m] ?? 0) + 1
       }
-      for (const entry of (monthlyLedger ?? []) as { period: string; spent_cad: number }[]) {
+      for (const entry of (monthlyLedger ?? []) as { period: string; paid_cad: number | null }[]) {
         const m = entry.period.slice(0, 7)
-        reimbByMonth[m] = (reimbByMonth[m] ?? 0) + (entry.spent_cad ?? 0)
+        reimbByMonth[m] = Math.round(((reimbByMonth[m] ?? 0) + (entry.paid_cad ?? 0)) * 100) / 100
       }
 
       return NextResponse.json({
@@ -159,8 +259,10 @@ export async function GET(req: Request) {
           budgetCap,
           budgetSpent: totalReimbSpent,
           budgetPct,
+          budgetSource,
           invoicesByMonth,
-          reimbByMonth
+          reimbByMonth,
+          warnings
         },
         error: null
       })
@@ -174,25 +276,32 @@ export async function GET(req: Request) {
         .limit(50)
       if (unreadOnly) q = q.eq('read', false)
       const { data, error } = await q
-      const { count: unreadCount } = await admin.from('admin_notifications')
+      if (error) return NextResponse.json({ data: null, unreadCount: 0, error: error.message }, { status: 500 })
+
+      const { count: unreadCount, error: cErr } = await admin.from('admin_notifications')
         .select('id', { count: 'exact', head: true })
         .eq('read', false)
-      return NextResponse.json({ data, unreadCount: unreadCount ?? 0, error: error?.message ?? null })
+      if (cErr) return NextResponse.json({ data, unreadCount: 0, error: cErr.message }, { status: 500 })
+
+      return NextResponse.json({ data, unreadCount: unreadCount ?? 0, error: null })
     }
 
     case 'bam_spending': {
-      const { data: bams } = await admin.from('bams')
+      const { data: bams, error: bErr } = await admin.from('bams')
         .select('id, cohort_id, first_name, last_name, email, status, cohorts(name, start_date, end_date)')
         .eq('status', 'active')
-
+      if (bErr) return NextResponse.json({ data: null, error: bErr.message }, { status: 500 })
       if (!bams || bams.length === 0) return NextResponse.json({ data: [], error: null })
 
       const bamIds = (bams as { id: string }[]).map(b => b.id)
-      const { data: receipts } = await admin.from('receipts')
+      const { data: receipts, error: rErr } = await admin.from('receipts')
         .select('bam_id, period, bud_light_total_incl_tax, status')
         .in('bam_id', bamIds)
         .in('status', ['auto_pass', 'approved'])
+      if (rErr) return NextResponse.json({ data: null, error: rErr.message }, { status: 500 })
 
+      // Raw submitted amount per BAM-month (uncapped) so the UI can show both
+      // "submitted" and "eligible".
       const spendMap: Record<string, Record<string, number>> = {}
       for (const r of (receipts ?? []) as { bam_id: string; period: string; bud_light_total_incl_tax: number | null }[]) {
         const month = r.period.slice(0, 7)
@@ -200,9 +309,18 @@ export async function GET(req: Request) {
         spendMap[r.bam_id][month] = (spendMap[r.bam_id][month] ?? 0) + (r.bud_light_total_incl_tax ?? 0)
       }
 
-      const { data: warnings } = await admin.from('bam_warnings')
+      // Shortfall warnings are supplementary. If the table is unavailable the
+      // spending table is still useful, so this degrades to an explicit warning
+      // rather than blanking the section. It is NOT swallowed.
+      const dataWarnings: string[] = []
+      const { data: warnings, error: wErr } = await admin.from('bam_warnings')
         .select('bam_id, warning_number, sent_at, period')
         .in('bam_id', bamIds)
+      if (wErr) {
+        console.error('[admin/data] bam_warnings query failed:', wErr.message)
+        dataWarnings.push(`Shortfall warning history is unreadable (${wErr.message}). Warning counts below show 0 regardless of reality.`)
+      }
+
       const warningMap: Record<string, { count: number; sent: number; periods: string[] }> = {}
       for (const w of (warnings ?? []) as { bam_id: string; warning_number: number; sent_at: string | null; period: string }[]) {
         if (!warningMap[w.bam_id]) warningMap[w.bam_id] = { count: 0, sent: 0, periods: [] }
@@ -216,8 +334,9 @@ export async function GET(req: Request) {
       const result = (bams as unknown as { id: string; first_name: string; last_name: string; email: string; cohort_id: string; cohorts?: { name: string } | null }[]).map(b => {
         const monthly = spendMap[b.id] ?? {}
         const months = Object.keys(monthly).sort()
-        const totalSpent = Object.values(monthly).reduce((a, v) => a + v, 0)
-        const avgMonthly = months.length > 0 ? totalSpent / months.length : 0
+        // P1-15: cap per month before totalling.
+        const eligibleTotal = months.reduce((sum, m) => sum + Math.min(monthly[m], MONTHLY_CAP_CAD), 0)
+        const avgMonthly = months.length > 0 ? eligibleTotal / months.length : 0
         const lowMonths = Object.entries(monthly).filter(([, v]) => v < LOW_THRESHOLD).length
         const consecutiveLow = countConsecutiveLow(monthly, LOW_THRESHOLD)
         const warnInfo = warningMap[b.id] ?? { count: 0, sent: 0, periods: [] }
@@ -226,9 +345,9 @@ export async function GET(req: Request) {
           cohort_id: b.cohort_id,
           name: `${b.first_name} ${b.last_name}`,
           email: b.email,
-          cohort: b.cohorts?.name ?? '—',
+          cohort: b.cohorts?.name ?? 'Unassigned',
           monthly,
-          totalSpent: Math.round(totalSpent * 100) / 100,
+          totalSpent: Math.round(eligibleTotal * 100) / 100,
           avgMonthly: Math.round(avgMonthly * 100) / 100,
           lowMonths,
           consecutiveLow,
@@ -240,7 +359,7 @@ export async function GET(req: Request) {
         }
       })
 
-      return NextResponse.json({ data: result, error: null })
+      return NextResponse.json({ data: result, warnings: dataWarnings, error: null })
     }
 
     default:

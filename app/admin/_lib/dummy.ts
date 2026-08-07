@@ -73,7 +73,8 @@ export type InvoiceRow = {
   bam: string
   period: string
   amount: string
-  status: 'draft' | 'sent' | 'paid' | 'void'
+  // 'approved' = touchpoint 2 recorded, AP send done or pending (0018_invoice_engine_fixes.sql)
+  status: 'draft' | 'approved' | 'sent' | 'paid' | 'void'
   flag?: string
   receiptStatus?: 'auto_pass' | 'approved' | 'review' | 'rejected' | 'none'
   receiptTotal?: string

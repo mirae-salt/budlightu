@@ -147,9 +147,16 @@ describe('computeHst', () => {
     expect(computeHst(100, 'AB')).toBe(5)
     expect(computeHst(368.75, 'AB')).toBe(18.44)
   })
-  it('NS = 15% HST', () => {
-    expect(computeHst(100, 'NS')).toBe(15)
-    expect(computeHst(368.75, 'NS')).toBe(55.31)
+  // P1-10: this test asserted 15%. Nova Scotia dropped HST to 14% on 2025-04-01
+  // and Halifax is a pilot region, so 15% would have over-taxed every NS invoice.
+  it('NS = 14% HST (dropped from 15% on 2025-04-01)', () => {
+    expect(computeHst(100, 'NS')).toBe(14)
+    expect(computeHst(368.75, 'NS')).toBe(51.63)
+  })
+  it('NB/NL/PE are still 15% HST', () => {
+    expect(computeHst(100, 'NB')).toBe(15)
+    expect(computeHst(100, 'NL')).toBe(15)
+    expect(computeHst(100, 'PE')).toBe(15)
   })
   it('throws on unknown province code', () => {
     expect(() => computeHst(100, 'XX')).toThrow('Unknown province code')

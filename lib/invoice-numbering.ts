@@ -4,14 +4,30 @@
  * this module only builds strings.
  */
 
-export function formatInvoiceNumber(initialsResolved: string, seq: number): string {
+/**
+ * "INV-LG3", and on a reissue after a void "INV-LG3-R2" (P1-22).
+ *
+ * Why the revision suffix: the partial unique index on invoice_number excluded
+ * status='void', so voiding INV-LG3 and regenerating produced a *second*
+ * INV-LG3 with a different amount. AP would then hold two different documents
+ * under one number. A revision suffix makes that impossible.
+ *
+ * ⚠️ AP-FACING FORMAT CHANGE — needs Robin/AP confirmation that their invoice
+ * automation tolerates the "-R2" suffix (see report). Revision 1 is unchanged,
+ * so nothing differs until an invoice is actually voided and reissued.
+ */
+export function formatInvoiceNumber(initialsResolved: string, seq: number, revision = 1): string {
   if (!/^[A-Z]{2,10}$/.test(initialsResolved)) {
     throw new Error(`initials_resolved must be 2–10 uppercase letters, got ${JSON.stringify(initialsResolved)}`)
   }
   if (!Number.isInteger(seq) || seq < 1) {
     throw new Error(`seq must be positive integer, got ${seq}`)
   }
-  return `INV-${initialsResolved}${seq}`
+  if (!Number.isInteger(revision) || revision < 1) {
+    throw new Error(`revision must be positive integer, got ${revision}`)
+  }
+  const suffix = revision > 1 ? `-R${revision}` : ''
+  return `INV-${initialsResolved}${seq}${suffix}`
 }
 
 /** "Alex Kim - July 2026 - Invoice #INV-AK1" */

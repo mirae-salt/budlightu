@@ -4,26 +4,13 @@
  * Uploads the invoice PDF to SharePoint and records the send.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { handler } from '../../../../supabase/functions/archiveToSharePoint/index'
 
 export async function POST(req: NextRequest) {
-  const cookieStore = await cookies()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supa = createServerClient(url, anon, {
-    cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-  })
-  const { data: user } = await supa.auth.getUser()
-  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
-  if (!isDev) {
-    if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
-    const role = (user.user.user_metadata as { role?: string }).role
-    if (!role || !['program_admin', 'super_admin'].includes(role)) {
-      return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
-    }
-  }
+  // P0-A: role from app_metadata only.
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   const body = await req.json()
   const { invoice_id } = body

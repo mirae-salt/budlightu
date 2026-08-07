@@ -7,13 +7,12 @@
  * Returns: { ok, created, errors[], email_results[] }
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { randomBytes, createHash } from 'crypto'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { resolveInitials, type Bam } from '../../../../lib/initials'
 import { appBaseUrl } from '../../../../lib/app-url'
+import { requireAdmin, denied } from '../../../../lib/admin-auth'
 
 const MAX_BATCH = 100
 
@@ -31,22 +30,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: `Max ${MAX_BATCH} BAMs per batch` }, { status: 400 })
   }
 
-  // --- auth check ---
-  const cookieStore = await cookies()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supa = createServerClient(url, anon, {
-    cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-  })
-  const { data: user } = await supa.auth.getUser()
-  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
-  if (!isDev) {
-    if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
-    const role = (user.user.user_metadata as { role?: string }).role
-    if (!role || !['program_admin', 'super_admin'].includes(role)) {
-      return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
-    }
-  }
+  // --- auth check (P0-A: role from app_metadata only) ---
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   const admin = serviceClient()
 
@@ -160,7 +146,19 @@ export async function POST(req: NextRequest) {
     const rawToken = randomBytes(32).toString('hex')
     const tokenHash = createHash('sha256').update(rawToken).digest('hex')
 
-    await admin.from('bams').update({ invite_token_hash: tokenHash }).eq('id', bam.id)
+    // P1-25: this write's error used to be discarded, so a failed hash store still
+    // sent the invite. The BAM then saw "Invite link is invalid" while the admin
+    // saw sent:true. No hash stored means no usable link, so do not send.
+    const { data: hashed, error: hashErr } = await admin.from('bams')
+      .update({ invite_token_hash: tokenHash })
+      .eq('id', bam.id)
+      .select('id')
+    if (hashErr || !hashed || hashed.length !== 1) {
+      const why = hashErr?.message ?? `token write affected ${hashed?.length ?? 0} rows`
+      errors.push(`${bam.email}: invite token could not be stored (${why}). No email was sent. Use Resend invite for this BAM.`)
+      emailResults.push({ email: bam.email, sent: false, error: `invite token not stored: ${why}` })
+      continue
+    }
 
     const inviteUrl = `${appUrl}/portal/onboarding/${rawToken}`
     const result = await sendEmail({
@@ -171,19 +169,36 @@ export async function POST(req: NextRequest) {
     emailResults.push({ email: bam.email, sent: result.sent, error: result.error })
   }
 
-  const actorId = user.user?.id ?? 'dev'
-  await admin.from('audit_log').insert({
-    actor_id: actorId, actor_role: 'admin', entity: 'bams',
-    entity_id: cohort_id, action: 'bulk_invite',
-    meta: { count: inserted.length, skipped: cleaned.length - toInsert.length, sent: emailResults.filter(r => r.sent).length }
+  // audit_log columns are (actor_id uuid, actor_role, entity, entity_id uuid,
+  // action, before_json, after_json, ts). There is NO `meta` column, and
+  // actor_id is a uuid, so the old `meta: {...}` + `actor_id: 'dev'` insert was
+  // rejected by PostgREST every single time — and the error was discarded, so
+  // no bulk_invite has ever been recorded in the audit trail.
+  const { error: auditErr } = await admin.from('audit_log').insert({
+    actor_id: auth.devBypass ? null : auth.userId,
+    actor_role: auth.role,
+    entity: 'bams',
+    entity_id: cohort_id,
+    action: 'bulk_invite',
+    after_json: {
+      cohort_id,
+      count: inserted.length,
+      skipped: cleaned.length - toInsert.length,
+      sent: emailResults.filter(r => r.sent).length,
+      emails: emailResults.map(r => r.email)
+    }
   })
+  if (auditErr) {
+    console.error('[bulk-invite] audit_log insert failed:', auditErr.message)
+  }
 
   return NextResponse.json({
     ok: true,
     created: inserted.length,
     skipped: cleaned.length - toInsert.length,
     errors: errors.length > 0 ? errors : undefined,
-    email_results: emailResults
+    email_results: emailResults,
+    ...(auditErr ? { warning: 'BAMs were created, but the audit log entry could not be written. Tell Mirae.' } : {})
   })
 }
 

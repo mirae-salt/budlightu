@@ -15,9 +15,14 @@ type BamSpending = {
   needsReevaluation?: boolean
 }
 
-const FAKE_BAM_SPENDING: BamSpending[] = [
-  { bam_id: 'example-1', cohort_id: 'c1', name: 'Example Student', email: 'example@school.ca', cohort: 'Fall 2026', monthly: { '2026-09': 78.20, '2026-10': 45.00 }, totalSpent: 123.20, avgMonthly: 61.60, lowMonths: 2, consecutiveLow: 2, isLowPerformer: true, warningCount: 2, warningsSent: 2, warningPeriods: ['2026-09', '2026-10'], needsReevaluation: true },
-]
+/**
+ * P1-14: there used to be a FAKE_BAM_SPENDING fixture here, and the dashboard
+ * fell back to it whenever real data had fewer than two months per BAM, which is
+ * the program's current state. It rendered with no marker, so Robin would have
+ * made budget decisions on invented numbers. Fixtures are gone. When there is no
+ * data the dashboard says there is no data.
+ */
+type LoadState = 'loading' | 'ok' | 'empty' | 'error'
 
 function currentPeriod(): string {
   const d = new Date()
@@ -83,8 +88,37 @@ function PeriodBanner() {
   )
 }
 
-function BamSpendingSection({ bamSpending, spendingView, setSpendingView }: {
+/**
+ * Visible failure. A dashboard that quietly renders zeros after a failed fetch
+ * is worse than one that says it is broken.
+ */
+function LoadErrorBanner({ what, detail, onRetry }: {
+  what: string; detail: string | null; onRetry: () => void
+}) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap',
+      padding: '12px 16px', borderRadius: 10, marginBottom: 16,
+      background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)'
+    }}>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#B91C1C' }}>
+          Could not load the {what}
+        </div>
+        <div style={{ fontSize: 12, color: '#7F1D1D', marginTop: 2 }}>
+          Nothing on screen for this section is trustworthy. {detail ? `Details: ${detail}` : ''}
+        </div>
+      </div>
+      <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 12 }} onClick={onRetry}>
+        Retry
+      </button>
+    </div>
+  )
+}
+
+function BamSpendingSection({ bamSpending, spendingView, setSpendingView, state, error }: {
   bamSpending: BamSpending[]; spendingView: 'low' | 'all'; setSpendingView: (v: 'low' | 'all') => void
+  state: LoadState; error: string | null
 }) {
   const [expandedBam, setExpandedBam] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -111,6 +145,24 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView }: {
     : [...filtered].sort((a, b) => a.name.localeCompare(b.name))
 
   const flaggedCount = enriched.filter(b => b.isLowPerformer).length
+
+  // P1-14: no fixture fallback. Show the real state of the data instead.
+  if (state !== 'ok') {
+    return (
+      <div className="surface">
+        <div className="surface-header">
+          <span className="surface-title">BAM spending</span>
+        </div>
+        {state === 'error'
+          ? <LoadErrorBanner what="BAM spending data" detail={error} onRetry={() => window.location.reload()} />
+          : <div className="empty-state" style={{ padding: 40 }}>
+              {state === 'loading'
+                ? 'Loading BAM spending...'
+                : 'No spending data yet. This table fills in once approved receipts exist for active BAMs.'}
+            </div>}
+      </div>
+    )
+  }
 
   return (
     <div className="surface">
@@ -390,17 +442,31 @@ export default function AdminDashboard() {
   const [receiptBreakdown, setReceiptBreakdown] = useState<ReceiptBreakdown>({})
   const [bamSpending, setBamSpending] = useState<BamSpending[]>([])
   const [spendingView, setSpendingView] = useState<'low' | 'all'>('low')
+  const [statsState, setStatsState] = useState<LoadState>('loading')
+  const [statsError, setStatsError] = useState<string | null>(null)
+  const [spendingState, setSpendingState] = useState<LoadState>('loading')
+  const [spendingError, setSpendingError] = useState<string | null>(null)
+  const [budgetSource, setBudgetSource] = useState<'ledger' | 'receipts_capped' | null>(null)
+  const [dataWarnings, setDataWarnings] = useState<string[]>([])
   const router = useRouter()
 
   useEffect(() => {
     const period = currentPeriod()
+
+    // P1-14: load errors are surfaced, not swallowed. A dashboard that shows
+    // zeros because a fetch failed is indistinguishable from a real zero.
     fetch(`/api/admin/data?table=dashboard&period=${period}`)
-      .then(res => res.json())
-      .then(({ data }) => {
-        if (!data) return
+      .then(async res => {
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || json.error || !json.data) {
+          throw new Error(json.error || json.message || `Request failed (${res.status})`)
+        }
+        return json.data
+      })
+      .then(data => {
         const { activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent,
           invoicesByMonth: ibm, reimbByMonth: rbm, receiptBreakdown: rb,
-          budgetCap, budgetSpent, budgetPct } = data
+          budgetCap, budgetSpent, budgetPct, budgetSource: src } = data
 
         setS({
           activeBams: activeBams ?? 0,
@@ -415,17 +481,37 @@ export default function AdminDashboard() {
         if (rb) setReceiptBreakdown(rb)
         if (ibm) setInvoicesByMonth(ibm)
         if (rbm) setReimbByMonth(rbm)
+        if (src === 'ledger' || src === 'receipts_capped') setBudgetSource(src)
+        if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+          setDataWarnings(prev => [...prev, ...(data.warnings as string[])])
+        }
+        setStatsState('ok')
       })
-      .catch(() => {})
+      .catch((e: Error) => {
+        setStatsError(e.message)
+        setStatsState('error')
+      })
 
     fetch('/api/admin/data?table=bam_spending')
-      .then(res => res.json())
-      .then(({ data }) => {
-        if (data && data.length > 0 && data.some((b: BamSpending) => Object.keys(b.monthly).length >= 2))
-          setBamSpending(data)
-        else setBamSpending(FAKE_BAM_SPENDING)
+      .then(async res => {
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || json.error || !json.data) {
+          throw new Error(json.error || json.message || `Request failed (${res.status})`)
+        }
+        return json as { data: BamSpending[]; warnings?: string[] }
       })
-      .catch(() => setBamSpending(FAKE_BAM_SPENDING))
+      .then(json => {
+        setBamSpending(json.data)
+        if (json.warnings && json.warnings.length > 0) {
+          setDataWarnings(prev => [...prev, ...json.warnings!])
+        }
+        setSpendingState(json.data.length > 0 ? 'ok' : 'empty')
+      })
+      .catch((e: Error) => {
+        setBamSpending([])
+        setSpendingError(e.message)
+        setSpendingState('error')
+      })
   }, [])
   return (
     <>
@@ -433,12 +519,42 @@ export default function AdminDashboard() {
 
       <PeriodBanner />
 
+      {statsState === 'error' && (
+        <LoadErrorBanner
+          what="program summary"
+          detail={statsError}
+          onRetry={() => window.location.reload()}
+        />
+      )}
+
+      {dataWarnings.length > 0 && (
+        <div style={{
+          padding: '12px 16px', borderRadius: 10, marginBottom: 16,
+          background: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.25)'
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E' }}>
+            Some figures on this page are incomplete
+          </div>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: '#78350F' }}>
+            {dataWarnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
+
       <div className="surface">
         <div className="surface-header">
           <div className="surface-title">Program summary</div>
           <button className="btn-navy" onClick={() => router.push('/admin/roster')}>View details ↗</button>
         </div>
-        <div className="kpi-row">
+        {statsState === 'loading' && (
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Loading current figures...</div>
+        )}
+        {statsState === 'error' && (
+          <div style={{ fontSize: 12, color: '#B91C1C', marginBottom: 8, fontWeight: 600 }}>
+            Figures below could not be loaded. Do not use them.
+          </div>
+        )}
+        <div className="kpi-row" style={statsState === 'error' ? { opacity: 0.35 } : undefined}>
           <KpiCell label="Active BAMs"       value={String(s.activeBams)}        trend="neutral" onClick={() => router.push('/admin/roster')} />
           <KpiCell label="Receipts submitted" value={`${s.receiptsSubmitted} / ${s.activeBams}`} delta={`${s.missingReceipts} missing`} trend={s.missingReceipts > 0 ? 'down' : 'up'} onClick={() => router.push('/admin/receipts')} />
           <KpiCell label="Review queue"      value={String(s.reviewQueue)}       hint="Action needed" trend="neutral" onClick={() => router.push('/admin/receipts')} />
@@ -455,10 +571,27 @@ export default function AdminDashboard() {
         </div>
 
         <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--bl-navy)', letterSpacing: '-0.02em', marginBottom: 4 }}>
-          {s.budgetPct}% <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--midgray)' }}>of monthly cap</span>
+          {statsState === 'ok' ? `${s.budgetPct}%` : 'No data'}
+          {statsState === 'ok' && <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--midgray)' }}> of monthly cap</span>}
         </div>
 
-        <LineChartPlaceholder data={Object.keys(reimbByMonth).length > 0 ? reimbByMonth : undefined} />
+        {statsState === 'ok' && budgetSource === 'receipts_capped' && (
+          <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
+            Estimated from approved receipts, capped at $150 per BAM per month. The reimbursement ledger has no
+            entries for this period yet, so this is not a payment figure.
+          </div>
+        )}
+        {statsState === 'ok' && budgetSource === 'ledger' && (
+          <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
+            From the reimbursement ledger (amounts actually payable).
+          </div>
+        )}
+
+        {Object.keys(reimbByMonth).length > 0
+          ? <LineChartPlaceholder data={reimbByMonth} />
+          : <div className="empty-state" style={{ padding: 32, fontSize: 13 }}>
+              No reimbursement history yet. This chart fills in once the first monthly ledger entries exist.
+            </div>}
       </div>
 
       <div className="grid-2">
@@ -468,10 +601,18 @@ export default function AdminDashboard() {
             <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} disabled title="Data placeholder">Monthly ▾</button>
           </div>
           <div style={{ marginBottom: 12 }}>
-            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--bl-navy)' }}>0</span>
-            <span className="badge badge-blue" style={{ marginLeft: 8 }}>first cycle</span>
+            <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--bl-navy)' }}>
+              {Object.values(invoicesByMonth).reduce((a, v) => a + v, 0)}
+            </span>
+            <span className="badge badge-blue" style={{ marginLeft: 8 }}>
+              {Object.keys(invoicesByMonth).length === 0 ? 'no invoices yet' : 'draft plus sent'}
+            </span>
           </div>
-          <BarChartPlaceholder data={invoicesByMonth} />
+          {Object.keys(invoicesByMonth).length > 0
+            ? <BarChartPlaceholder data={invoicesByMonth} />
+            : <div className="empty-state" style={{ padding: 24, fontSize: 13 }}>
+                No invoices have been generated yet.
+              </div>}
         </div>
 
         <div className="surface" style={{ marginBottom: 0 }}>
@@ -483,7 +624,13 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <BamSpendingSection bamSpending={bamSpending} spendingView={spendingView} setSpendingView={setSpendingView} />
+      <BamSpendingSection
+        bamSpending={bamSpending}
+        spendingView={spendingView}
+        setSpendingView={setSpendingView}
+        state={spendingState}
+        error={spendingError}
+      />
     </>
   )
 }

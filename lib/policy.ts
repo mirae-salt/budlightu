@@ -11,7 +11,10 @@ export const DEFAULT_POLICY: Policy = {
   rolloverMode: 'forfeit',
   capMultiplier: 1,
   reviewBandPaddingCad: 10,
-  firstCohortAllReview: false,
+  // P0-G (audit 2026-08-07): default TRUE, matching the DB column default
+  // (cohorts.first_cohort_all_review) and CLAUDE.md. Fail-closed: if a cohort
+  // row cannot be read, every receipt goes to Robin instead of auto-passing.
+  firstCohortAllReview: true,
   policyVersion: 1
 }
 

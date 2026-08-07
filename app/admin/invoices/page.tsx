@@ -6,11 +6,18 @@ import { type InvoiceRow } from '../_lib/dummy'
 
 type Row = InvoiceRow & { id: string; cohort_id: string | null; period: string }
 
+/**
+ * 0018_invoice_engine_fixes.sql added 'approved' to the invoices status CHECK
+ * (plus approved_at / approved_by). This page typed status as
+ * 'draft' | 'sent' | 'void' and only listed status === 'draft', so after a batch
+ * approve the invoices vanished from the batch view with no way to act on them.
+ * 'approved' and 'paid' are both first-class states here now.
+ */
 type DbInvoice = {
   id: string
   invoice_number: string
   period: string
-  status: 'draft' | 'sent' | 'void'
+  status: 'draft' | 'approved' | 'sent' | 'paid' | 'void'
   cohort_id: string
   payload_json: { total?: number } | null
   bams: { first_name: string; last_name: string } | null
@@ -69,6 +76,10 @@ export default function InvoiceBatch() {
   }, [])
 
   const draftInvoices = invoices.filter(inv => inv.status === 'draft')
+  // Approved but not yet sent to AP. batch-approve only records the approval
+  // AFTER the AP send succeeds, so a row sitting here means the send failed and
+  // needs a retry. It must stay visible and actionable.
+  const approvedUnsent = invoices.filter(inv => inv.status === 'approved')
   const total = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount.replace(/[$,]/g, '') || '0'), 0)
   const selectedDrafts = draftInvoices.filter(inv => selected.has(inv.id))
   const allDraftsSelected = draftInvoices.length > 0 && draftInvoices.every(inv => selected.has(inv.id))
@@ -320,6 +331,11 @@ export default function InvoiceBatch() {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span className="muted" style={{ fontSize: 12 }}>{invoices.length} invoices · <strong>${total.toFixed(2)}</strong></span>
+            {approvedUnsent.length > 0 && (
+              <span className="badge badge-yellow" style={{ fontSize: 10 }}>
+                {approvedUnsent.length} approved, not sent to AP
+              </span>
+            )}
             <button className="btn-ghost" onClick={downloadCsv} disabled={invoices.length === 0}>
               CSV
             </button>
@@ -374,7 +390,12 @@ export default function InvoiceBatch() {
 
               return (
               <Fragment key={inv.number}>
-                <tr style={{ borderLeft: inv.status === 'void' ? '3px solid var(--red, #ef4444)' : inv.status === 'sent' ? '3px solid var(--green, #22c55e)' : receiptPending ? '3px solid var(--amber, #f59e0b)' : '3px solid transparent' }}>
+                <tr style={{ borderLeft:
+                  inv.status === 'void' ? '3px solid var(--red, #ef4444)'
+                  : inv.status === 'sent' || inv.status === 'paid' ? '3px solid var(--green, #22c55e)'
+                  : inv.status === 'approved' ? '3px solid var(--bl-blue, #0073cf)'
+                  : receiptPending ? '3px solid var(--amber, #f59e0b)'
+                  : '3px solid transparent' }}>
                   <td>
                     {inv.status === 'draft' ? (
                       <input
@@ -403,8 +424,12 @@ export default function InvoiceBatch() {
                   <td>
                     {inv.status === 'void'
                       ? <span className="badge badge-red">VOID</span>
+                      : inv.status === 'paid'
+                      ? <span className="badge badge-green">PAID</span>
                       : inv.status === 'sent'
                       ? <span className="badge badge-green">SENT</span>
+                      : inv.status === 'approved'
+                      ? <span className="badge badge-blue" title="Approved. Not confirmed as sent to AP yet.">APPROVED</span>
                       : <span className="badge badge-yellow">DRAFT</span>}
                   </td>
                   <td style={{ textAlign: 'right' }}>
@@ -415,9 +440,16 @@ export default function InvoiceBatch() {
                         <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => previewPdf(inv)} title="Preview & download PDF">
                           {previewNumber === inv.number ? 'Close' : 'PDF'}
                         </button>
-                        {inv.status === 'draft' && (
-                          <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => openApPreview(inv)} title="Send to AP">
-                            Send AP
+                        {(inv.status === 'draft' || inv.status === 'approved') && (
+                          <button
+                            className="btn-ghost"
+                            style={{ padding: '3px 8px', fontSize: 11 }}
+                            onClick={() => openApPreview(inv)}
+                            title={inv.status === 'approved'
+                              ? 'Approved but not marked sent. Retry the AP send.'
+                              : 'Send to AP'}
+                          >
+                            {inv.status === 'approved' ? 'Retry AP' : 'Send AP'}
                           </button>
                         )}
                         <button

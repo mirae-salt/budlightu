@@ -1,6 +1,22 @@
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import type { InvoicePayload } from './invoice-payload'
+import { normalizeForPdf } from './pdf-text'
 import * as React from 'react'
+
+/**
+ * P1-9 (audit 2026-08-07): this template uses the built-in Helvetica, which is
+ * WinAnsi (cp1252) encoded, and there is no Font.register() because no TTF is
+ * bundled in this repo and we will not fetch one over the network at render
+ * time. WinAnsi maps out-of-range code points to the wrong byte *silently*:
+ * "Michał" printed as "MichaB" and NFD-decomposed "Émile" as "E?mile", with
+ * renderToBuffer still resolving successfully.
+ *
+ * So every string in the payload is NFC-normalized (which fixes decomposed
+ * accents outright) and then verified; anything still unprintable throws
+ * PdfTextError instead of putting the wrong name on a payment document.
+ * To support non-Latin-1 names: bundle a Unicode TTF, Font.register() it here,
+ * and relax lib/pdf-text.ts.
+ */
 
 const BL_BLUE = '#0072CE'
 
@@ -85,12 +101,14 @@ const s = StyleSheet.create({
 })
 
 export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
-  const pdfTitle = `${payload.influencer.name} - ${payload.footer.invoiceNumber}`
+  // Throws PdfTextError on anything Helvetica/WinAnsi would mis-render.
+  const p = normalizeForPdf(payload)
+  const pdfTitle = `${p.influencer.name} - ${p.footer.invoiceNumber}`
   return (
     <Document title={pdfTitle}>
       <Page size="LETTER" style={s.page}>
         {/* BAM name top-left */}
-        <Text style={s.bamName}>{payload.influencer.name}</Text>
+        <Text style={s.bamName}>{p.influencer.name}</Text>
 
         {/* Blue header bar */}
         <View style={s.headerBar}>
@@ -100,8 +118,8 @@ export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
         {/* Invoice # and Date — right-aligned */}
         <View style={s.metaRow}>
           <View style={s.metaBlock}>
-            <Text style={s.metaLabel}>INVOICE #{payload.footer.invoiceNumber}</Text>
-            <Text style={s.metaLabel}>DATE: {payload.footer.dateReadable}</Text>
+            <Text style={s.metaLabel}>INVOICE #{p.footer.invoiceNumber}</Text>
+            <Text style={s.metaLabel}>DATE: {p.footer.dateReadable}</Text>
           </View>
         </View>
 
@@ -110,29 +128,29 @@ export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
           {/* Left: TO block */}
           <View style={s.infoLeft}>
             <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', marginBottom: 2 }}>To:</Text>
-            <Text style={s.infoText}>{payload.toBlock.company}</Text>
-            <Text style={s.infoText}>{payload.toBlock.address}</Text>
-            <Text style={s.infoText}>ATTN: {payload.toBlock.attn[0]}</Text>
-            <Text style={s.infoText}>{payload.toBlock.attn[1]}</Text>
+            <Text style={s.infoText}>{p.toBlock.company}</Text>
+            <Text style={s.infoText}>{p.toBlock.address}</Text>
+            <Text style={s.infoText}>ATTN: {p.toBlock.attn[0]}</Text>
+            <Text style={s.infoText}>{p.toBlock.attn[1]}</Text>
           </View>
 
           {/* Right: Influencer mailing address */}
           <View style={s.infoRight}>
             <Text style={s.infoHeading}>Influencer Mailing Address:</Text>
-            <Text style={s.infoText}>{payload.influencer.name}</Text>
-            <Text style={s.infoText}>{payload.influencer.street}</Text>
-            <Text style={s.infoText}>{payload.influencer.cityProvPostal}</Text>
-            <Text style={{ ...s.infoText, marginTop: 4 }}>{payload.influencer.email}</Text>
-            <Text style={s.infoText}>{payload.influencer.phone}</Text>
+            <Text style={s.infoText}>{p.influencer.name}</Text>
+            <Text style={s.infoText}>{p.influencer.street}</Text>
+            <Text style={s.infoText}>{p.influencer.cityProvPostal}</Text>
+            <Text style={{ ...s.infoText, marginTop: 4 }}>{p.influencer.email}</Text>
+            <Text style={s.infoText}>{p.influencer.phone}</Text>
           </View>
         </View>
 
         {/* Comments */}
         <Text style={s.sectionLabel}>Comments or special instructions:</Text>
-        <Text style={s.commentsText}>{payload.commentsLabel}</Text>
+        <Text style={s.commentsText}>{p.commentsLabel}</Text>
 
         {/* Job Number */}
-        <Text style={s.jobNumber}>JOB NUMBER: {payload.jobNumber}</Text>
+        <Text style={s.jobNumber}>JOB NUMBER: {p.jobNumber}</Text>
 
         {/* Line items table header */}
         <View style={s.tableHeader}>
@@ -143,7 +161,7 @@ export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
         </View>
 
         {/* Line items */}
-        {payload.lines.map((l, i) => (
+        {p.lines.map((l, i) => (
           <View key={i} style={s.tableRow}>
             <View style={s.col_qty}>
               <Text style={s.cellText}>{l.qty === 1 ? lineLabel(l.description) : String(l.qty)}</Text>
@@ -160,50 +178,50 @@ export function InvoicePdf({ payload }: { payload: InvoicePayload }) {
         <View style={s.totalsRow}>
           <View style={s.totalsFiller} />
           <Text style={s.totalsLabel}>SUBTOTAL</Text>
-          <Text style={s.totalsValue}>${payload.subtotal.toFixed(2)}</Text>
+          <Text style={s.totalsValue}>${p.subtotal.toFixed(2)}</Text>
         </View>
 
         {/* TAX */}
         <View style={s.totalsRow}>
           <View style={s.totalsFiller} />
           <Text style={s.totalsLabelItalic}>TAX (must also share HST number if claiming tax)</Text>
-          <Text style={s.totalsValue}>${payload.tax === 0 ? '0' : payload.tax.toFixed(2)}</Text>
+          <Text style={s.totalsValue}>${p.tax === 0 ? '0' : p.tax.toFixed(2)}</Text>
         </View>
 
         {/* TOTAL */}
         <View style={{ ...s.totalsRow, borderBottomWidth: 0 }}>
           <View style={s.totalsFiller} />
           <Text style={{ ...s.totalsLabel, fontFamily: 'Helvetica-Bold' }}>TOTAL</Text>
-          <Text style={{ ...s.totalsValue, fontFamily: 'Helvetica-Bold' }}>${payload.total.toFixed(2)}</Text>
+          <Text style={{ ...s.totalsValue, fontFamily: 'Helvetica-Bold' }}>${p.total.toFixed(2)}</Text>
         </View>
 
         {/* Footer: payable-to + contact */}
         <View style={s.footerSection}>
-          <Text style={s.footerText}>Make all checks payable to: {payload.makeChecksTo}</Text>
+          <Text style={s.footerText}>Make all checks payable to: {p.makeChecksTo}</Text>
           <Text style={s.footerText}>
-            If you have any questions concerning this invoice, contact:  {payload.contact}
+            If you have any questions concerning this invoice, contact:  {p.contact}
           </Text>
 
           {/* Direct Deposit Information */}
           <Text style={s.ddHeading}>Direct Deposit Information</Text>
           <View style={s.ddRow}>
-            <Text style={s.ddLabel}>BANK – {payload.directDeposit.bank}</Text>
+            <Text style={s.ddLabel}>BANK – {p.directDeposit.bank}</Text>
           </View>
           <View style={s.ddRow}>
             <Text style={s.ddLabel}>INSTITUTION NUMBER:</Text>
-            <Text style={s.ddValue}>{payload.directDeposit.institutionNumber}</Text>
+            <Text style={s.ddValue}>{p.directDeposit.institutionNumber}</Text>
           </View>
           <View style={s.ddRow}>
             <Text style={s.ddLabel}>TRANSIT NUMBER:</Text>
-            <Text style={s.ddValue}>{payload.directDeposit.transitNumber}</Text>
+            <Text style={s.ddValue}>{p.directDeposit.transitNumber}</Text>
           </View>
           <View style={s.ddRow}>
             <Text style={s.ddLabel}>ACCOUNT NUMBER:</Text>
-            <Text style={s.ddValue}>{payload.directDeposit.accountNumber}</Text>
+            <Text style={s.ddValue}>{p.directDeposit.accountNumber}</Text>
           </View>
           <View style={s.ddRow}>
             <Text style={s.ddLabel}>EMAIL:</Text>
-            <Text style={s.ddValue}>{payload.directDeposit.email}</Text>
+            <Text style={s.ddValue}>{p.directDeposit.email}</Text>
           </View>
         </View>
       </Page>

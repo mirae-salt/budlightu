@@ -11,6 +11,8 @@
  * Override via OPENROUTER_MODEL env var (e.g. google/gemini-2.0-flash-001).
  */
 import { serviceClient } from '../_shared/supabase-admin'
+import { recomputeBudLightTotal, type OcrResult } from '../../../lib/classify-receipt'
+import { parseConfidence } from '../../../lib/money'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
@@ -106,10 +108,10 @@ function checkExif(bytes: Uint8Array, mediaType: string): string[] {
     for (let i = 0; i < scanLimit; i++) {
       if (bytes[i] === 0xFF && bytes[i + 1] === 0xE1) { hasExif = true; break }
     }
-    if (!hasExif) flags.push('no_exif: JPEG missing EXIF metadata — possible screenshot or AI-generated image')
+    if (!hasExif) flags.push('no_exif: JPEG missing EXIF metadata -- possible screenshot or AI-generated image')
   }
   if (mediaType === 'image/png') {
-    flags.push('png_format: receipt is PNG instead of camera JPEG — possible screenshot or generated image')
+    flags.push('png_format: receipt is PNG instead of camera JPEG -- possible screenshot or generated image')
   }
   return flags
 }
@@ -188,41 +190,67 @@ function checkHistoricalPatterns(
   const nearBalance = (v: number) => availableBalance > 0 && Math.abs(v - availableBalance) / availableBalance < 0.07
   const nearCount = pastBlTotals.filter(nearBalance).length + (nearBalance(blTotal) ? 1 : 0)
   if (nearCount >= 3)
-    flags.push(`near_balance_pattern: ${nearCount} receipts clustered near available balance ($${availableBalance.toFixed(2)}) — possible gaming`)
+    flags.push(`near_balance_pattern: ${nearCount} receipts clustered near available balance ($${availableBalance.toFixed(2)}) -- possible gaming`)
 
   if (store && pastStores.length >= 5 && pastStores.every(s => s === store))
-    flags.push(`same_store_always: all ${pastStores.length + 1} receipts from "${store}" — unusual variety`)
+    flags.push(`same_store_always: all ${pastStores.length + 1} receipts from "${store}" -- unusual variety`)
 
   return flags
 }
 
 const DEFAULT_REIMB_CAP = 150
 
+/**
+ * P1-5 (audit 2026-08-07): this filtered on `receipts.created_at`, which does not
+ *   exist (the column is `uploaded_at`). PostgREST returned error 42703, only `data`
+ *   was destructured, so `used` was always 0 and the returned balance was always the
+ *   full cap. That silently disabled the over_balance gate.
+ * P1-23: the window is the receipt `period`, matching every other path, not the
+ *   upload timestamp's calendar month.
+ *
+ * Returns null when the balance cannot be determined, so callers fail closed instead
+ * of treating an unknown balance as a fully unused cap.
+ */
 async function getMonthlyBalanceEF(
   db: ReturnType<typeof serviceClient>,
   bamId: string,
-  cohortId: string
-): Promise<number> {
-  const { data: cohort } = await db.from('cohorts')
-    .select('reimbursement_max').eq('id', cohortId).single()
-  const cap = Number(cohort?.reimbursement_max ?? DEFAULT_REIMB_CAP)
+  cohortId: string,
+  period: string
+): Promise<number | null> {
+  const m = /^(\d{4})-(\d{2})/.exec(String(period).trim())
+  if (!m) {
+    console.error('[ocrReceipt] unrecognized period for balance:', period)
+    return null
+  }
+  const periodStart = `${m[1]}-${m[2]}-01`
 
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString()
+  const { data: cohort, error: cohortErr } = await db.from('cohorts')
+    .select('reimbursement_max').eq('id', cohortId).maybeSingle()
+  if (cohortErr) {
+    console.error('[ocrReceipt] cohort lookup failed:', cohortErr.message)
+    return null
+  }
+  const capRaw = Number(cohort?.reimbursement_max ?? DEFAULT_REIMB_CAP)
+  const cap = Number.isFinite(capRaw) && capRaw > 0 ? capRaw : DEFAULT_REIMB_CAP
 
-  const { data } = await db.from('receipts')
+  const { data, error } = await db.from('receipts')
     .select('bud_light_total_incl_tax')
     .eq('bam_id', bamId)
+    .eq('period', periodStart)
     .in('status', ['approved', 'auto_pass'])
-    .gte('created_at', monthStart)
-    .lt('created_at', monthEnd)
 
-  const used = (data || []).reduce(
-    (sum: number, r: { bud_light_total_incl_tax: number | null }) =>
-      sum + (r.bud_light_total_incl_tax ?? 0), 0)
+  if (error) {
+    console.error('[ocrReceipt] receipts balance query failed:', error.message)
+    return null
+  }
 
-  return Math.max(0, cap - used)
+  let used = 0
+  for (const r of data ?? []) {
+    const v = Number((r as { bud_light_total_incl_tax: number | string | null }).bud_light_total_incl_tax ?? 0)
+    if (Number.isFinite(v) && v > 0) used += v
+  }
+
+  return Math.max(0, Math.round((cap - used) * 100) / 100)
 }
 
 type Req = {
@@ -233,7 +261,15 @@ type Req = {
   period: string
 }
 
-export async function handler(req: Req): Promise<{ ok: boolean; status: string; error?: string; fraud_flags?: string[] }> {
+export async function handler(req: Req): Promise<{
+  ok: boolean
+  status: string
+  error?: string
+  fraud_flags?: string[]
+  duplicate_suspect?: boolean
+  server_total?: number
+  model_total?: number | null
+}> {
   const db = serviceClient()
 
   // 1. Load image bytes
@@ -271,14 +307,31 @@ export async function handler(req: Req): Promise<{ ok: boolean; status: string; 
     return await failReceipt(db, req.receipt_id, 'json parse failed')
   }
 
-  // 4. Persist
+  // 4. Persist.
+  //    P0-F: the stored amount is the SERVER recompute from the line items, not the
+  //    model's bud_light_total_incl_tax field. Any disagreement over $1 forces review.
   const ocrTyped = ocr as Record<string, unknown> & { bud_light_total_incl_tax?: number; overall_confidence?: number; store?: string; date?: string; grand_total?: number }
-  const { error: upErr } = await db.from('receipts').update({
+  const recomputed = recomputeBudLightTotal(ocr as unknown as OcrResult)
+  if (recomputed.mismatch) {
+    const claimed = recomputed.modelTotal === null ? 'an unusable value' : `$${recomputed.modelTotal.toFixed(2)}`
+    fraudFlags.push(`total_mismatch: model reported ${claimed} but the line items add up to $${recomputed.total.toFixed(2)} -- using the recomputed amount, admin must confirm`)
+  }
+  if (recomputed.exceedsGrandTotal) {
+    fraudFlags.push(`over_grand_total: Bud Light total $${recomputed.total.toFixed(2)} exceeds the receipt grand total -- admin must confirm`)
+  }
+  if (recomputed.unparsableLines > 0) {
+    fraudFlags.push(`unreadable_amounts: ${recomputed.unparsableLines} line total(s) could not be read as a number -- admin must confirm`)
+  }
+
+  const { data: persisted, error: upErr } = await db.from('receipts').update({
     ocr_json: ocr,
-    bud_light_total_incl_tax: ocrTyped.bud_light_total_incl_tax ?? 0,
-    confidence: ocrTyped.overall_confidence ?? 0
-  }).eq('id', req.receipt_id)
+    bud_light_total_incl_tax: recomputed.total,
+    confidence: parseConfidence(ocrTyped.overall_confidence)
+  }).eq('id', req.receipt_id).select('id, bud_light_total_incl_tax')
   if (upErr) return { ok: false, status: 'error', error: upErr.message }
+  if (!persisted || persisted.length !== 1) {
+    return { ok: false, status: 'error', error: `OCR write affected ${persisted?.length ?? 0} rows, expected 1` }
+  }
 
   // 5. OCR pattern + price checks (on parsed JSON)
   fraudFlags.push(...checkOcrPatterns(ocrTyped))
@@ -307,13 +360,22 @@ export async function handler(req: Req): Promise<{ ok: boolean; status: string; 
   const ocrTotal = ocrTyped.grand_total
 
   if (ocrStore && ocrDate && ocrTotal != null) {
-    const availBal = await getMonthlyBalanceEF(db, req.bam_id, req.cohort_id)
+    const balance = await getMonthlyBalanceEF(db, req.bam_id, req.cohort_id, req.period)
+    // Fail closed: an unknown balance must not look like a full, unused cap.
+    const availBal = balance ?? 0
+    if (balance === null) {
+      fraudFlags.push("balance_unknown: could not compute this BAM's remaining allowance -- admin must confirm")
+    }
 
-    const { data: others } = await db.from('receipts')
+    const { data: others, error: othersErr } = await db.from('receipts')
       .select('id, ocr_json')
       .eq('bam_id', req.bam_id)
       .neq('id', req.receipt_id)
       .not('ocr_json', 'is', null)
+
+    if (othersErr) {
+      fraudFlags.push(`duplicate_check_unavailable: prior receipts could not be read (${othersErr.message}) -- admin must confirm`)
+    }
 
     if (others && others.length > 0) {
       for (const other of others) {
@@ -334,13 +396,26 @@ export async function handler(req: Req): Promise<{ ok: boolean; status: string; 
 
   // 7. If any fraud flags fired, force review + persist flags
   if (fraudFlags.length > 0) {
-    await db.from('receipts').update({
+    const { data: flagged, error: flagErr } = await db.from('receipts').update({
       status: 'review',
       decision_reason: fraudFlags.join(' | ')
-    }).eq('id', req.receipt_id)
+    }).eq('id', req.receipt_id).select('id, status')
+    if (flagErr) {
+      return { ok: false, status: 'error', error: `could not flag receipt for review: ${flagErr.message}`, fraud_flags: fraudFlags }
+    }
+    if (!flagged || flagged.length !== 1 || flagged[0].status !== 'review') {
+      return { ok: false, status: 'error', error: 'receipt was not moved to review', fraud_flags: fraudFlags }
+    }
   }
 
-  return { ok: true, status: fraudFlags.length > 0 ? 'review' : 'ocr_complete', fraud_flags: fraudFlags }
+  return {
+    ok: true,
+    status: fraudFlags.length > 0 ? 'review' : 'ocr_complete',
+    fraud_flags: fraudFlags,
+    duplicate_suspect: dupSuspect,
+    server_total: recomputed.total,
+    model_total: recomputed.modelTotal
+  }
 }
 
 type MediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
@@ -375,12 +450,18 @@ async function callOpenRouter(apiKey: string, base64: string, mediaType: MediaTy
 }
 
 async function failReceipt(db: ReturnType<typeof serviceClient>, receiptId: string, reason: string) {
-  const { data: r } = await db.from('receipts').select('ocr_attempts').eq('id', receiptId).single()
+  const { data: r, error: readErr } = await db.from('receipts')
+    .select('ocr_attempts').eq('id', receiptId).maybeSingle()
+  if (readErr) console.error('[ocrReceipt] failReceipt read failed:', readErr.message)
   const attempts = (r?.ocr_attempts ?? 0) + 1
-  await db.from('receipts').update({
+  const { error: writeErr } = await db.from('receipts').update({
     status: attempts >= 3 ? 'ocr_failed' : 'pending',   // retry up to 3 times before giving up
     ocr_attempts: attempts,
     decision_reason: reason
   }).eq('id', receiptId)
+  if (writeErr) {
+    console.error('[ocrReceipt] failReceipt write failed:', writeErr.message,
+      '- receipt', receiptId, 'will be caught by sweep_stale_ocr_receipts')
+  }
   return { ok: false, status: attempts >= 3 ? 'ocr_failed' : 'retry', error: reason }
 }

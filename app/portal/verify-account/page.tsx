@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
+import { resolveBamId } from '@/lib/portal-bam'
 
 export default function VerifyAccountPage() {
   const [phase, setPhase] = useState<'loading' | 'confirm' | 'done'>('loading')
@@ -21,7 +22,7 @@ export default function VerifyAccountPage() {
       const sb = browserClient()
       const { data: userRes } = await sb.auth.getUser()
       if (!userRes.user) { setErr('Not logged in.'); return }
-      const bamId = (userRes.user.user_metadata as { bam_id?: string }).bam_id
+      const bamId = await resolveBamId(sb, userRes.user)
       if (!bamId) { setErr('No BAM record.'); return }
 
       // If already verified, skip

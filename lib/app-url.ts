@@ -6,23 +6,17 @@
  * a BOM before "https://" makes the URL invalid, so mail clients refuse to
  * linkify it and pasting it into a browser fails. Trailing slashes are dropped
  * so callers can always append an absolute path.
+ *
+ * The sanitizers themselves now live in `lib/sanitize.ts` so the AP send path,
+ * the Graph calls and the roster writes all share one implementation. They are
+ * re-exported here because this module was the original home and callers
+ * already import `stripInvisible` from this path.
  */
-const FALLBACK = 'https://budlightu.com'
+import { stripInvisible, envAddress, envAddressList, envString } from './sanitize'
 
-/** Drops BOM, zero-width and control characters that break URLs. */
-function stripInvisible(s: string): string {
-  let out = ''
-  for (const ch of s) {
-    const c = ch.codePointAt(0)!
-    const invisible =
-      c === 0xfeff ||            // BOM
-      (c >= 0x200b && c <= 0x200f) || // zero-width + bidi marks
-      c < 0x20 ||                // control chars
-      c === 0x7f
-    if (!invisible) out += ch
-  }
-  return out
-}
+export { stripInvisible, envAddress, envAddressList, envString }
+
+const FALLBACK = 'https://budlightu.com'
 
 export function appBaseUrl(): string {
   const clean = stripInvisible(process.env.NEXT_PUBLIC_APP_URL ?? '')

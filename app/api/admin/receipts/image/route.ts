@@ -1,7 +1,19 @@
+/**
+ * GET /api/admin/receipts/image?key=...
+ *
+ * P0-A: no authorization check existed, and the handler downloads any key from
+ * the private `receipts` bucket with the service-role key. Storage RLS was
+ * therefore bypassed for anonymous callers. Admin-only now; BAMs read their own
+ * receipts through the portal, which goes through RLS.
+ */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin, denied } from '@/lib/admin-auth'
 
 export async function GET(req: Request) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
+
   const url = new URL(req.url)
   const key = url.searchParams.get('key')
   if (!key) return NextResponse.json({ error: 'key required' }, { status: 400 })

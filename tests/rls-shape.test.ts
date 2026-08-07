@@ -18,6 +18,7 @@ const encryption = readFileSync(join(MIG_DIR, '0003_encryption_pgsodium.sql'),  
 const triggers   = readFileSync(join(MIG_DIR, '0004_system_field_triggers.sql'), 'utf8')
 const cancel     = readFileSync(join(MIG_DIR, '0007_void_ap_cancellation.sql'),  'utf8')
 const misc       = readFileSync(join(MIG_DIR, '0013_misc_fixes.sql'),           'utf8')
+const receiptAi  = readFileSync(join(MIG_DIR, '0017_receipt_ai_fixes.sql'),      'utf8')
 
 describe('schema · P0-1 (invoice_number string uniqueness)', () => {
   it('has UNIQUE index on invoice_number within cohort (excluding void)', () => {
@@ -44,13 +45,39 @@ describe('schema · leading-zero preservation', () => {
   })
 })
 
-describe('schema · P0-5a (send idempotency + advisory lock)', () => {
+describe('schema · P0-5a (send idempotency + scheduler mutex)', () => {
   it('invoice_sends has UNIQUE (invoice_id, target, mode)', () => {
     expect(schema).toMatch(/invoice_sends_unique unique \(invoice_id, target, mode\)/i)
   })
-  it('advisory lock helper exists', () => {
-    expect(triggers).toMatch(/try_scheduler_lock/)
+
+  /**
+   * P1-3: this used to assert that 0004 contained `pg_try_advisory_xact_lock`,
+   * i.e. it asserted the NO-OP lock. That lock is transaction-scoped and a
+   * PostgREST RPC commits immediately, so it was released before any scheduler
+   * work began and two concurrent runs both proceeded. The real mutex is a lock
+   * ROW with a TTL, added in 0017.
+   */
+  it('a real, non-transaction-scoped scheduler mutex exists', () => {
+    expect(receiptAi).toMatch(/create table if not exists scheduler_locks/i)
+    expect(receiptAi).toMatch(/create or replace function acquire_scheduler_lock/i)
+    expect(receiptAi).toMatch(/create or replace function release_scheduler_lock/i)
+    // Acquisition must be decided by rows actually written, not by an advisory lock.
+    expect(receiptAi).toMatch(/get diagnostics v_rows = row_count;\s*\n\s*return v_rows > 0;/)
+    // TTL so a crashed run cannot wedge the monthly job forever.
+    expect(receiptAi).toMatch(/expires_at\s*=\s*v_now \+ make_interval\(secs => p_ttl_seconds\)/)
+    // The real mutex must NOT be built on the advisory lock it replaces. Check the
+    // function BODY only: the deprecation comment further down names it on purpose.
+    const acquireBody = /create or replace function acquire_scheduler_lock[\s\S]*?\nend \$\$;/i.exec(receiptAi)?.[0]
+    expect(acquireBody, 'acquire_scheduler_lock body not found in 0017').toBeTruthy()
+    expect(acquireBody!).not.toMatch(/pg_try_advisory/)
+  })
+
+  it('the superseded advisory-lock helper is marked deprecated, not silently kept', () => {
+    // Still present in 0004 (it cannot be dropped while an older deploy might call it),
+    // but 0017 must say out loud that it is a no-op.
     expect(triggers).toMatch(/pg_try_advisory_xact_lock/)
+    expect(receiptAi).toMatch(/comment on function try_scheduler_lock\(text\) is/i)
+    expect(receiptAi).toMatch(/DEPRECATED \(P1-3\)/)
   })
 })
 

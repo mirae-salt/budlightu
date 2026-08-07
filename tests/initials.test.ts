@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { baseInitials, resolveInitials } from '../lib/initials'
+import { baseInitials, resolveInitials, isUsableInitials, type Bam } from '../lib/initials'
+import { formatInvoiceNumber } from '../lib/invoice-numbering'
 
 describe('baseInitials', () => {
   it('takes first letter of first + last name', () => {
@@ -52,18 +53,89 @@ describe('resolveInitials — P0-1 fix', () => {
     expect(new Set(out.map(o => o.initials)).size).toBe(3)
   })
 
-  it('falls back to numeric suffix on identical names', () => {
+  /**
+   * P1-7: this test used to expect 'AK1' / 'AK2'. That fallback was invalid, not
+   * merely ugly: formatInvoiceNumber validates initials against /^[A-Z]{2,10}$/,
+   * so a digit suffix threw and the documented "identical names" path could
+   * never actually produce an invoice. The fallback is letters now.
+   */
+  it('falls back to a LETTER suffix on identical names (digits are rejected downstream)', () => {
     const out = resolveInitials([
       { id: '1', firstName: 'Alex', lastName: 'Kim' },
       { id: '2', firstName: 'Alex', lastName: 'Kim' }
     ])
     const initials = new Map(out.map(o => [o.bamId, o.initials]))
-    expect(initials.get('1')).toBe('AK1')
-    expect(initials.get('2')).toBe('AK2')
+    expect(initials.get('1')).toBe('AKA')
+    expect(initials.get('2')).toBe('AKB')
   })
 
   it('preserves single-BAM cohorts (no collision)', () => {
     const out = resolveInitials([{ id: 'only', firstName: 'Kira', lastName: 'Sabharwal' }])
     expect(out).toEqual([{ bamId: 'only', initials: 'KS' }])
+  })
+})
+
+/**
+ * The load-bearing contract: nothing resolveInitials can return may make
+ * formatInvoiceNumber throw. A throw inside scheduler-generate used to abort the
+ * whole monthly run, so one unusable roster row meant nobody got an invoice.
+ */
+describe('every resolveInitials output satisfies formatInvoiceNumber (P1-7/P1-8)', () => {
+  const rosters: Array<{ label: string; bams: Bam[] }> = [
+    {
+      label: 'identical names (letter-suffix fallback)',
+      bams: [
+        { id: '1', firstName: 'Alex', lastName: 'Kim' },
+        { id: '2', firstName: 'Alex', lastName: 'Kim' },
+        { id: '3', firstName: 'Alex', lastName: 'Kim' }
+      ]
+    },
+    {
+      label: 'accents and non-Latin scripts',
+      bams: [
+        { id: 'a', firstName: 'Émile', lastName: 'Côté' },
+        { id: 'b', firstName: 'Michał', lastName: 'Nowak' },
+        { id: 'c', firstName: '李', lastName: '王' },
+        { id: 'd', firstName: 'Владимир', lastName: 'Петров' }
+      ]
+    },
+    {
+      label: 'mononyms and empty name parts',
+      bams: [
+        { id: 'm1', firstName: 'Ana', lastName: '' },
+        { id: 'm2', firstName: '', lastName: '' },
+        { id: 'm3', firstName: 'Ali', lastName: 'Ó' }
+      ]
+    },
+    {
+      label: 'the real Lucas/Luke Grabowski collision',
+      bams: [
+        { id: 'lucas', firstName: 'Lucas', lastName: 'Grabowski' },
+        { id: 'luke', firstName: 'Luke', lastName: 'Grabowski' }
+      ]
+    },
+    {
+      label: '26+ identical names (letter suffix must roll over past Z)',
+      bams: Array.from({ length: 30 }, (_, i) => ({ id: `d${i}`, firstName: 'Sam', lastName: 'Lee' }))
+    }
+  ]
+
+  for (const { label, bams } of rosters) {
+    it(`${label}: every value is usable and unique`, () => {
+      const out = resolveInitials(bams)
+      expect(out.length).toBe(bams.length)
+      for (const r of out) {
+        expect(isUsableInitials(r.initials), `${r.bamId} -> ${r.initials}`).toBe(true)
+        // The real gate: this is what scheduler-generate calls.
+        expect(() => formatInvoiceNumber(r.initials, 1), `${r.bamId} -> ${r.initials}`).not.toThrow()
+        expect(formatInvoiceNumber(r.initials, 1)).toBe(`INV-${r.initials}1`)
+      }
+      expect(new Set(out.map(o => o.initials)).size).toBe(bams.length)
+    })
+  }
+
+  it('rejects the old digit-suffix fallback, which is why it had to change', () => {
+    expect(isUsableInitials('AK1')).toBe(false)
+    expect(() => formatInvoiceNumber('AK1', 1)).toThrow()
   })
 })

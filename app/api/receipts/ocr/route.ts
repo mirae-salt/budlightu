@@ -1,8 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getMonthlyBalance } from '@/lib/balance'
-import { classifyReceipt, type OcrResult } from '@/lib/classify-receipt'
+import { classifyReceipt, recomputeBudLightTotal, type OcrResult } from '@/lib/classify-receipt'
 import { DEFAULT_POLICY } from '@/lib/policy'
+import { parseNonNegativeMoney } from '@/lib/money'
+import { cleanEnvValue } from '@/lib/sanitize'
 
 const RECEIPT_PROMPT = `You are an audit assistant reading a Canadian retail receipt image. Return JSON only.
 
@@ -120,36 +122,46 @@ function checkPriceReasonableness(ocr: Record<string, unknown>): string[] {
   return flags
 }
 
+/**
+ * P1-5: `availableBalance` used to be a constant (the full cap) because
+ * lib/balance.ts queried a non-existent column, so over_balance and
+ * near_balance_pattern were both permanently dead. With the balance now real,
+ * the amount compared against it is the SERVER-RECOMPUTED Bud Light total
+ * (`blTotalInclTax`), not the receipt grand total: only Bud Light spend consumes
+ * the cap, and comparing a mixed grocery receipt's grand total against the Bud
+ * Light balance would flag ordinary shopping as fraud. This matches
+ * supabase/functions/ocrReceipt.
+ */
 function checkHistoricalPatterns(
   currentOcr: Record<string, unknown>,
   othersOcr: Array<{ ocr_json: Record<string, unknown> | null }>,
-  availableBalance: number
+  availableBalance: number,
+  blTotalInclTax: number
 ): string[] {
   if (othersOcr.length < 2) return []
   const flags: string[] = []
-  const grandTotal = (currentOcr.grand_total as number) ?? 0
   const store = ((currentOcr.store as string) ?? '').toLowerCase().trim()
 
   const pastTotals: number[] = []
   const pastStores: string[] = []
   for (const o of othersOcr) {
     if (!o.ocr_json) continue
-    const t = o.ocr_json.grand_total as number | undefined
+    const t = parseNonNegativeMoney(o.ocr_json.bud_light_total_incl_tax)
     const s = ((o.ocr_json.store as string) ?? '').toLowerCase().trim()
     if (t != null) pastTotals.push(t)
     if (s) pastStores.push(s)
   }
 
-  if (grandTotal > availableBalance && availableBalance > 0)
-    flags.push(`over_balance: receipt $${grandTotal.toFixed(2)} exceeds available balance $${availableBalance.toFixed(2)}`)
+  if (blTotalInclTax > availableBalance && availableBalance > 0)
+    flags.push(`over_balance: Bud Light total $${blTotalInclTax.toFixed(2)} exceeds available balance $${availableBalance.toFixed(2)}`)
 
   const nearBalance = (v: number) => availableBalance > 0 && Math.abs(v - availableBalance) / availableBalance < 0.07
-  const nearCount = pastTotals.filter(nearBalance).length + (nearBalance(grandTotal) ? 1 : 0)
+  const nearCount = pastTotals.filter(nearBalance).length + (nearBalance(blTotalInclTax) ? 1 : 0)
   if (nearCount >= 3)
-    flags.push(`near_balance_pattern: ${nearCount} receipts clustered near available balance ($${availableBalance.toFixed(2)}) — possible gaming`)
+    flags.push(`near_balance_pattern: ${nearCount} receipts clustered near available balance ($${availableBalance.toFixed(2)}) -- possible gaming`)
 
   if (store && pastStores.length >= 5 && pastStores.every(s => s === store))
-    flags.push(`same_store_always: all ${pastStores.length + 1} receipts from "${store}" — unusual variety`)
+    flags.push(`same_store_always: all ${pastStores.length + 1} receipts from "${store}" -- unusual variety`)
 
   return flags
 }
@@ -212,9 +224,14 @@ async function callOpenRouter(apiKey: string, base64: string, mediaType: MediaTy
 }
 
 export async function POST(req: Request) {
-  const internalSecret = process.env.INTERNAL_API_SECRET
+  // P1-18: both sides are sanitized before comparison. lib/ocr-trigger.ts already
+  // strips invisibles from the value it sends, so an unsanitized comparison here
+  // meant a single BOM in INTERNAL_API_SECRET would 401 every OCR call while the
+  // env var looked correct in the Vercel dashboard. Same for a header that picked
+  // up whitespace in transit.
+  const internalSecret = cleanEnvValue(process.env.INTERNAL_API_SECRET)
   if (internalSecret) {
-    const authHeader = req.headers.get('x-internal-secret')
+    const authHeader = cleanEnvValue(req.headers.get('x-internal-secret'))
     if (authHeader !== internalSecret) {
       return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
     }
@@ -230,6 +247,18 @@ export async function POST(req: Request) {
   }
 
   const db = adminClient()
+
+  // 0. Claim the receipt (P1-13): record that OCR actually began. Diagnostic only —
+  //    the sweeper keys off status + ocr_queued_at — so a failure here is logged but
+  //    must not block OCR (e.g. before migration 0017 is applied). The decisive write
+  //    at step 10 is error-checked and read back.
+  const { error: claimErr } = await db.from('receipts')
+    .update({ ocr_started_at: new Date().toISOString() })
+    .eq('id', receipt_id)
+  if (claimErr) {
+    console.error('[ocr] could not stamp ocr_started_at for', receipt_id, '-', claimErr.message,
+      '- has migration 0017_receipt_ai_fixes.sql been applied?')
+  }
 
   // 1. Download image from Storage
   const { data: file, error: dlErr } = await db.storage.from('receipts').download(storage_key)
@@ -271,9 +300,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'OCR returned invalid JSON' }, { status: 500 })
   }
 
-  // 4. Fetch receipt row (bam_id/cohort_id/period) — needed for policy + spendableCap + duplicate detection
-  const { data: thisReceipt } = await db.from('receipts')
-    .select('bam_id, cohort_id, period').eq('id', receipt_id).single()
+  // 4. Fetch receipt row (bam_id/cohort_id/period) — needed for policy + spendableCap + duplicate detection.
+  //    P0-H: if this read fails we must NOT continue with default policy/cap — that is
+  //    how a $150 payout gets decided for a cohort we could not read.
+  const { data: thisReceipt, error: receiptErr } = await db.from('receipts')
+    .select('bam_id, cohort_id, period').eq('id', receipt_id).maybeSingle()
+  if (receiptErr) {
+    await bumpAttempt(db, receipt_id, `receipt lookup failed: ${receiptErr.message}`)
+    return NextResponse.json({ ok: false, error: `receipt lookup failed: ${receiptErr.message}` }, { status: 500 })
+  }
+  if (!thisReceipt) {
+    return NextResponse.json({ ok: false, error: 'receipt not found' }, { status: 404 })
+  }
+
+  // Server-side recompute of the Bud Light amount (P0-F). Used for the balance
+  // fraud gates below and recomputed identically inside classifyReceipt.
+  const recomputed = recomputeBudLightTotal(ocr as unknown as OcrResult)
 
   const confidence = (ocr.overall_confidence as number) ?? 0
 
@@ -286,15 +328,27 @@ export async function POST(req: Request) {
   let balanceAvailable = 0
 
   if (thisReceipt?.bam_id) {
-    const balance = await getMonthlyBalance(db, thisReceipt.bam_id)
+    // P1-23: balance is scoped to the receipt's PERIOD (the month the spend is
+    // claimed for), not the upload timestamp's month.
+    const balance = await getMonthlyBalance(db, thisReceipt.bam_id, thisReceipt.period)
     balanceAvailable = balance.available
+    if (!balance.ok) {
+      // Fail closed: an unknown balance must not look like a full, unused cap.
+      balanceAvailable = 0
+      fraudFlags.push(`balance_unknown: could not compute this BAM's remaining allowance (${balance.error ?? 'unknown error'}) -- admin must confirm`)
+    }
 
     if (ocrStore && ocrDate && ocrTotal != null) {
-      const { data: others } = await db.from('receipts')
+      const { data: others, error: othersErr } = await db.from('receipts')
         .select('id, ocr_json')
         .eq('bam_id', thisReceipt.bam_id)
         .neq('id', receipt_id)
         .not('ocr_json', 'is', null)
+
+      if (othersErr) {
+        // Duplicate detection could not run — say so instead of implying "no duplicates".
+        fraudFlags.push(`duplicate_check_unavailable: prior receipts could not be read (${othersErr.message}) -- admin must confirm`)
+      }
 
       if (others && others.length > 0) {
         for (const other of others) {
@@ -309,7 +363,12 @@ export async function POST(req: Request) {
             break
           }
         }
-        fraudFlags.push(...checkHistoricalPatterns(ocr, others as Array<{ ocr_json: Record<string, unknown> | null }>, balanceAvailable))
+        fraudFlags.push(...checkHistoricalPatterns(
+          ocr,
+          others as Array<{ ocr_json: Record<string, unknown> | null }>,
+          balanceAvailable,
+          recomputed.total
+        ))
       }
     }
   }
@@ -318,32 +377,48 @@ export async function POST(req: Request) {
   fraudFlags.push(...checkOcrPatterns(ocr))
   fraudFlags.push(...checkPriceReasonableness(ocr))
 
-  // 7. Cohort policy + spendable cap (rollover-aware ledger snapshot, falls back to policy default)
+  // 7. Cohort policy + spendable cap.
+  //    P0-G: the cohort's real first_cohort_all_review is passed through. It used to be
+  //    SELECTed and then immediately overwritten with `false`, which disabled touchpoint 1.
+  //    P0-H: every read here is error-checked; an unreadable cohort must not silently
+  //    become "default policy, auto-pass allowed".
   let policy = { ...DEFAULT_POLICY }
   let spendableCap = DEFAULT_POLICY.reimbursementMax
   if (thisReceipt?.cohort_id) {
-    const { data: cohort } = await db.from('cohorts')
+    const { data: cohort, error: cohortErr } = await db.from('cohorts')
       .select('reimbursement_max, first_cohort_all_review')
-      .eq('id', thisReceipt.cohort_id).single()
-    if (cohort) {
+      .eq('id', thisReceipt.cohort_id).maybeSingle()
+    if (cohortErr || !cohort) {
+      // Fail closed: keep DEFAULT_POLICY (firstCohortAllReview = true) so this
+      // receipt goes to Robin rather than auto-passing against an unknown cap.
+      fraudFlags.push(`cohort_unreadable: could not load cohort policy (${cohortErr?.message ?? 'no cohort row'}) -- admin must confirm`)
+    } else {
+      const max = parseNonNegativeMoney(cohort.reimbursement_max)
+      if (max === null || max <= 0) {
+        fraudFlags.push(`cohort_cap_invalid: cohort reimbursement_max is "${String(cohort.reimbursement_max)}" -- admin must confirm`)
+      }
       policy = {
         ...policy,
-        reimbursementMax: Number(cohort.reimbursement_max ?? policy.reimbursementMax),
-        firstCohortAllReview: false
+        reimbursementMax: max ?? policy.reimbursementMax,
+        firstCohortAllReview: cohort.first_cohort_all_review !== false
       }
     }
   }
+  spendableCap = policy.reimbursementMax
   if (thisReceipt?.bam_id) {
-    const { data: latestLedger } = await db.from('reimbursement_ledger')
+    // Rollover is 'forfeit' for every cohort (Robin 2026-08-04), so the ledger's
+    // spendable_cap equals the entitlement. Read THIS period's row only — ordering
+    // by period desc could pick up a different month's cap.
+    const { data: ledgerRow, error: ledgerErr } = await db.from('reimbursement_ledger')
       .select('spendable_cap_cad')
       .eq('bam_id', thisReceipt.bam_id)
-      .order('period', { ascending: false })
-      .limit(1)
+      .eq('period', thisReceipt.period)
       .maybeSingle()
-    if (latestLedger?.spendable_cap_cad != null) {
-      spendableCap = Number(latestLedger.spendable_cap_cad)
+    if (ledgerErr) {
+      fraudFlags.push(`ledger_unreadable: could not read this period's ledger row (${ledgerErr.message}) -- admin must confirm`)
     } else {
-      spendableCap = policy.reimbursementMax
+      const cap = parseNonNegativeMoney(ledgerRow?.spendable_cap_cad)
+      if (cap !== null && cap > 0) spendableCap = cap
     }
   }
 
@@ -369,57 +444,116 @@ export async function POST(req: Request) {
     ? [classification.reason, ...fraudFlags].join(' | ')
     : classification.reason
 
-  // 10. Persist OCR result + final classification
-  const { error: upErr } = await db.from('receipts').update({
+  // 10. Persist OCR result + final classification.
+  //     P0-F: bud_light_total_incl_tax is the SERVER-RECOMPUTED amount from the line
+  //     items, never ocr.bud_light_total_incl_tax. The model's own figure is kept in
+  //     ambiguous_flags so Robin can see the discrepancy she is being asked about.
+  const audit = {
+    recompute: {
+      server_total: classification.budLightTotalInclTax,
+      model_total: classification.modelReportedTotal,
+      basis: classification.recomputeBasis,
+      notes: classification.recomputeNotes
+    },
+    fraud_flags: fraudFlags,
+    spendable_cap: spendableCap,
+    policy: {
+      reimbursement_max: policy.reimbursementMax,
+      review_band_padding_cad: policy.reviewBandPaddingCad,
+      first_cohort_all_review: policy.firstCohortAllReview
+    }
+  }
+
+  const { data: saved, error: upErr } = await db.from('receipts').update({
     ocr_json: ocr,
     status: finalStatus,
     bud_light_total_incl_tax: classification.budLightTotalInclTax,
     confidence,
-    decision_reason: decisionReason
-  }).eq('id', receipt_id)
+    decision_reason: decisionReason,
+    ambiguous_flags: audit
+  }).eq('id', receipt_id).select('id, status, bud_light_total_incl_tax')
 
   if (upErr) {
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 })
   }
-
-  // 11. Auto-upsert draft invoice for this BAM+period (fire-and-forget)
-  if (thisReceipt?.bam_id && thisReceipt?.cohort_id && thisReceipt?.period) {
-    import('@/lib/draft-invoice').then(({ upsertDraftInvoice: upsert }) =>
-      upsert(db, thisReceipt.bam_id, thisReceipt.cohort_id, thisReceipt.period)
-    ).catch(e => console.error('[ocr] draft invoice upsert failed:', e))
+  // Read-back (ENGINEERING-RULES §1): an update that matched 0 rows is not a success.
+  if (!saved || saved.length !== 1) {
+    return NextResponse.json(
+      { ok: false, error: `classification write affected ${saved?.length ?? 0} rows, expected 1` },
+      { status: 500 }
+    )
   }
 
-  // 12. Admin notification for review/ocr_failed
+  // 11. Auto-upsert draft invoice for this BAM+period.
+  //     Scheduled with after() so the platform keeps the invocation alive instead of
+  //     dropping the promise at response time (same class of bug as P1-13).
+  if (thisReceipt?.bam_id && thisReceipt?.cohort_id && thisReceipt?.period) {
+    scheduleBackground(async () => {
+      try {
+        const { upsertDraftInvoice } = await import('@/lib/draft-invoice')
+        await upsertDraftInvoice(db, thisReceipt.bam_id, thisReceipt.cohort_id, thisReceipt.period)
+      } catch (e) {
+        console.error('[ocr] draft invoice upsert failed:', e)
+      }
+    })
+  }
+
+  // 12. Admin notification for review
   if (finalStatus === 'review') {
-    import('@/lib/notify-admin').then(({ notifyAdmin }) => {
-      const bamLabel = thisReceipt?.bam_id ? `BAM ${thisReceipt.bam_id.slice(0, 8)}` : 'Unknown BAM'
-      notifyAdmin({
-        type: 'receipt_review',
-        title: 'Receipt needs review',
-        body: `${bamLabel}: ${decisionReason}`,
-        bam_id: thisReceipt?.bam_id,
-        cohort_id: thisReceipt?.cohort_id,
-        period: thisReceipt?.period,
-        link: '/admin/receipts'
-      })
-    }).catch(() => {})
+    scheduleBackground(async () => {
+      try {
+        const { notifyAdmin } = await import('@/lib/notify-admin')
+        const bamLabel = thisReceipt?.bam_id ? `BAM ${thisReceipt.bam_id.slice(0, 8)}` : 'Unknown BAM'
+        await notifyAdmin({
+          type: 'receipt_review',
+          title: 'Receipt needs review',
+          body: `${bamLabel}: ${decisionReason}`,
+          bam_id: thisReceipt?.bam_id,
+          cohort_id: thisReceipt?.cohort_id,
+          period: thisReceipt?.period,
+          link: '/admin/receipts'
+        })
+      } catch (e) {
+        console.error('[ocr] notifyAdmin failed:', e)
+      }
+    })
   }
 
   return NextResponse.json({
     ok: true,
     status: finalStatus,
     duplicate_suspect: dupSuspect,
-    fraud_flags: fraudFlags
+    fraud_flags: fraudFlags,
+    // surfaced so a caller (and the dry-run harness) can diff amounts without a DB read
+    server_total: classification.budLightTotalInclTax,
+    model_total: classification.modelReportedTotal,
+    recompute_basis: classification.recomputeBasis
   })
 }
 
+/** after() when inside a request scope, inline otherwise (scripts / tests). */
+function scheduleBackground(fn: () => Promise<void>) {
+  try {
+    after(fn)
+  } catch {
+    void fn()
+  }
+}
 
 async function bumpAttempt(db: ReturnType<typeof adminClient>, receiptId: string, reason: string) {
-  const { data: r } = await db.from('receipts').select('ocr_attempts').eq('id', receiptId).single()
+  // P0-H: both reads and writes checked. If we cannot even record the failure the
+  // receipt would sit at 'pending' invisibly, so we log loudly for the sweeper.
+  const { data: r, error: readErr } = await db.from('receipts')
+    .select('ocr_attempts').eq('id', receiptId).maybeSingle()
+  if (readErr) console.error('[ocr] bumpAttempt read failed:', readErr.message)
   const attempts = ((r as { ocr_attempts?: number } | null)?.ocr_attempts ?? 0) + 1
-  await db.from('receipts').update({
+  const { error: writeErr } = await db.from('receipts').update({
     status: attempts >= 3 ? 'ocr_failed' : 'pending',
     ocr_attempts: attempts,
     decision_reason: reason
   }).eq('id', receiptId)
+  if (writeErr) {
+    console.error('[ocr] bumpAttempt write failed:', writeErr.message,
+      '- receipt', receiptId, 'will be caught by sweep_stale_ocr_receipts')
+  }
 }

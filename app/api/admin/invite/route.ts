@@ -5,12 +5,11 @@
  * (Resend free tier), and returns the URL.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { randomBytes, createHash } from 'crypto'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { appBaseUrl } from '../../../../lib/app-url'
+import { requireAdmin, denied } from '../../../../lib/admin-auth'
 
 export async function POST(req: NextRequest) {
   const { bam_id } = await req.json()
@@ -18,23 +17,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'bam_id required' }, { status: 400 })
   }
 
-  // --- auth: cookie-based admin check (skip in dev if no session) ---
-  const cookieStore = await cookies()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supa = createServerClient(url, anon, {
-    cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-  })
-  const { data: user } = await supa.auth.getUser()
-
-  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
-  if (!isDev) {
-    if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
-    const role = (user.user.user_metadata as { role?: string }).role
-    if (!role || !['program_admin', 'super_admin'].includes(role)) {
-      return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
-    }
-  }
+  // --- auth: admin only (P0-A: role from app_metadata only) ---
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   // --- look up the BAM ---
   const admin = serviceClient()
@@ -78,12 +63,20 @@ export async function POST(req: NextRequest) {
     text: `Hi ${bam.first_name},\n\nYou've been selected as a Bud Light U Brand Ambassador! Set up your account here:\n\n${inviteUrl}\n\nThis link is one-time use and tied to your email. If you have any questions, reply to this email or contact your program manager.\n\nBud Light U - Campus Ambassador Program`
   })
 
-  const actorId = user.user?.id ?? 'dev'
-  await admin.from('audit_log').insert({
-    actor_id: actorId, actor_role: 'admin', entity: 'bams',
-    entity_id: bam_id, action: 'invite_sent',
-    meta: { email: bam.email, provider: result.provider, sent: result.sent }
+  // audit_log has no `meta` column and actor_id is a uuid, so the old insert
+  // (`meta: {...}`, `actor_id: 'dev'`) was rejected by PostgREST every time and
+  // the discarded error hid it: no invite has ever been audited.
+  const { error: auditErr } = await admin.from('audit_log').insert({
+    actor_id: auth.devBypass ? null : auth.userId,
+    actor_role: auth.role,
+    entity: 'bams',
+    entity_id: bam_id,
+    action: 'invite_sent',
+    after_json: { email: bam.email, provider: result.provider, sent: result.sent }
   })
+  if (auditErr) {
+    console.error('[invite] audit_log insert failed:', auditErr.message)
+  }
 
   return NextResponse.json({
     ok: true,
@@ -92,7 +85,8 @@ export async function POST(req: NextRequest) {
     bam_name: `${bam.first_name} ${bam.last_name}`,
     email_sent: result.sent,
     email_provider: result.provider,
-    email_error: result.error ?? null
+    email_error: result.error ?? null,
+    ...(auditErr ? { warning: 'Invite sent, but the audit log entry could not be written. Tell Mirae.' } : {})
   })
 }
 

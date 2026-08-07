@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
+import { resolveBamId } from '@/lib/portal-bam'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -97,7 +98,9 @@ export default function LoginPage() {
     }
 
     const { data: userRes } = await sb.auth.getUser()
-    const bamId = (userRes.user?.user_metadata as { bam_id?: string } | undefined)?.bam_id
+    // P0-A: trusted app_metadata claim (with a bams.auth_user_id fallback),
+    // never the client-writable user_metadata bag.
+    const bamId = await resolveBamId(sb, userRes.user)
 
     if (bamId) {
       const { data: bam } = await sb

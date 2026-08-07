@@ -1,26 +1,18 @@
+/**
+ * POST/DELETE /api/admin/cohorts/member — move a BAM into / out of a cohort.
+ *
+ * P0-A: the local `requireAdmin()` here read `user_metadata.role`, which the
+ * user's own session can write, and returned a caller id for ANY request while
+ * NODE_ENV was development (no ALLOW_DEV_AUTH_BYPASS gate). Replaced with the
+ * shared helper, which reads app_metadata only and fails closed.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-
-async function requireAdmin() {
-  const cookieStore = await cookies()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supa = createServerClient(url, anon, {
-    cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-  })
-  const { data: user } = await supa.auth.getUser()
-  if (process.env.NODE_ENV === 'development') return user.user?.id ?? '00000000-0000-0000-0000-000000000000'
-  if (!user.user) return null
-  const role = (user.user.user_metadata as { role?: string }).role
-  if (!role || !['program_admin', 'super_admin'].includes(role)) return null
-  return user.user.id
-}
+import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 
 export async function POST(req: NextRequest) {
-  const userId = await requireAdmin()
-  if (!userId) return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   const { bam_id, cohort_id } = await req.json()
   if (!bam_id || !cohort_id) return NextResponse.json({ ok: false, message: 'bam_id and cohort_id required' }, { status: 400 })
@@ -32,8 +24,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const userId = await requireAdmin()
-  if (!userId) return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   const { bam_id } = await req.json()
   if (!bam_id) return NextResponse.json({ ok: false, message: 'bam_id required' }, { status: 400 })

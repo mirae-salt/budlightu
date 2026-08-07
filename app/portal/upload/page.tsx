@@ -1,6 +1,7 @@
 'use client'
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
+import { resolveBamId } from '@/lib/portal-bam'
 
 const MAX_MB = 10
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
@@ -53,7 +54,7 @@ export default function UploadPage() {
     const sb = browserClient()
     const { data: userRes } = await sb.auth.getUser()
     if (!userRes.user) { setLoadingReceipts(false); return }
-    const bamId = (userRes.user.user_metadata as { bam_id?: string }).bam_id
+    const bamId = await resolveBamId(sb, userRes.user)
     if (!bamId) { setLoadingReceipts(false); return }
     const { data } = await sb.from('receipts')
       .select('id, created_at, storage_mime, storage_bytes, status, bl_total')
@@ -109,7 +110,7 @@ export default function UploadPage() {
       bamId = '00000000-0000-0000-0000-000000000000'
     } else {
       if (!userRes.user) { setErr('Please log in.'); setBusy(false); return }
-      bamId = (userRes.user.user_metadata as { bam_id?: string }).bam_id ?? ''
+      bamId = (await resolveBamId(sb, userRes.user)) ?? ''
       if (!bamId) { setErr('Account not activated. Contact your program manager.'); setBusy(false); return }
     }
 

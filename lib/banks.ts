@@ -5,6 +5,8 @@
  * Seed data mirrored in supabase/migrations/0005_seed_banks.sql.
  */
 
+import { stripInvisible } from './sanitize'
+
 export type BankLookup = { normalized: string; institutionNo: string; displayName: string }
 
 export const BANK_SEED: BankLookup[] = [
@@ -33,11 +35,70 @@ export const BANK_SEED: BankLookup[] = [
 ]
 
 /**
+ * Explicit aliases. P1-28: lookup used to accept a SUBSTRING match, so
+ * "Community Savings Credit Union" normalized to "community" ... no:
+ * it normalized to "community" only after "savings" and "credit union" were
+ * stripped, and "uni" is a substring of nothing there, but
+ * "Uni-Financial", "Beau-Uni" and above all "Community Savings" style names
+ * containing "uni" (for example "Unity Credit Union" -> "unity") matched the
+ * "uni" seed and silently returned UNI Financial (815). A wrong institution
+ * number is a wrong bank, which is a misdirected direct deposit.
+ *
+ * Matching is now EXACT against `normalized` or against one of these aliases.
+ * Anything else returns null and the caller hard-fails, which is the correct
+ * direction: Robin fixes the roster, we never guess a routing number.
+ *
+ * Add real-world spellings here as they appear. Keep the value equal to the
+ * `normalized` key of a BANK_SEED entry.
+ */
+export const BANK_ALIASES: Record<string, string> = {
+  // RBC
+  'royal': 'rbc',
+  'royal of canada': 'rbc',
+  'rbc royal': 'rbc',
+  // TD
+  'toronto-dominion': 'td',
+  'toronto dominion': 'td',
+  'td canada': 'td',
+  // BMO
+  'montreal': 'bmo',
+  'bmo of montreal': 'bmo',
+  'of montreal': 'bmo',
+  // Scotiabank
+  'scotia': 'scotiabank',
+  'nova scotia': 'scotiabank',
+  'of nova scotia': 'scotiabank',
+  'bns': 'scotiabank',
+  // CIBC
+  'canadian imperial of commerce': 'cibc',
+  'canadian imperial commerce': 'cibc',
+  // National Bank
+  'national of canada': 'national',
+  'nbc': 'national',
+  'banque nationale': 'national',
+  // Desjardins
+  'caisse': 'desjardins',
+  'caisse populaire': 'desjardins',
+  'caisse desjardins': 'desjardins',
+  // UNI (kept explicit so it can never be reached by a partial match)
+  'uni cooperation': 'uni',
+  'uni financiere': 'uni',
+  // Others
+  'atb': 'atb',
+  'alberta treasury branches': 'atb',
+  'coast capital': 'coast capital',
+  'steinbach': 'scu',
+  'connect first': 'connectfirst',
+}
+
+/**
  * Normalize a free-text bank name for lookup.
  * lowercase, strip 'the ', strip 'canada trust'|'bank'|'of canada', collapse whitespace.
+ * Invisible characters are removed first: a BOM inside a bank name would defeat
+ * every comparison below while looking completely normal on screen.
  */
 export function normalizeBankName(raw: string): string {
-  return raw
+  return stripInvisible(raw.normalize('NFC'))
     .toLowerCase()
     .replace(/\bthe\b/g, '')
     .replace(/\bcanada trust\b/g, '')
@@ -51,9 +112,21 @@ export function normalizeBankName(raw: string): string {
 }
 
 /**
- * Result of a bank lookup. `null` means unmapped — caller MUST hard-fail invoice generation.
+ * Result of a bank lookup. `null` means unmapped — caller MUST hard-fail invoice
+ * generation. Exact match only (see BANK_ALIASES for the reasoning).
  */
 export function lookupBank(rawName: string, seed: BankLookup[] = BANK_SEED): BankLookup | null {
+  if (typeof rawName !== 'string') return null
   const norm = normalizeBankName(rawName)
-  return seed.find(b => norm === b.normalized || norm.includes(b.normalized)) ?? null
+  if (!norm) return null
+
+  const direct = seed.find(b => norm === b.normalized)
+  if (direct) return direct
+
+  const aliasTarget = BANK_ALIASES[norm]
+  if (aliasTarget) {
+    return seed.find(b => b.normalized === aliasTarget) ?? null
+  }
+
+  return null
 }

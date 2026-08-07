@@ -86,9 +86,11 @@ export function generateInvoicePayload(input: {
   ledger: LedgerSnapshot
   period: Date                   // first of month
   seq: number
+  revision?: number              // >1 after a void+reissue → "INV-LG3-R2" (P1-22)
   generatedAt: Date
 }): InvoicePayload {
   const { bam, cohort, ledger, period, seq, generatedAt } = input
+  const revision = input.revision ?? 1
 
   // HARD FAIL validation — better to block invoice than misroute money
   validateInstitution(bam.institutionNo)
@@ -98,7 +100,7 @@ export function generateInvoicePayload(input: {
     throw new Error('HARD BLOCK: cohort.poNumber not set — invoice cannot be generated')
   }
 
-  const invoiceNumber = formatInvoiceNumber(bam.initialsResolved, seq)
+  const invoiceNumber = formatInvoiceNumber(bam.initialsResolved, seq, revision)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
 
   const salaryLine = {
@@ -120,6 +122,11 @@ export function generateInvoicePayload(input: {
   }
 
   const subtotal = round2(lines.reduce((s, l) => s + l.total, 0))
+  // TODO (Robin/AP, open question from AUDIT-2026-08-07 P1-10): tax is applied to
+  // the whole subtotal, which includes the reimbursement line. The reimbursement
+  // is itself a pass-through of receipts that already include HST, so this may be
+  // taxing tax. Left AS-IS deliberately — changing what is taxable is a finance
+  // decision, not a code decision. Only the NS rate (15% → 14%) was corrected.
   const tax = bam.hstNumber ? computeHst(subtotal, bam.prov) : 0
   const total = round2(subtotal + tax)
 
@@ -174,7 +181,7 @@ const PROVINCE_TAX_RATE: Record<string, number> = {
   ON: 0.13,  // HST
   NB: 0.15,  // HST
   NL: 0.15,  // HST
-  NS: 0.15,  // HST
+  NS: 0.14,  // HST — 14% since 2025-04-01 (was 15%). Halifax is a pilot region.
   PE: 0.15,  // HST
   AB: 0.05,  // GST only
   BC: 0.05,  // GST only (PST collected separately by province)

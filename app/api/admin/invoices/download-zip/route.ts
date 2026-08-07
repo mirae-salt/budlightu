@@ -1,10 +1,22 @@
+/**
+ * POST /api/admin/invoices/download-zip  { invoice_ids?: string[] }
+ *
+ * P0-A: this route had NO authorization check at all. It runs on the service-role
+ * key and every PDF it builds contains a BAM's bank name, institution number,
+ * transit number and account number, so an anonymous POST returned all 58 BAMs'
+ * banking details in one archive. It is admin-only now.
+ */
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import JSZip from 'jszip'
 import { renderInvoicePdfToBuffer, buildSamplePayload } from '@/lib/render-pdf'
 import type { InvoicePayload } from '@/lib/invoice-payload'
+import { requireAdmin, denied } from '@/lib/admin-auth'
 
 export async function POST(req: Request) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
+
   const { invoice_ids } = (await req.json()) as { invoice_ids?: string[] }
 
   const admin = createClient(

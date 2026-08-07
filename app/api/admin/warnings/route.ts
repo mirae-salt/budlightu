@@ -6,16 +6,27 @@
  *   { bam_id, cohort_id, period, spent, action }
  *   action = "flag"   → create warning record, email Robin
  *   action = "send"   → mark warning as sent, email BAM
+ *
+ * P0-A: neither handler had ANY authorization check. GET returned every BAM's
+ * name and email address to anonymous callers, and POST could email a student a
+ * spending warning (CC Robin) from an unauthenticated request. Both now require
+ * an admin, with the role read from app_metadata only.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
-
-const ROBIN_EMAIL = 'robin.graham@ilovesalt.com'
-const NATHAN_EMAIL = 'nb@ilovesalt.com'
-const REEVALUATE_THRESHOLD = 2
+import { requireAdmin, denied } from '../../../../lib/admin-auth'
+import {
+  flagShortfall,
+  formatWarningMonth,
+  normalizeWarningPeriod,
+  ROBIN_EMAIL
+} from '../../../../lib/shortfall-warning'
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
+
   const sp = req.nextUrl.searchParams
   const bamId = sp.get('bam_id')
   const cohortId = sp.get('cohort_id')
@@ -35,6 +46,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
+
   const body = await req.json()
   const { bam_id, cohort_id, period, spent, action, notes, admin_email } = body
 
@@ -44,136 +58,91 @@ export async function POST(req: NextRequest) {
 
   const admin = serviceClient()
 
-  const { data: bam } = await admin.from('bams')
+  const { data: bam, error: bamErr } = await admin.from('bams')
     .select('first_name, last_name, email')
-    .eq('id', bam_id).single()
+    .eq('id', bam_id).maybeSingle()
+  if (bamErr) return NextResponse.json({ ok: false, error: bamErr.message }, { status: 500 })
   if (!bam) return NextResponse.json({ ok: false, message: 'BAM not found' }, { status: 404 })
 
-  const bamName = `${bam.first_name} ${bam.last_name}`
-
   if (action === 'flag') {
-    const { count } = await admin.from('bam_warnings')
-      .select('id', { count: 'exact', head: true })
-      .eq('bam_id', bam_id)
-      .eq('cohort_id', cohort_id)
-
-    const warningNumber = (count ?? 0) + 1
-    const needsReevaluation = warningNumber >= REEVALUATE_THRESHOLD
-
-    const { data: existing } = await admin.from('bam_warnings')
-      .select('id')
-      .eq('bam_id', bam_id)
-      .eq('cohort_id', cohort_id)
-      .eq('period', period)
-      .maybeSingle()
-
-    if (existing) {
-      return NextResponse.json({ ok: true, skipped: true, reason: 'already flagged for this period' })
-    }
-
-    const { data: warning, error } = await admin.from('bam_warnings').insert({
-      bam_id,
-      cohort_id,
+    // P1-12: the send result decides the response. `notifiedRobin` is no longer
+    // asserted; it reports what the provider actually confirmed.
+    const result = await flagShortfall(admin, {
+      bamId: bam_id,
+      cohortId: cohort_id,
       period,
-      spent: spent ?? 0,
-      warning_number: warningNumber,
+      spent: Number(spent ?? 0),
       notes,
-    }).select().single()
-
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-
-    const monthLabel = formatMonth(period)
-    const reevalLine = needsReevaluation
-      ? `\n\n⚠️ This is warning #${warningNumber} for ${bamName}. Per policy, their standing in the program should be reevaluated.`
-      : ''
-
-    await sendEmail({
-      to: ROBIN_EMAIL,
-      cc: [NATHAN_EMAIL],
-      subject: `BLU low-spend alert: ${bamName} — ${monthLabel} ($${(spent ?? 0).toFixed(2)})${needsReevaluation ? ' ⚠️ REEVALUATE' : ''}`,
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
-          <p style="font-size: 16px; color: #1a1a2e;">Low-spend alert</p>
-          <table style="font-size: 14px; color: #374151; line-height: 1.8; border-collapse: collapse;">
-            <tr><td style="padding-right: 16px; font-weight: 600;">BAM</td><td>${bamName}</td></tr>
-            <tr><td style="padding-right: 16px; font-weight: 600;">Month</td><td>${monthLabel}</td></tr>
-            <tr><td style="padding-right: 16px; font-weight: 600;">Spent</td><td>$${(spent ?? 0).toFixed(2)} / $150.00</td></tr>
-            <tr><td style="padding-right: 16px; font-weight: 600;">Warning #</td><td>${warningNumber}</td></tr>
-          </table>
-          ${needsReevaluation ? '<p style="font-size: 14px; color: #DC2626; font-weight: 600; margin-top: 16px;">⚠️ This BAM has reached ' + warningNumber + ' warnings. Please reevaluate their standing in the program.</p>' : ''}
-          <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">
-            You can send a warning email to the BAM from the admin dashboard, or take other action as needed.
-          </p>
-          <p style="font-size: 12px; color: #9ca3af; margin-top: 16px;">— BLU Automation</p>
-        </div>
-      `,
-      text: `Low-spend alert\n\nBAM: ${bamName}\nMonth: ${monthLabel}\nSpent: $${(spent ?? 0).toFixed(2)} / $150\nWarning #${warningNumber}${reevalLine}\n\n— BLU Automation`
     })
-
-    return NextResponse.json({
-      ok: true,
-      warning,
-      warningNumber,
-      needsReevaluation,
-      notifiedRobin: true,
-    })
+    return NextResponse.json(result, { status: result.status ?? (result.ok ? 200 : 500) })
   }
 
   if (action === 'send') {
-    const { data: warning } = await admin.from('bam_warnings')
+    const warningPeriod = normalizeWarningPeriod(period)
+    const { data: warning, error: warnErr } = await admin.from('bam_warnings')
       .select('*')
       .eq('bam_id', bam_id)
       .eq('cohort_id', cohort_id)
-      .eq('period', period)
+      .eq('period', warningPeriod)
       .maybeSingle()
 
+    if (warnErr) return NextResponse.json({ ok: false, error: warnErr.message }, { status: 500 })
     if (!warning) return NextResponse.json({ ok: false, message: 'no warning record for this period' }, { status: 404 })
     if (warning.sent_at) return NextResponse.json({ ok: true, skipped: true, reason: 'already sent' })
 
-    const monthLabel = formatMonth(period)
+    const monthLabel = formatWarningMonth(warningPeriod)
+
+    const spentLabel = Number(warning.spent ?? 0).toFixed(2)
+    const capLabel = Number(warning.cap ?? 150).toFixed(2)
 
     const result = await sendEmail({
       to: bam.email,
       cc: [ROBIN_EMAIL],
-      subject: `Bud Light U — Spending reminder for ${monthLabel}`,
+      subject: `Bud Light U - Spending reminder for ${monthLabel}`,
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
           <p style="font-size: 16px; color: #1a1a2e;">Hi ${bam.first_name},</p>
           <p style="font-size: 14px; color: #374151; line-height: 1.6;">
             We noticed your Bud Light purchases for <strong>${monthLabel}</strong> totaled
-            <strong>$${warning.spent.toFixed(2)}</strong>, which is below the $150 monthly reimbursement allowance.
+            <strong>$${spentLabel}</strong>, which is below the $${capLabel} monthly reimbursement allowance.
           </p>
           <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-            As a reminder, you're encouraged to use your full $150/month allowance on Bud Light products.
+            As a reminder, you're encouraged to use your full $${capLabel}/month allowance on Bud Light products.
             Your reimbursement for this month will match what you spent.
           </p>
           <p style="font-size: 14px; color: #374151; line-height: 1.6;">
             If you have any questions or concerns, please reach out to your program manager.
           </p>
-          <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">— Bud Light U Program</p>
+          <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">Bud Light U Program</p>
         </div>
       `,
-      text: `Hi ${bam.first_name},\n\nYour Bud Light purchases for ${monthLabel} totaled $${warning.spent.toFixed(2)}, below the $150 monthly allowance. Please try to use your full allowance. Your reimbursement will match what you spent.\n\nIf you have questions, reach out to your program manager.\n\n— Bud Light U Program`
+      text: `Hi ${bam.first_name},\n\nYour Bud Light purchases for ${monthLabel} totaled $${spentLabel}, below the $${capLabel} monthly allowance. Please try to use your full allowance. Your reimbursement will match what you spent.\n\nIf you have questions, reach out to your program manager.\n\nBud Light U Program`
     })
 
+    let recorded = false
+    let recordError: string | undefined
     if (result.sent) {
-      await admin.from('bam_warnings')
-        .update({ sent_at: new Date().toISOString(), sent_by: admin_email ?? 'system' })
+      // P0-H: if this write fails the email went out but sent_at stays null, so the
+      // next click would send a duplicate. Say so instead of returning a bare ok.
+      const { data: upd, error: updErr } = await admin.from('bam_warnings')
+        // sent_by is an audit field, so prefer the verified session address over
+        // the client-supplied admin_email (which anyone could have set).
+        .update({ sent_at: new Date().toISOString(), sent_by: auth.email ?? admin_email ?? 'system' })
         .eq('id', warning.id)
+        .select('id, sent_at')
+      if (updErr) recordError = updErr.message
+      else if (!upd || upd.length !== 1 || !upd[0].sent_at) recordError = `sent_at write affected ${upd?.length ?? 0} rows`
+      else recorded = true
     }
 
     return NextResponse.json({
-      ok: result.sent,
+      ok: result.sent && recorded,
+      sent: result.sent,
+      recorded,
       provider: result.provider,
-      error: result.error,
-    })
+      error: result.error ?? (recordError ? `email sent but could not be recorded: ${recordError}` : undefined),
+    }, { status: result.sent ? (recorded ? 200 : 500) : 502 })
   }
 
   return NextResponse.json({ ok: false, message: 'action must be "flag" or "send"' }, { status: 400 })
-}
-
-function formatMonth(period: string): string {
-  const [y, m] = period.split('-')
-  const d = new Date(parseInt(y), parseInt(m) - 1, 1)
-  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }

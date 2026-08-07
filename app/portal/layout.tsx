@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { browserClient } from '@/lib/supabase-browser'
+import { getRole, isAdminRole } from '@/lib/auth-claims'
 
 /* ── Inline SVG icons (must be above const usage for HMR) ── */
 const ip = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, strokeWidth: 1.75 }
@@ -75,9 +76,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       const { data: userRes } = await sb.auth.getUser()
       if (!userRes.user) return
       if (!cancelled) setLoggedIn(true)
-      const meta = userRes.user.user_metadata as { first_name?: string; role?: string }
-      if (!cancelled && meta?.role && ['super_admin', 'program_admin'].includes(meta.role)) setIsAdmin(true)
-      let firstName = meta?.first_name
+      // P0-A: the "Back to admin" link used to appear based on
+      // `user_metadata.role`, which the student's own session can write. It is
+      // only a nav link, but it now reads the trusted app_metadata claim so no
+      // part of the app treats the client-writable bag as a role.
+      if (!cancelled && isAdminRole(getRole(userRes.user))) setIsAdmin(true)
+      let firstName = (userRes.user.user_metadata as { first_name?: string } | undefined)?.first_name
       if (!firstName) {
         const { data: bam } = await sb.from('bams').select('first_name, last_name').eq('auth_user_id', userRes.user.id).single()
         if (bam) firstName = bam.first_name

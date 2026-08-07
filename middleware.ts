@@ -9,6 +9,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { getRole, isAdminRole, detectRoleTampering } from './lib/auth-claims'
 
 type Bucket = { count: number; resetAt: number }
 const buckets = new Map<string, Bucket>()
@@ -47,6 +48,32 @@ function rateLimit(req: NextRequest): NextResponse | null {
   return null
 }
 
+function isApiPath(path: string): boolean {
+  return path.startsWith('/api/')
+}
+
+/**
+ * Response used when the server cannot evaluate authorization at all.
+ * 503 rather than 401 so the cause is obvious in logs and to the operator:
+ * this is our misconfiguration, not the visitor's problem.
+ */
+function configErrorResponse(isApi: boolean): NextResponse {
+  if (isApi) {
+    return NextResponse.json(
+      { ok: false, error: 'server_misconfigured', message: 'Server is not configured. Contact your program manager.' },
+      { status: 503 }
+    )
+  }
+  return new NextResponse(
+    '<!doctype html><meta charset="utf-8"><title>Unavailable</title>' +
+    '<body style="font-family:system-ui;padding:48px;max-width:520px;margin:0 auto">' +
+    '<h1 style="font-size:20px">This page is temporarily unavailable</h1>' +
+    '<p style="color:#555;font-size:14px">The server is missing part of its configuration, so we cannot verify your access. ' +
+    'Nothing is wrong with your account. Please contact your program manager.</p></body>',
+    { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  )
+}
+
 export async function middleware(req: NextRequest) {
   const rateLimitResult = rateLimit(req)
   if (rateLimitResult) return rateLimitResult
@@ -56,16 +83,33 @@ export async function middleware(req: NextRequest) {
   // so a misconfigured Vercel deploy (e.g. wrong NODE_ENV) can never skip auth.
   const isDevBypass = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
 
-  // Auth protection for portal and admin routes
+  // Auth protection for portal and admin routes.
+  //
+  // NOTE: `/api/admin/*` is included deliberately. The matcher below has always
+  // listed it, but this condition only tested `/admin`, so `/api/admin/data`
+  // (which holds the service role key and returns every BAM's roster row) was
+  // never gated here at all. Every admin route also checks for itself now, but
+  // this is the outer fence.
+  //
+  // `/api/portal/*` is intentionally NOT blanket-gated: /api/portal/onboarding/
+  // check-token runs before sign-in and is gated by the invite token instead.
+  // Those handlers verify their own session.
   const needsPortalAuth = path.startsWith('/portal') && path !== '/portal/login' && path !== '/portal/onboarding' && path !== '/portal/faq' && path !== '/portal/program' && !path.startsWith('/portal/verify-account')
-  const needsAdminAuth = path.startsWith('/admin')
+  const needsAdminAuth = path.startsWith('/admin') || path.startsWith('/api/admin')
 
   if (!needsPortalAuth && !needsAdminAuth) return NextResponse.next()
   if (isDevBypass) return NextResponse.next()
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !anon) return NextResponse.next()
+
+  // P0-A2: fail CLOSED. This used to be `return NextResponse.next()`, which
+  // meant one missing env var on a deploy turned every /admin and /portal route
+  // into an unauthenticated route. A misconfigured server is a denied server.
+  if (!url || !anon) {
+    console.error('[middleware] Supabase env vars missing. Denying all protected routes.')
+    return configErrorResponse(isApiPath(path))
+  }
 
   const res = NextResponse.next()
   const supa = createServerClient(url, anon, {
@@ -79,9 +123,16 @@ export async function middleware(req: NextRequest) {
     }
   })
 
-  const { data: { user } } = await supa.auth.getUser()
+  // P0-H: inspect the error. supabase-js does not throw, and a failed getUser
+  // returns `user: null`, which already denies; destructuring the error makes
+  // the reason visible instead of looking like "not signed in".
+  const { data: authData, error: authError } = await supa.auth.getUser()
+  if (authError) {
+    console.error('[middleware] getUser failed:', authError.message)
+  }
+  const user = authData?.user ?? null
 
-  const isApiRoute = path.startsWith('/api/')
+  const isApiRoute = isApiPath(path)
 
   if (!user) {
     if (isApiRoute) {
@@ -93,8 +144,20 @@ export async function middleware(req: NextRequest) {
   }
 
   if (needsAdminAuth && user) {
-    const role = (user.user_metadata as { role?: string }).role
-    if (!role || !['program_admin', 'super_admin'].includes(role)) {
+    // P0-A: `app_metadata` only. `user_metadata` is writable by the user's own
+    // session, so reading a role from it let any BAM self-promote to super_admin.
+    // There is no fallback: an absent claim denies.
+    const role = getRole(user)
+
+    const tamper = detectRoleTampering(user)
+    if (tamper.tampered) {
+      console.error(
+        `[middleware] SECURITY: user ${user.id} carries user_metadata.role="${tamper.claimed}" ` +
+        `but trusted app_metadata role is "${role ?? 'none'}". Ignoring the client claim.`
+      )
+    }
+
+    if (!isAdminRole(role)) {
       if (isApiRoute) {
         return NextResponse.json({ error: 'forbidden' }, { status: 403 })
       }

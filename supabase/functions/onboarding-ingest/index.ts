@@ -25,6 +25,7 @@ import { createHash } from 'crypto'
 import { serviceClient } from '../_shared/supabase-admin'
 import { validateInstitution, validateTransit, validateAccount, isValidHst } from '../../../lib/validation'
 import { normalizeBankName, lookupBank } from '../../../lib/banks'
+import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 
 type FormPayload = {
   email: string
@@ -51,21 +52,36 @@ export async function handler(req: {
 }): Promise<{ ok: boolean; message: string; bam_id?: string }> {
   const db = serviceClient()
 
-  // ── 1. Rate limit ─────────────────────────────────────────────
+  // ── 1. Rate limit (3 per IP per day, P0-3) ────────────────────
+  // P0-H / fail-closed: the count error used to be discarded, so a failed count
+  // left `ipHits` undefined, `(undefined ?? 0) >= 3` was false, and the documented
+  // limit failed OPEN on exactly the request where the DB was unhealthy. This
+  // endpoint is the unauthenticated door to a PII form, so an unknown attempt
+  // count must deny.
   const today = new Date().toISOString().slice(0, 10)
-  const { count: ipHits } = await db
+  const ipKey = hashUuid(req.ip)
+  const { count: ipHits, error: rateErr } = await db
     .from('audit_log')
     .select('*', { count: 'exact', head: true })
     .eq('entity', 'onboarding_ratelimit_ip')
-    .eq('entity_id', hashUuid(req.ip))
+    .eq('entity_id', ipKey)
     .gte('ts', `${today}T00:00:00Z`)
-  if ((ipHits ?? 0) >= 3) return { ok: false, message: 'Too many attempts from this network today. Try again tomorrow.' }
+  if (rateErr || ipHits === null || ipHits === undefined) {
+    console.error('[onboarding-ingest] rate-limit count failed:', rateErr?.message ?? 'no count returned')
+    return { ok: false, message: 'We could not process your submission right now. Please try again in a few minutes.' }
+  }
+  if (ipHits >= 3) return { ok: false, message: 'Too many attempts from this network today. Try again tomorrow.' }
 
-  // log this attempt
-  await db.from('audit_log').insert({
+  // Log this attempt BEFORE doing any work. If the counter cannot be written the
+  // limit is unenforceable for the next request, so refuse rather than proceed.
+  const { error: attemptErr } = await db.from('audit_log').insert({
     actor_role: 'bam', entity: 'onboarding_ratelimit_ip',
-    entity_id: hashUuid(req.ip), action: 'attempt'
+    entity_id: ipKey, action: 'attempt'
   })
+  if (attemptErr) {
+    console.error('[onboarding-ingest] rate-limit attempt log failed:', attemptErr.message)
+    return { ok: false, message: 'We could not process your submission right now. Please try again in a few minutes.' }
+  }
 
   // ── 2. Verify invite token → pending BAM row ──────────────────
   const tokenHash = createHash('sha256').update(req.invite_token).digest('hex')
@@ -79,26 +95,41 @@ export async function handler(req: {
   }
 
   // ── 3. Email match check ──────────────────────────────────────
-  const normEmail = req.form.email.trim().toLowerCase()
-  if (pendingBam.email.trim().toLowerCase() !== normEmail) {
+  // P1-6: the same normalizer runs on every read and every write path
+  // (`.trim().toLowerCase()` alone leaves U+200B and NBSP behind, and those are
+  // invisible in the roster UI). A bad email here is a permanent lockout.
+  const normEmail = normalizeEmail(req.form.email)
+  if (!isValidEmail(normEmail)) {
+    return { ok: false, message: 'That email address does not look valid. Please check it and try again.' }
+  }
+  if (normalizeEmail(pendingBam.email) !== normEmail) {
     // park in submissions (WITHOUT banking fields)
-    await db.from('onboarding_submissions').insert({
+    // P0-H: this insert's error used to be discarded, so a failed park meant the
+    // submission vanished AND nobody was flagged for review.
+    const { error: parkErr } = await db.from('onboarding_submissions').insert({
       submitted_email: normEmail,
       form_json_meta: {
-        first_name: req.form.first_name,
-        last_name: req.form.last_name,
-        street: req.form.street,
-        city: req.form.city,
-        prov: req.form.prov,
-        postal: req.form.postal,
+        first_name: cleanText(req.form.first_name),
+        last_name: cleanText(req.form.last_name),
+        street: cleanText(req.form.street),
+        city: cleanText(req.form.city),
+        prov: cleanText(req.form.prov),
+        postal: cleanText(req.form.postal),
         school_id: req.form.school_id,
-        bank_name: req.form.bank_name
+        bank_name: cleanText(req.form.bank_name)
         // banking / HST intentionally not stored
       },
       status: 'unmatched',
-      flag_reason: `email mismatch: form=${normEmail}, roster=${pendingBam.email}`
+      flag_reason: `email mismatch: form=${normEmail}, roster=${normalizeEmail(pendingBam.email)}`
     })
-    return { ok: false, message: 'The email you entered does not match our records. We\'ve flagged this for review.' }
+    if (parkErr) {
+      console.error('[onboarding-ingest] failed to park unmatched submission:', parkErr.message)
+      return {
+        ok: false,
+        message: 'The email you entered does not match our records, and we could not file it for review. Please contact your program manager directly.'
+      }
+    }
+    return { ok: false, message: 'The email you entered does not match our records. We have flagged this for review.' }
   }
 
   // ── 4. Validate banking (HARD FAIL before write) ──────────────
@@ -123,10 +154,20 @@ export async function handler(req: {
   // above (step 3), so Supabase's own "confirm your signup" email would be
   // redundant noise. Login still requires a fresh OTP code (signInWithOtp),
   // this flag only skips the separate confirm-your-address step.
+  // P0-A: the role claim goes in `app_metadata`, which only the service role can
+  // write. It used to live in `user_metadata`, which the student's own session can
+  // rewrite with just the anon key:
+  //   await supabase.auth.updateUser({ data: { role: 'super_admin' } })
+  // which let any BAM self-promote and read all 58 BAMs' banking details.
+  // `bam_id` is mirrored into user_metadata as a legacy convenience only. As of
+  // the P0-A sweep nothing reads that copy: server routes use requireBam()
+  // (bams.auth_user_id) and the portal pages use lib/portal-bam.ts. It is kept so
+  // a session minted before the sweep cannot break, and can be dropped after.
   const { data: authUser, error: authErr } = await db.auth.admin.createUser({
     email: normEmail,
     email_confirm: true,
-    user_metadata: { role: 'bam', bam_id: pendingBam.id }
+    app_metadata: { role: 'bam', bam_id: pendingBam.id },
+    user_metadata: { bam_id: pendingBam.id }
   })
   if (authErr || !authUser?.user) {
     return { ok: false, message: `Auth creation failed: ${authErr?.message}` }
@@ -134,13 +175,18 @@ export async function handler(req: {
 
   // ── 6. Upsert BAM row (banking via encrypted helper) ──────────
   const { error: updErr } = await db.from('bams').update({
-    first_name:   req.form.first_name,
-    last_name:    req.form.last_name,
-    phone:        req.form.phone,
-    street:       req.form.street,
-    city:         req.form.city,
-    prov:         req.form.prov,
-    postal:       req.form.postal,
+    // P1-6 / rule 7.6: normalize on WRITE, not just on read. `email` is written
+    // back in canonical form so a roster row that was created with a trailing
+    // space or a pasted capital gets repaired at onboarding time instead of
+    // locking the student out later.
+    email:        normEmail,
+    first_name:   cleanText(req.form.first_name),
+    last_name:    cleanText(req.form.last_name),
+    phone:        cleanText(req.form.phone),
+    street:       cleanText(req.form.street),
+    city:         cleanText(req.form.city),
+    prov:         cleanText(req.form.prov),
+    postal:       cleanText(req.form.postal),
     school_id:    req.form.school_id,
     bank_name:    bank.displayName,
     consent_ap_cc: req.form.consent_ap_cc,

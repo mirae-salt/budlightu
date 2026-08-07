@@ -1,49 +1,69 @@
 /**
- * POST /api/admin/invoices/batch-approve  { cohort_id, period }
- * Program admin's touchpoint 2 action. Kicks off render → 3-way send for every draft
+ * POST /api/admin/invoices/batch-approve  { invoice_ids }
+ * Program admin's touchpoint 2 action. Runs render → 3-way send for every draft
  * invoice in the batch. Respects cohort.send_mode + bam_copy_mode; sends only
- * to targets whose mode allows it. Live send requires super-admin toggle
+ * to targets whose mode allows it. Live send requires the super-admin toggle
  * elsewhere; this endpoint does not flip send_mode itself.
+ *
+ * AUDIT-2026-08-07 (P1-2) fixes:
+ *  - It wrote status:'approved' and approved_at. 'approved' violated the CHECK
+ *    ('draft','sent','paid','void') and approved_at existed in no migration, so
+ *    this endpoint ALWAYS 500'd — touchpoint 2 did not work at all. Both are
+ *    added in 0018_invoice_engine_fixes.sql.
+ *  - The "atomically mark all approved before external sends" comment was wrong
+ *    in the dangerous direction: it flipped every invoice's status BEFORE any
+ *    send, then treated per-send failures as non-fatal, leaving a batch marked
+ *    approved with nothing sent and no safe retry. Status is now flipped per
+ *    invoice, only AFTER that invoice's AP send succeeds, and only from 'draft'
+ *    (never downgrading an invoice the send just marked 'sent').
+ *  - P0-D: each invoice is reconciled against reimbursement_ledger.paid_cad
+ *    before it is sent.
+ *  - Partial failure is reported per invoice and is safe to re-run: sends that
+ *    succeeded are blocked by the invoice_sends guard, sends that failed are
+ *    retryable.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { handler as sendAp }      from '../../../../../supabase/functions/sendApEmail/index'
 import { handler as sendBamCopy } from '../../../../../supabase/functions/sendBamCopy/index'
 import { handler as archive }     from '../../../../../supabase/functions/archiveToSharePoint/index'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { lookupReimbursement, payloadLedgerMismatch } from '../../../../../lib/invoice-ledger'
+import type { InvoicePayload } from '../../../../../lib/invoice-payload'
+import { requireAdmin, denied } from '../../../../../lib/admin-auth'
+
+type StepResult = { ok: boolean; error?: string; skipped?: boolean }
+
+interface BatchItemResult {
+  id: string
+  invoice_number?: string
+  blocked?: string
+  approved?: boolean
+  ap?: StepResult
+  sharepoint?: StepResult
+  bam?: StepResult
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const invoiceIds: string[] = body.invoice_ids ?? []
   if (!invoiceIds.length) return NextResponse.json({ ok: false, message: 'invoice_ids required' }, { status: 400 })
 
-  const cookieStore = await cookies()
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const supa = createServerClient(url, anon, {
-    cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} }
-  })
-  const { data: user } = await supa.auth.getUser()
-  const isDev = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
-  if (!isDev) {
-    if (!user.user) return NextResponse.json({ ok: false }, { status: 401 })
-    const role = (user.user.user_metadata as { role?: string }).role
-    if (!role || !['program_admin', 'super_admin'].includes(role)) {
-      return NextResponse.json({ ok: false, message: 'admin only' }, { status: 403 })
-    }
-  }
+  // Touchpoint 2 is an admin action. P0-A: role from app_metadata only.
+  const auth = await requireAdmin()
+  if (!auth.ok) return denied(auth)
 
   const admin = serviceClient()
 
-  const { data: invoices } = await admin.from('invoices')
-    .select('id, cohort_id')
+  const { data: invoices, error: invErr } = await admin.from('invoices')
+    .select('id, cohort_id, bam_id, period, invoice_number, status, payload_json')
     .in('id', invoiceIds)
     .eq('status', 'draft')
-  if (!invoices?.length) return NextResponse.json({ ok: true, processed: 0 })
+  if (invErr) return NextResponse.json({ ok: false, message: `invoices read failed: ${invErr.message}` }, { status: 500 })
+  if (!invoices?.length) return NextResponse.json({ ok: true, processed: 0, results: [] })
 
   const cohortIds = [...new Set(invoices.map(i => i.cohort_id))]
-  const { data: cohorts } = await admin.from('cohorts').select('*').in('id', cohortIds)
+  const { data: cohorts, error: cohortErr } = await admin.from('cohorts').select('*').in('id', cohortIds)
+  if (cohortErr) return NextResponse.json({ ok: false, message: `cohorts read failed: ${cohortErr.message}` }, { status: 500 })
   const cohortMap = new Map((cohorts ?? []).map(c => [c.id, c]))
 
   for (const c of cohortMap.values()) {
@@ -52,29 +72,73 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Atomically mark all draft invoices as approved before external sends.
-  // This prevents mixed state if a send fails partway through.
-  const approveIds = invoices.map(i => i.id)
-  const { error: approveErr } = await admin.from('invoices')
-    .update({ status: 'approved', approved_at: new Date().toISOString() })
-    .in('id', approveIds)
-  if (approveErr) {
-    return NextResponse.json({ ok: false, message: `batch approve failed: ${approveErr.message}` }, { status: 500 })
-  }
+  const results: BatchItemResult[] = []
 
-  // Now attempt external sends — failures are recorded per-invoice, not fatal to the batch
-  const results: Array<{ id: string; ap: any; sharepoint: any; bam: any }> = []
   for (const inv of invoices) {
     const cohort = cohortMap.get(inv.cohort_id)
-    if (!cohort) continue
-    const ap         = await sendAp({ invoice_id: inv.id, mode: cohort.send_mode }).catch((e: Error) => ({ ok: false, error: e.message }))
-    const sharepoint = await archive({ invoice_id: inv.id }).catch((e: Error) => ({ ok: false, error: e.message }))
-    const bam        = cohort.bam_copy_mode === 'off'
+    if (!cohort) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: 'cohort not found' })
+      continue
+    }
+
+    // P0-D: never send a document that disagrees with the ledger.
+    const ledger = await lookupReimbursement(admin, inv.bam_id, inv.cohort_id, inv.period)
+    if (!ledger.ok) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: ledger.error })
+      continue
+    }
+    const mismatch = payloadLedgerMismatch((inv.payload_json as unknown as InvoicePayload | null)?.lines, ledger.paidCad)
+    if (mismatch) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: mismatch })
+      continue
+    }
+
+    const ap = await step(() => sendAp({ invoice_id: inv.id, mode: cohort.send_mode }))
+    const sharepoint = await step(() => archive({ invoice_id: inv.id }))
+    const bam = cohort.bam_copy_mode === 'off'
       ? { ok: true, skipped: true }
-      : await sendBamCopy({ invoice_id: inv.id, mode: cohort.bam_copy_mode }).catch((e: Error) => ({ ok: false, error: e.message }))
-    results.push({ id: inv.id, ap, sharepoint, bam })
+      : await step(() => sendBamCopy({ invoice_id: inv.id, mode: cohort.bam_copy_mode }))
+
+    // Approval is recorded only after the AP send actually succeeded, and only
+    // while the row is still 'draft' (a live send already set it to 'sent').
+    let approved = false
+    let approveError: string | undefined
+    if (ap.ok) {
+      const { data: updated, error: updErr } = await admin.from('invoices')
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .eq('id', inv.id)
+        .eq('status', 'draft')
+        .select('id')
+      if (updErr) approveError = `approve write failed: ${updErr.message}`
+      else approved = (updated ?? []).length > 0
+    }
+
+    results.push({
+      id: inv.id,
+      invoice_number: inv.invoice_number,
+      approved,
+      ap: approveError ? { ok: ap.ok, error: [ap.error, approveError].filter(Boolean).join(' | ') } : ap,
+      sharepoint,
+      bam
+    })
   }
 
-  const failures = results.filter(r => !r.ap?.ok || !r.sharepoint?.ok || (!r.bam?.skipped && !r.bam?.ok))
-  return NextResponse.json({ ok: failures.length === 0, processed: results.length, failures: failures.length, results })
+  const failures = results.filter(r => r.blocked || !r.ap?.ok || !r.sharepoint?.ok || (!r.bam?.skipped && !r.bam?.ok))
+  return NextResponse.json({
+    ok: failures.length === 0,
+    processed: results.length,
+    failures: failures.length,
+    retry_safe: true,
+    results
+  })
+}
+
+/** Normalizes an Edge Function handler result and never throws. */
+async function step(fn: () => Promise<unknown>): Promise<StepResult> {
+  try {
+    const r = (await fn()) as { ok?: boolean; error?: string; skipped?: boolean } | undefined
+    return { ok: Boolean(r?.ok), error: r?.error, skipped: r?.skipped }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }

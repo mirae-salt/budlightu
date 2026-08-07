@@ -5,9 +5,18 @@
  *   3. Gmail SMTP  — disabled (code kept for emergency fallback only)
  *
  * Switch providers by adding/removing env vars. No caller-side changes needed.
+ *
+ * P1-18 (audit 2026-08-07): every env value that ends up in a mail header or a
+ * URL path is sanitized through lib/sanitize. This is the exact bug class that
+ * triggered the audit: a U+FEFF in RESEND_FROM_EMAIL produces a From: header
+ * that providers reject or silently rewrite, and a U+FEFF in MS_TENANT_ID is
+ * percent-encoded to %EF%BB%BF in the login URL, which 404s with nothing
+ * suspicious in the logs. Unusable values now fail CLOSED (no send) rather than
+ * sending from a corrupt address.
  */
 import { createTransport } from 'nodemailer'
 import { Resend } from 'resend'
+import { cleanEnvValue, cleanText, isEmailAddress, envToken, tokenProblem } from './sanitize'
 
 export interface SendEmailOpts {
   to: string | string[]
@@ -26,24 +35,41 @@ export interface SendEmailResult {
   error?: string
 }
 
-const DEFAULT_FROM_GMAIL = process.env.GMAIL_FROM_NAME
-  ? `${process.env.GMAIL_FROM_NAME} <${process.env.GMAIL_USER}>`
-  : process.env.GMAIL_USER ?? 'noreply@gmail.com'
+/**
+ * Sanitized From: header builder. Returns null when the address is unusable,
+ * so a caller can refuse to send instead of emitting a corrupt header.
+ * `cleanText` on the display name also collapses the CR/LF that would let an
+ * env value inject an extra header.
+ */
+function fromHeader(addressEnv: string, nameEnv: string | null, defaultName: string | null): string | null {
+  const address = cleanEnvValue(process.env[addressEnv])
+  if (!address || !isEmailAddress(address)) return null
+  const name = cleanText(nameEnv ? process.env[nameEnv] ?? '' : '') || (defaultName ?? '')
+  return name ? `${name} <${address}>` : address
+}
 
-const DEFAULT_FROM_RESEND = process.env.RESEND_FROM_EMAIL
-  ? `Bud Light U <${process.env.RESEND_FROM_EMAIL}>`
-  : 'Bud Light U <noreply@budlightu.com>'
+function gmailFrom(): string | null {
+  return fromHeader('GMAIL_USER', 'GMAIL_FROM_NAME', null)
+}
+
+function resendFrom(): string | null {
+  return fromHeader('RESEND_FROM_EMAIL', null, 'Bud Light U')
+}
 
 function gmailConfigured(): boolean {
-  return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
+  return Boolean(cleanEnvValue(process.env.GMAIL_USER) && cleanEnvValue(process.env.GMAIL_APP_PASSWORD))
 }
 
 function graphConfigured(): boolean {
-  return Boolean(process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET && process.env.MS_TENANT_ID)
+  return Boolean(
+    cleanEnvValue(process.env.MS_CLIENT_ID) &&
+    cleanEnvValue(process.env.MS_CLIENT_SECRET) &&
+    cleanEnvValue(process.env.MS_TENANT_ID)
+  )
 }
 
 export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
-  if (process.env.RESEND_API_KEY) return sendViaResend(opts)
+  if (cleanEnvValue(process.env.RESEND_API_KEY)) return sendViaResend(opts)
   if (gmailConfigured()) return sendViaGmail(opts)
   if (graphConfigured()) return sendViaGraph(opts)
   return { sent: false, provider: 'none', error: 'No email provider configured (set RESEND_API_KEY, or GMAIL_USER+GMAIL_APP_PASSWORD, or MS_CLIENT_ID/SECRET/TENANT)' }
@@ -52,17 +78,21 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
 // ── Gmail SMTP ──────────────────────────────────────────────────────────────
 
 async function sendViaGmail(opts: SendEmailOpts): Promise<SendEmailResult> {
+  const from = opts.from ? cleanEnvValue(opts.from) : gmailFrom()
+  if (!from) {
+    return { sent: false, provider: 'gmail', error: 'GMAIL_USER is missing or not a usable email address after sanitizing' }
+  }
   try {
     const transport = createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.GMAIL_USER!,
-        pass: process.env.GMAIL_APP_PASSWORD!,
+        user: cleanEnvValue(process.env.GMAIL_USER),
+        pass: cleanEnvValue(process.env.GMAIL_APP_PASSWORD),
       },
     })
 
     const info = await transport.sendMail({
-      from: opts.from ?? DEFAULT_FROM_GMAIL,
+      from,
       to: Array.isArray(opts.to) ? opts.to.join(', ') : opts.to,
       cc: opts.cc?.join(', '),
       subject: opts.subject,
@@ -83,10 +113,18 @@ async function sendViaGmail(opts: SendEmailOpts): Promise<SendEmailResult> {
 // ── MS Graph ────────────────────────────────────────────────────────────────
 
 async function getGraphToken(): Promise<string | null> {
-  const tenant = process.env.MS_TENANT_ID
-  const clientId = process.env.MS_CLIENT_ID
-  const secret = process.env.MS_CLIENT_SECRET
-  if (!tenant || !clientId || !secret) return null
+  // MS_TENANT_ID is spliced into the URL PATH. A BOM there becomes %EF%BB%BF and
+  // the request 404s while the value still looks correct in every log, so it is
+  // validated as a URL-safe token rather than merely trimmed.
+  const tenant = envToken('MS_TENANT_ID')
+  const problem = tokenProblem('MS_TENANT_ID', tenant)
+  if (problem) {
+    console.error('[send-email]', problem)
+    return null
+  }
+  const clientId = cleanEnvValue(process.env.MS_CLIENT_ID)
+  const secret = cleanEnvValue(process.env.MS_CLIENT_SECRET)
+  if (!clientId || !secret) return null
   const resp = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -105,7 +143,7 @@ async function getGraphToken(): Promise<string | null> {
 async function sendViaGraph(opts: SendEmailOpts): Promise<SendEmailResult> {
   const token = await getGraphToken()
   if (!token) {
-    if (process.env.RESEND_API_KEY) return sendViaResend(opts)
+    if (cleanEnvValue(process.env.RESEND_API_KEY)) return sendViaResend(opts)
     if (gmailConfigured()) return sendViaGmail(opts)
     return { sent: false, provider: 'graph', error: 'graph auth failed' }
   }
@@ -124,8 +162,16 @@ async function sendViaGraph(opts: SendEmailOpts): Promise<SendEmailResult> {
     }))
   }
 
-  const sender = process.env.MS_SENDER_MAILBOX ?? 'accounts.payable.dryrun@ilovesalt.com'
-  const resp = await fetch(`https://graph.microsoft.com/v1.0/users/${sender}/sendMail`, {
+  // Also a URL path segment (P1-18). Fail closed rather than 404 invisibly.
+  const sender = cleanEnvValue(process.env.MS_SENDER_MAILBOX) || 'accounts.payable.dryrun@ilovesalt.com'
+  if (!isEmailAddress(sender)) {
+    return {
+      sent: false,
+      provider: 'graph',
+      error: `MS_SENDER_MAILBOX is not a usable mailbox after sanitizing: ${JSON.stringify(sender)}`
+    }
+  }
+  const resp = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: graphMessage, saveToSentItems: true })
@@ -142,10 +188,14 @@ async function sendViaGraph(opts: SendEmailOpts): Promise<SendEmailResult> {
 // ── Resend (fallback) ───────────────────────────────────────────────────────
 
 async function sendViaResend(opts: SendEmailOpts): Promise<SendEmailResult> {
+  const from = opts.from ? cleanEnvValue(opts.from) : (resendFrom() ?? 'Bud Light U <noreply@budlightu.com>')
+  if (!from) {
+    return { sent: false, provider: 'resend', error: 'From address is empty after sanitizing' }
+  }
   try {
-    const resend = new Resend(process.env.RESEND_API_KEY!)
+    const resend = new Resend(cleanEnvValue(process.env.RESEND_API_KEY))
     const { data, error } = await resend.emails.send({
-      from: opts.from ?? DEFAULT_FROM_RESEND,
+      from,
       to: opts.to,
       cc: opts.cc,
       subject: opts.subject,
