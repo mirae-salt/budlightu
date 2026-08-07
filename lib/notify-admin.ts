@@ -18,7 +18,15 @@
  */
 import { serviceClient } from '../supabase/functions/_shared/supabase-admin'
 
-type NotifType = 'receipt_review' | 'ocr_failed' | 'shortfall' | 'invoice_draft' | 'support_question' | 'receipt_uploaded'
+type NotifType =
+  | 'receipt_review'
+  | 'ocr_failed'
+  | 'shortfall'
+  | 'invoice_draft'
+  | 'support_question'
+  | 'receipt_uploaded'
+  /** BAM asked for a banking correction; an admin has to apply it (0022). */
+  | 'banking_change_request'
 
 interface AdminNotification {
   type: NotifType

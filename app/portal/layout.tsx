@@ -13,6 +13,7 @@ function IcoFile()   { return <svg {...ip}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2
 function IcoHelp()   { return <svg {...ip}><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> }
 function IcoMsg()    { return <svg {...ip}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> }
 function IcoBook()   { return <svg {...ip}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> }
+function IcoBank()   { return <svg {...ip}><path d="M3 10h18"/><path d="M12 3 3 8h18z"/><path d="M6 10v7M10 10v7M14 10v7M18 10v7"/><path d="M3 21h18"/></svg> }
 function IcoLogout() { return <svg {...ip} style={{ width: 17, height: 17 }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> }
 
 function isOnboardingPath(path: string) {
@@ -37,6 +38,7 @@ const authGroups: NavGroup[] = [
     items: [
       { href: '/portal/upload',    label: 'Upload receipts', icon: <IcoUpload /> },
       { href: '/portal/invoices',  label: 'My invoices', icon: <IcoFile /> },
+      { href: '/portal/account',   label: 'Banking details', icon: <IcoBank /> },
     ]
   },
   {

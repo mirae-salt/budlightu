@@ -14,18 +14,28 @@ import { getRole, isAdminRole, detectRoleTampering } from './lib/auth-claims'
 type Bucket = { count: number; resetAt: number }
 const buckets = new Map<string, Bucket>()
 
-type Limit = { max: number; windowMs: number }
+/**
+ * `methods` narrows a limit to specific verbs. Omitted means every verb, which
+ * is what every pre-existing entry below relies on. It exists because the
+ * banking-request endpoint is also read by its own page on load: counting those
+ * GETs would lock a student out of simply looking at their details.
+ */
+type Limit = { max: number; windowMs: number; methods?: string[] }
 const LIMITS: Record<string, Limit> = {
   '/api/onboarding':      { max: 3,  windowMs: 24 * 60 * 60 * 1000 },
   '/api/auth/roster-check': { max: 5,  windowMs: 60 * 60 * 1000 },
   '/api/portal/upload':   { max: 30, windowMs: 24 * 60 * 60 * 1000 },
-  '/api/portal/support':  { max: 10, windowMs: 60 * 60 * 1000 }
+  '/api/portal/support':  { max: 10, windowMs: 60 * 60 * 1000 },
+  // Banking corrections are rare by nature. The database also allows only one
+  // open request per BAM (0022); this is the outer fence on submission attempts.
+  '/api/portal/banking-request': { max: 10, windowMs: 24 * 60 * 60 * 1000, methods: ['POST'] }
 }
 
 function rateLimit(req: NextRequest): NextResponse | null {
   const path = req.nextUrl.pathname
   const limit = LIMITS[path]
   if (!limit) return null
+  if (limit.methods && !limit.methods.includes(req.method)) return null
 
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
               ?? req.headers.get('x-real-ip') ?? 'unknown'

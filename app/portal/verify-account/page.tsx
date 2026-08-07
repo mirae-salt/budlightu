@@ -96,29 +96,49 @@ export default function VerifyAccountPage() {
       }}>
         <strong style={{ color: '#A31212' }}>Do these 4 digits match your own bank account?</strong>
         <p style={{ margin: '4px 0 0' }}>
-          If they do not, <strong>do not confirm</strong>. Someone else may have completed your
-          onboarding form. Tell Robin right away using the button below.
+          If they do not, <strong>do not confirm</strong>. Pick whichever of the two options below
+          matches your situation.
         </p>
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
         <button onClick={confirm}>Yes, that&rsquo;s my account. Confirm</button>
+
+        {/*
+          Two distinct exits, because they are two different problems.
+
+          1. A typo: the student mistyped their own digits. That is a routine
+             correction, so it goes through the tracked request flow at
+             /portal/account, where Robin applies it and it is audited.
+          2. Someone else filled in the form: that is a security incident, not a
+             typo. It needs a human immediately and it must NOT look like a normal
+             self-service correction, so it stays a direct email.
+
+          The old single "These are not my details" button sent both cases to the
+          same mailto and recorded neither.
+        */}
+        <a href="/portal/account" className="btn-ghost" style={{ textDecoration: 'none', padding: '9px 16px' }}>
+          I mistyped my details. Request a fix
+        </a>
+      </div>
+
+      <div style={{ marginTop: 14, fontSize: 12.5, lineHeight: 1.7 }}>
         <a
-          href={`mailto:robin.graham@ilovesalt.com?subject=${encodeURIComponent('Bud Light U — account verification issue')}&body=${encodeURIComponent(
-            `Hi Robin,\n\nThe banking details on my Bud Light U account do not look right.\n\n` +
+          href={`mailto:robin.graham@ilovesalt.com?subject=${encodeURIComponent('Bud Light U - possible wrong person on my account')}&body=${encodeURIComponent(
+            `Hi Robin,\n\nThe banking details on my Bud Light U account are not mine and I did not enter them.\n\n` +
             `Shown to me: ${bank ?? 'bank not set'}, account ending in ${tail ?? '????'}\n` +
             `My account actually ends in: \n\n` +
             `Please do not send anything until this is sorted out.\n\nThanks`
           )}`}
-          className="btn-ghost"
-          style={{ textDecoration: 'none', padding: '9px 16px' }}
+          style={{ color: '#A31212', fontWeight: 600 }}
         >
-          These are not my details
+          These digits are not mine and I did not enter them
         </a>
+        <span className="muted"> (someone else may have filled in your onboarding form: email Robin now)</span>
       </div>
 
       <p className="subtle" style={{ fontSize: 12, marginTop: 14 }}>
-        Banking details cannot be changed from the portal. Robin updates them for you, so that a
+        Banking details cannot be changed from the portal. Robin applies the change for you, so that a
         payment can never be redirected by someone who gets into your account.
       </p>
     </main>

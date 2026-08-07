@@ -25,6 +25,7 @@ const TYPE_ICONS: Record<string, string> = {
   invoice_draft: '✉',
   support_question: '❓',
   receipt_uploaded: '↑',
+  banking_change_request: '🏦',
 }
 
 export function NotificationBell() {

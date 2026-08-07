@@ -26,7 +26,8 @@ const groups: NavGroup[] = [
     items: [
       { href: '/admin/roster',    label: 'BAMs',       icon: <IconUsers /> },
       { href: '/admin/cohorts',   label: 'Cohorts',    icon: <IconLayers /> },
-      { href: '/admin/unmatched', label: 'Unmatched',  icon: <IconAlert /> }
+      { href: '/admin/unmatched', label: 'Unmatched',  icon: <IconAlert /> },
+      { href: '/admin/banking-requests', label: 'Banking changes', icon: <IconBank /> }
     ]
   },
   {
@@ -125,4 +126,5 @@ function IconLayers()  { return <svg {...iconProps}><path d="M12 2 2 7l10 5 10-5
 function IconAlert()   { return <svg {...iconProps}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> }
 function IconKey()     { return <svg {...iconProps}><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777Zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> }
 function IconShield()  { return <svg {...iconProps}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg> }
+function IconBank()    { return <svg {...iconProps}><path d="M3 10h18"/><path d="M12 3 3 8h18z"/><path d="M6 10v7M10 10v7M14 10v7M18 10v7"/><path d="M3 21h18"/></svg> }
 function IconInfo()    { return <svg {...iconProps} style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> }
