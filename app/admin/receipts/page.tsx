@@ -75,6 +75,7 @@ export default function ReceiptsQueue() {
   const [confirming, setConfirming] = useState<'approve' | 'reject' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  const [amountOverride, setAmountOverride] = useState('')
   const [retrying, setRetrying] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
@@ -117,15 +118,39 @@ export default function ReceiptsQueue() {
     setOpenIdx(openIdx === i ? null : i)
     setConfirming(null)
     setReason('')
+    // Never let a corrected amount typed for one receipt survive into another.
+    setAmountOverride('')
   }
 
   function decide(action: 'approve' | 'reject') {
     setConfirming(action)
     setReason(action === 'approve' ? 'Meets Bud Light reimbursement criteria' : 'Not a Bud Light purchase')
+    setAmountOverride('')
   }
 
   async function confirmDecision(i: number, action: 'approve' | 'reject') {
     const row = queue[i]
+
+    // Amount correction. The API has supported `override_total` since the
+    // touchpoint-1 work, but nothing ever sent it, so Robin could only approve or
+    // reject the number the model produced. That matters most on a mixed receipt:
+    // when the reported tax-inclusive figure cannot be corroborated, the classifier
+    // deliberately stores the PRE-TAX Bud Light sum and routes to review *on the
+    // assumption that an admin will correct it here*. Without this field the
+    // student was reimbursed the pre-tax figure, short by the tax.
+    let overrideTotal: number | undefined
+    if (action === 'approve' && amountOverride.trim() !== '') {
+      const parsed = Number(amountOverride.trim())
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setMessage('Corrected amount must be a non-negative number')
+        setTimeout(() => setMessage(null), 5000)
+        return
+      }
+      overrideTotal = Math.round(parsed * 100) / 100
+    }
+
+    const effectiveReason = reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
+
     try {
       const res = await fetch('/api/admin/receipts/decide', {
         method: 'POST',
@@ -133,7 +158,8 @@ export default function ReceiptsQueue() {
         body: JSON.stringify({
           receipt_id: row.id,
           decision: action === 'approve' ? 'approved' : 'rejected',
-          reason: reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
+          reason: effectiveReason,
+          ...(overrideTotal !== undefined ? { override_total: overrideTotal } : {})
         })
       })
       const json = await res.json().catch(() => ({}))
@@ -152,11 +178,21 @@ export default function ReceiptsQueue() {
       setHistory(h => [decided, ...h])
       setOpenIdx(null)
       setConfirming(null)
-      setMessage(
-        action === 'approve'
-          ? 'Approved. Reimbursement confirmed'
-          : 'Rejected. BAM will be notified'
-      )
+      setAmountOverride('')
+      // Report what the server said it recorded. The old text asserted
+      // "Reimbursement confirmed" unconditionally, including on the path where
+      // decide skips the ledger entirely (a receipt with no amount), so Robin was
+      // told a reimbursement existed when none had been written.
+      if (action === 'reject') {
+        setMessage(json.bam_notified === false
+          ? 'Rejected. Could not email the BAM.'
+          : 'Rejected. BAM will be notified')
+      } else if (typeof json.ledger_paid_cad === 'number') {
+        setMessage(`Approved. Reimbursement recorded: $${json.ledger_paid_cad.toFixed(2)}`
+          + (json.override_applied ? ' (amount corrected)' : ''))
+      } else {
+        setMessage('Approved, but NO reimbursement was recorded for this receipt. Check the amount.')
+      }
       setTimeout(() => setMessage(null), 4000)
     } catch {
       setMessage('Network error: decision not saved')
@@ -475,9 +511,35 @@ export default function ReceiptsQueue() {
                                 <label>Reason</label>
                                 <input value={reason} onChange={e => setReason(e.target.value)} />
                               </div>
+
+                              {/*
+                                Amount correction. Without this the only choices were
+                                approve the model's number or reject the receipt. On a
+                                mixed receipt whose tax-inclusive figure could not be
+                                corroborated, the classifier stores the PRE-TAX sum and
+                                sends it here expecting a human to fix it, so approving
+                                as-is underpaid the student by the tax.
+                              */}
+                              <div className="field">
+                                <label>Corrected amount (optional)</label>
+                                <input
+                                  value={amountOverride}
+                                  onChange={e => setAmountOverride(e.target.value.replace(/[^\d.]/g, ''))}
+                                  inputMode="decimal"
+                                  placeholder={r.total === '—' ? 'e.g. 113.00' : r.total.replace('$', '')}
+                                />
+                                <div className="muted" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
+                                  Leave blank to reimburse {r.total === '—' ? 'nothing (no amount was read)' : r.total}.
+                                  Enter the tax-inclusive Bud Light total from the receipt if that figure is wrong.
+                                  Corrections are written to the audit log.
+                                </div>
+                              </div>
+
                               <div style={{ display: 'flex', gap: 8 }}>
-                                <button style={{ background: 'var(--green)' }} onClick={() => confirmDecision(i, 'approve')}>Confirm approve</button>
-                                <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
+                                <button style={{ background: 'var(--green)' }} onClick={() => confirmDecision(i, 'approve')}>
+                                  {amountOverride.trim() ? `Approve at $${amountOverride.trim()}` : 'Confirm approve'}
+                                </button>
+                                <button className="btn-ghost" onClick={() => { setConfirming(null); setAmountOverride('') }}>Cancel</button>
                               </div>
                             </div>
                           )}
