@@ -438,11 +438,27 @@ export default function ReceiptsQueue() {
                           {/* History tab: show decision details + revert */}
                           {tab === 'history' && (
                             <div style={{ marginBottom: 14 }}>
+                              {/*
+                                Three statuses land in History, not two. This read
+                                `status === 'approved' ? 'Approved' : 'Rejected'`, so an
+                                auto_pass receipt was labelled "Rejected" in red directly
+                                under a green AUTO PASS badge. Harmless while nothing
+                                auto-passed; visible and alarming as soon as it did.
+                              */}
                               <div style={{ fontSize: 12, marginBottom: 2 }}>
-                                <span style={{ fontWeight: 600, color: r.status === 'approved' ? 'var(--green)' : 'var(--red)' }}>
-                                  {r.status === 'approved' ? 'Approved' : 'Rejected'}
+                                <span style={{
+                                  fontWeight: 600,
+                                  color: r.status === 'rejected' ? 'var(--red)' : 'var(--green)'
+                                }}>
+                                  {r.status === 'approved' ? 'Approved'
+                                    : r.status === 'auto_pass' ? 'Auto-approved'
+                                    : 'Rejected'}
                                 </span>
-                                <span className="muted"> · {r.decidedAt}</span>
+                                {r.decidedAt
+                                  ? <span className="muted"> · {r.decidedAt}</span>
+                                  : r.status === 'auto_pass'
+                                    ? <span className="muted"> · no admin decision needed</span>
+                                    : null}
                               </div>
                               {r.decidedReason && (
                                 <div className="muted" style={{ fontSize: 12, fontStyle: 'italic' }}>
