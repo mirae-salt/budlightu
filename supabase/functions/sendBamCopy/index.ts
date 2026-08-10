@@ -21,9 +21,10 @@
  */
 import { serviceClient } from '../_shared/supabase-admin'
 import { invoicePdfFilename } from '../../../lib/invoice-numbering'
-import { addressProblem, cleanAddress, envAddressOr, envToken, tokenProblem } from '../../../lib/sanitize'
+import { addressProblem, cleanAddress } from '../../../lib/sanitize'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
-import { ensureInvoicePdf, bytesToBase64 } from '../../../lib/invoice-pdf'
+import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
+import { sendEmail } from '../../../lib/send-email'
 
 export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' }) {
   const db = serviceClient()
@@ -59,10 +60,6 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
   const recipientProblem = addressProblem('bam.email', recipient)
   if (recipientProblem) return { ok: false, error: recipientProblem }
 
-  const sender = envAddressOr('MS_SENDER_MAILBOX', 'accounts.payable.dryrun@ilovesalt.com')
-  const senderProblem = addressProblem('MS_SENDER_MAILBOX', sender)
-  if (senderProblem) return { ok: false, error: senderProblem }
-
   const period = new Date(inv.period)
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
@@ -88,81 +85,45 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
     payload_json: inv.payload_json
   }, filename)
   if (!pdf.ok) return { ok: false, error: pdf.error }
-  const base64 = bytesToBase64(pdf.bytes)   // F16
-
-  const token = await getGraphToken()
-  if (!token.ok) return { ok: false, error: token.error }
-
-  const graphBody = {
-    message: {
-      subject,
-      body: { contentType: 'Text', content: body },
-      toRecipients: [{ emailAddress: { address: recipient } }],
-      attachments: [{
-        '@odata.type': '#microsoft.graph.fileAttachment',
-        name: filename,
-        contentType: 'application/pdf',
-        contentBytes: base64
-      }]
-    },
-    saveToSentItems: req.mode === 'live'
-  }
-
-  const endpoint = req.mode === 'live'
-    ? `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`
-    : `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/messages`
-
+  // Resend only (Mirae, 2026-08-10). This used to go through Microsoft Graph, and
+  // Salt IT never issued the credentials, so every BAM copy failed. Resend has no
+  // draft concept, so a dryrun records the intent and emails nobody.
   const claim = await claimSend(db, { invoiceId: req.invoice_id, target: 'bam', mode: req.mode, address: recipient })
   if (!claim.ok) return { ok: false, error: `${claim.reason}: ${claim.error}` }
 
-  let resp: Response
-  try {
-    resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token.value}`, 'Content-Type': 'application/json' },
-      body: req.mode === 'live' ? JSON.stringify(graphBody) : JSON.stringify(graphBody.message)
-    })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    await markSendFailed(db, claim.sendRowId, `graph request threw: ${msg}`)
-    return { ok: false, error: `graph request threw: ${msg}` }
+  if (req.mode !== 'live') {
+    const drafted = await markSendDrafted(db, claim.sendRowId, { messageId: null })
+    const note = 'Dry run: recorded, and no copy was emailed to the BAM.'
+    return {
+      ok: true,
+      mode: req.mode,
+      message_id: null,
+      warning: [drafted.error, pdf.warning, note].filter(Boolean).join(' | ')
+    }
   }
 
-  if (!resp.ok) {
-    const msg = `graph send failed: ${resp.status} ${await resp.text()}`
+  const sent = await sendEmail({
+    to: recipient,
+    subject,
+    text: body,
+    html: `<pre style="font-family: inherit; white-space: pre-wrap; margin: 0;">${escapeHtml(body)}</pre>`,
+    attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
+  })
+
+  if (!sent.sent) {
+    const msg = `BAM copy failed via ${sent.provider}: ${sent.error ?? 'provider reported sent=false'}`
     await markSendFailed(db, claim.sendRowId, msg)
     return { ok: false, error: msg }
   }
 
-  const messageId = req.mode === 'live' ? null : (await resp.json())?.id ?? null
-
-  const recorded = req.mode === 'live'
-    ? await markSendSucceeded(db, claim.sendRowId, { messageId })
-    : await markSendDrafted(db, claim.sendRowId, { messageId })
+  const messageId = sent.messageId ?? null
+  const recorded = await markSendSucceeded(db, claim.sendRowId, { messageId })
 
   const warning = [recorded.error, pdf.warning].filter(Boolean).join(' | ')
   return { ok: true, mode: req.mode, message_id: messageId, warning: warning || undefined }
 }
 
-async function getGraphToken(): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
-  const tenant = envToken('MS_TENANT_ID')
-  const clientId = envToken('MS_CLIENT_ID')
-  const secret = process.env.MS_CLIENT_SECRET
-  if (!tenant || !clientId || !secret) return { ok: false, error: 'graph auth not configured (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET)' }
-
-  const tenantProblem = tokenProblem('MS_TENANT_ID', tenant)
-  if (tenantProblem) return { ok: false, error: tenantProblem }
-
-  const resp = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId, client_secret: secret,
-      scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials'
-    })
-  })
-  if (!resp.ok) return { ok: false, error: `graph auth failed: ${resp.status} ${await resp.text()}` }
-  const j = await resp.json()
-  if (!j.access_token) return { ok: false, error: 'graph auth returned no access_token' }
-  return { ok: true, value: j.access_token }
+/** The body is plain text; escape it before dropping it into the HTML part. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

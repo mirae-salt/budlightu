@@ -11,10 +11,18 @@ export const DEFAULT_POLICY: Policy = {
   rolloverMode: 'forfeit',
   capMultiplier: 1,
   reviewBandPaddingCad: 10,
-  // P0-G (audit 2026-08-07): default TRUE, matching the DB column default
-  // (cohorts.first_cohort_all_review) and CLAUDE.md. Fail-closed: if a cohort
-  // row cannot be read, every receipt goes to Robin instead of auto-passing.
-  firstCohortAllReview: true,
+  // Review-everything mode is OFF (Mirae, 2026-08-10, stated repeatedly).
+  //
+  // The program exists to remove ~5 hours a month of manual checking. With this on,
+  // all 58 BAMs x 8 months = 464 receipts each need a click from Robin, which is
+  // the problem rather than the safeguard. A receipt should reach her only when
+  // there is a real reason to flag it: no Bud Light lines found, low OCR
+  // confidence, a duplicate, a total at or near the cap, or an amount the server
+  // could not corroborate. Those checks all still run.
+  //
+  // Note this is only the DEFAULT. `cohorts.first_cohort_all_review` still wins,
+  // so a future cohort can be put back into review-everything mode deliberately.
+  firstCohortAllReview: false,
   policyVersion: 1
 }
 

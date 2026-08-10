@@ -207,8 +207,39 @@ describe('P0-F(c): string / NaN / negative defence', () => {
 })
 
 describe('P0-G: REVIEW band + first-cohort safeguard', () => {
-  it('DEFAULT_POLICY.firstCohortAllReview is true (matches DB default + CLAUDE.md)', () => {
-    expect(DEFAULT_POLICY.firstCohortAllReview).toBe(true)
+  // Review-everything mode is OFF by default (Mirae, 2026-08-10). The whole point
+  // of the system is to remove manual checking; 464 receipts a season each needing
+  // a click is the problem, not the safeguard. A receipt should reach Robin only
+  // when something is genuinely wrong with it.
+  it('DEFAULT_POLICY.firstCohortAllReview is false, so a clean receipt auto-passes', () => {
+    expect(DEFAULT_POLICY.firstCohortAllReview).toBe(false)
+  })
+
+  it('turning it off does NOT disable the real flags: a bad receipt still goes to review', () => {
+    const noBudLight = {
+      lines: [{ desc: 'MILK', qty: 1, unit: 40, total: 40, is_bud_light: false, confidence: 0.99 }],
+      subtotal: 40, tax: 0, grand_total: 40, bud_light_total_incl_tax: 0, overall_confidence: 0.99
+    }
+    const lowConfidence = {
+      lines: [{ desc: 'BUD LIGHT', qty: 1, unit: 40, total: 40, is_bud_light: true, confidence: 0.3 }],
+      grand_total: 40, bud_light_total_incl_tax: 40, overall_confidence: 0.3
+    }
+    const offPolicy = { ...P, firstCohortAllReview: false }
+
+    for (const [label, ocr] of [['no Bud Light lines', noBudLight], ['low confidence', lowConfidence]] as const) {
+      const out = classifyReceipt({
+        ocr: ocr as never, spendableCap: 150, policy: offPolicy,
+        duplicateHash: false, lowResolutionHeuristic: false
+      })
+      expect(out.status, `${label} must not auto_pass`).not.toBe('auto_pass')
+    }
+
+    // And a duplicate is still caught even with review-everything off.
+    const dup = classifyReceipt({
+      ocr: clean(100) as never, spendableCap: 150, policy: offPolicy,
+      duplicateHash: true, lowResolutionHeuristic: false
+    })
+    expect(dup.status).not.toBe('auto_pass')
   })
   const clean = (total: number) => ({
     lines: [{ desc: 'BUD LIGHT', qty: 1, unit: total, total, is_bud_light: true, confidence: 0.99 }],

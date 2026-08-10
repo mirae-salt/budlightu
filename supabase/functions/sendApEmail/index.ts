@@ -2,8 +2,8 @@
  * Edge Function: sendApEmail
  * POST { invoice_id: string, mode: 'dryrun' | 'live' }
  *
- * Sends the AP email via Microsoft Graph (Outlook). In dryrun mode, creates
- * a draft only.
+ * Sends the AP email via Resend (lib/send-email.ts). A dryrun records the intent
+ * and emails nobody.
  *
  * AUDIT-2026-08-07 fixes:
  *  - P0-B: the old docstring claimed "idempotent via invoice_sends UNIQUE" but
@@ -36,10 +36,10 @@
  */
 import { serviceClient } from '../_shared/supabase-admin'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../lib/invoice-numbering'
-import { addressProblem, cleanAddress, envAddressOr, envAddressListOr, envToken, tokenProblem } from '../../../lib/sanitize'
+import { addressProblem, cleanAddress, envAddressOr, envAddressListOr } from '../../../lib/sanitize'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../lib/invoice-ledger'
-import { ensureInvoicePdf, bytesToBase64 } from '../../../lib/invoice-pdf'
+import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../lib/bam-cc'
 import { sendEmail } from '../../../lib/send-email'
 import type { InvoicePayload } from '../../../lib/invoice-payload'
@@ -100,10 +100,6 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     }
   }
 
-  const sender = envAddressOr('MS_SENDER_MAILBOX', 'accounts.payable.dryrun@ilovesalt.com')
-  const senderProblem = addressProblem('MS_SENDER_MAILBOX', sender)
-  if (senderProblem) return { ok: false, error: senderProblem }
-
   const period = new Date(inv.period)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
   const subject = apEmailSubject(bam.first_name, bam.last_name, period, inv.invoice_number)
@@ -120,124 +116,53 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     payload_json: inv.payload_json
   }, filename)
   if (!pdf.ok) return { ok: false, error: pdf.error }
-  const base64 = bytesToBase64(pdf.bytes)   // F16: chunked, no argument spread
 
-  // ── Provider choice ───────────────────────────────────────────────────────
-  // MS Graph is preferred (the AP mailbox lives in Outlook), but Salt IT has not
-  // issued Graph credentials, and MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET
-  // are absent from production. That created a deadlock in which nobody could be
-  // paid: batch-approve only sets status='approved' when this function returns ok,
-  // and /api/admin/send-ap refuses anything that is not already 'approved'. So a
-  // missing Graph credential silently blocked BOTH senders.
+  // ── Send ──────────────────────────────────────────────────────────────────
+  // Resend only (Mirae, 2026-08-10: "메일발송은 무조건 resend").
   //
-  // When Graph is unavailable we fall back to the shared cascade in
-  // lib/send-email.ts, which prefers Resend and is already configured. Resend has
-  // no concept of a draft, so a dryrun records the intent without emailing anyone,
+  // This used to go through Microsoft Graph, and Salt IT never issued the
+  // credentials, which deadlocked payment entirely: batch-approve sets
+  // invoices.status='approved' only when this function returns ok, and
+  // /api/admin/send-ap refuses anything not already 'approved'. One missing
+  // credential silently blocked both senders, so no invoice could reach AP.
+  //
+  // lib/send-email.ts holds the provider choice for the whole app and prefers
+  // Resend. The Graph implementation was deleted rather than left as a dormant
+  // preferred path; `git log` has it if IT ever issues credentials.
+  //
+  // Resend has no draft concept, so a dryrun records the intent and emails nobody,
   // which is what dryrun is for, and says so rather than implying a draft is
-  // waiting in Outlook.
-  const token = await getGraphToken()
-
-  if (!token.ok) {
-    const claim = await claimSend(db, { invoiceId: req.invoice_id, target: 'ap', mode: req.mode, address: AP_TO })
-    if (!claim.ok) return { ok: false, error: `${claim.reason}: ${claim.error}` }
-
-    if (req.mode !== 'live') {
-      const drafted = await markSendDrafted(db, claim.sendRowId, { messageId: null })
-      const note = 'Recorded as a dry run. Microsoft Graph is not configured, so no Outlook draft was created and no email was sent.'
-      const draftWarning = [drafted.error, pdf.warning, ccNote, note].filter(Boolean).join(' | ')
-      return { ok: true, mode: req.mode, message_id: null, warning: draftWarning }
-    }
-
-    const sent = await sendEmail({
-      to: AP_TO,
-      cc: ccList,
-      subject,
-      text: body,
-      html: `<pre style="font-family: inherit; white-space: pre-wrap; margin: 0;">${escapeHtml(body)}</pre>`,
-      attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
-    })
-
-    if (!sent.sent) {
-      const msg = `AP send failed via ${sent.provider}: ${sent.error ?? 'provider reported sent=false'}`
-      await markSendFailed(db, claim.sendRowId, msg)
-      return { ok: false, error: msg }
-    }
-
-    const marked = await markSendSucceeded(db, claim.sendRowId, { messageId: sent.messageId ?? null })
-    const { error: statusErr } = await db.from('invoices')
-      .update({ status: 'sent', sent_at: new Date().toISOString() })
-      .eq('id', req.invoice_id)
-
-    const warning = [
-      marked.error,
-      statusErr ? `invoices.status update failed: ${statusErr.message}` : null,
-      pdf.warning,
-      ccNote,
-      `Sent via ${sent.provider} because Microsoft Graph is not configured.`
-    ].filter(Boolean).join(' | ')
-
-    return { ok: true, mode: req.mode, message_id: sent.messageId ?? null, warning: warning || undefined }
-  }
-
-  const graphBody = {
-    message: {
-      subject,
-      body: { contentType: 'Text', content: body },
-      toRecipients: [{ emailAddress: { address: AP_TO } }],
-      ccRecipients: ccList.map((a: string) => ({ emailAddress: { address: a } })),
-      attachments: [{
-        '@odata.type': '#microsoft.graph.fileAttachment',
-        name: filename,
-        contentType: 'application/pdf',
-        contentBytes: base64
-      }]
-    },
-    saveToSentItems: req.mode === 'live'
-  }
-
-  const endpoint = req.mode === 'live'
-    ? `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`
-    : `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/messages`  // create draft
-
-  // P0-B: claim before the external call.
+  // waiting in an Outlook folder.
   const claim = await claimSend(db, { invoiceId: req.invoice_id, target: 'ap', mode: req.mode, address: AP_TO })
   if (!claim.ok) return { ok: false, error: `${claim.reason}: ${claim.error}` }
 
-  let resp: Response
-  try {
-    resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token.value}`,
-        'Content-Type': 'application/json'
-      },
-      body: req.mode === 'live' ? JSON.stringify(graphBody) : JSON.stringify(graphBody.message)
-    })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    await markSendFailed(db, claim.sendRowId, `graph request threw: ${msg}`)
-    return { ok: false, error: `graph request threw: ${msg}` }
+  if (req.mode !== 'live') {
+    const drafted = await markSendDrafted(db, claim.sendRowId, { messageId: null })
+    const note = 'Dry run: recorded, and no email was sent to AP.'
+    return {
+      ok: true,
+      mode: req.mode,
+      message_id: null,
+      warning: [drafted.error, pdf.warning, ccNote, note].filter(Boolean).join(' | ')
+    }
   }
 
-  if (!resp.ok) {
-    const err = await resp.text()
-    const msg = `graph send failed: ${resp.status} ${err}`
+  const sent = await sendEmail({
+    to: AP_TO,
+    cc: ccList,
+    subject,
+    text: body,
+    html: `<pre style="font-family: inherit; white-space: pre-wrap; margin: 0;">${escapeHtml(body)}</pre>`,
+    attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
+  })
+
+  if (!sent.sent) {
+    const msg = `AP send failed via ${sent.provider}: ${sent.error ?? 'provider reported sent=false'}`
     await markSendFailed(db, claim.sendRowId, msg)
     return { ok: false, error: msg }
   }
 
-  const graphResponse = req.mode === 'live' ? {} : await resp.json()
-  const messageId = graphResponse?.id ?? null
-
-  if (req.mode !== 'live') {
-    // Draft only — nothing was sent, so sent_at stays NULL and the later live
-    // send is not blocked (P0-C).
-    const drafted = await markSendDrafted(db, claim.sendRowId, { messageId })
-    const draftWarning = [drafted.error, pdf.warning, ccNote].filter(Boolean).join(' | ')
-    return { ok: true, mode: req.mode, message_id: messageId, warning: draftWarning || undefined }
-  }
-
-  const marked = await markSendSucceeded(db, claim.sendRowId, { messageId })
+  const marked = await markSendSucceeded(db, claim.sendRowId, { messageId: sent.messageId ?? null })
   const { error: statusErr } = await db.from('invoices')
     .update({ status: 'sent', sent_at: new Date().toISOString() })
     .eq('id', req.invoice_id)
@@ -247,39 +172,12 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     statusErr ? `invoices.status update failed: ${statusErr.message}` : null,
     pdf.warning,
     ccNote
-  ]
-    .filter(Boolean)
-    .join(' | ')
+  ].filter(Boolean).join(' | ')
 
-  return { ok: true, mode: req.mode, message_id: messageId, warning: warning || undefined }
+  return { ok: true, mode: req.mode, message_id: sent.messageId ?? null, warning: warning || undefined }
 }
 
-/** The AP body is plain text; escape it before dropping it into an HTML part. */
+/** The AP body is plain text; escape it before dropping it into the HTML part. */
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-async function getGraphToken(): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
-  const tenant = envToken('MS_TENANT_ID')
-  const clientId = envToken('MS_CLIENT_ID')
-  const secret = process.env.MS_CLIENT_SECRET
-  if (!tenant || !clientId || !secret) return { ok: false, error: 'graph auth not configured (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET)' }
-
-  const tenantProblem = tokenProblem('MS_TENANT_ID', tenant)
-  if (tenantProblem) return { ok: false, error: tenantProblem }
-
-  const resp = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: secret,
-      scope: 'https://graph.microsoft.com/.default',
-      grant_type: 'client_credentials'
-    })
-  })
-  if (!resp.ok) return { ok: false, error: `graph auth failed: ${resp.status} ${await resp.text()}` }
-  const j = await resp.json()
-  if (!j.access_token) return { ok: false, error: 'graph auth returned no access_token' }
-  return { ok: true, value: j.access_token }
 }
