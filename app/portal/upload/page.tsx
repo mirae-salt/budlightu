@@ -10,31 +10,97 @@ const PROGRAM_START_MONTH = 8 // September (0-indexed)
 const PROGRAM_START_YEAR = 2026
 const PROGRAM_MONTHS = 8 // Sept through April
 
-function buildMonthOptions(): { value: string; label: string; tag?: string; isCurrent?: boolean }[] {
+type MonthOption = { value: string; label: string; tag?: string; isCurrent?: boolean; isSubmittable?: boolean }
+
+/** UTC month key, matching lib/period.ts. `new Date(y, m, 1).toISOString()` is a
+ *  LOCAL midnight, which at a negative UTC offset lands on the last day of the
+ *  previous month, so a September receipt would be filed under August. */
+function monthValue(year: number, month0: number): string {
+  return `${year}-${String(month0 + 1).padStart(2, '0')}-01`
+}
+
+/**
+ * Month choices for the selector.
+ *
+ * The list used to be exactly the 8 hardcoded program months (Sept 2026 - Apr
+ * 2027), which broke in two ways:
+ *   - Before the program starts, nothing in the list is acceptable to the server,
+ *     so every submit failed with "You cannot submit receipts for a future month"
+ *     and the message blamed the student.
+ *   - The previous month was dropped by an index slice rather than a date test, so
+ *     a student who missed the September deadline could not pick September in
+ *     October even though the server would accept it.
+ *
+ * The server is the authority (lib/period.ts): it accepts the current or previous
+ * month, inside the cohort's dates, and nothing else. So the list now always
+ * contains those two months, flagged `isSubmittable`, plus the program months for
+ * context. Anything not submittable is shown disabled with the reason, instead of
+ * being offered and then rejected.
+ */
+function buildMonthOptions(): MonthOption[] {
   const now = new Date()
   const deadlineDay = 15
-  const opts: { value: string; label: string; tag?: string; isCurrent?: boolean }[] = []
+  const curYear = now.getUTCFullYear()
+  const curMonth = now.getUTCMonth()
 
-  for (let i = 0; i < PROGRAM_MONTHS; i++) {
-    const month = (PROGRAM_START_MONTH + i) % 12
-    const year = PROGRAM_START_YEAR + Math.floor((PROGRAM_START_MONTH + i) / 12)
-    const d = new Date(year, month, 1)
-    const value = d.toISOString().slice(0, 10)
-    const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
-    const isCurrent = now.getFullYear() === year && now.getMonth() === month
+  const prev = new Date(Date.UTC(curYear, curMonth - 1, 1))
+  const submittable = new Set([
+    monthValue(curYear, curMonth),
+    monthValue(prev.getUTCFullYear(), prev.getUTCMonth())
+  ])
+
+  const seen = new Set<string>()
+  const opts: MonthOption[] = []
+
+  const push = (year: number, month0: number) => {
+    const value = monthValue(year, month0)
+    if (seen.has(value)) return
+    seen.add(value)
+
+    const isCurrent = year === curYear && month0 === curMonth
+    const isSubmittable = submittable.has(value)
+    const monthStartUtc = Date.UTC(year, month0, 1)
+    const thisMonthUtc = Date.UTC(curYear, curMonth, 1)
+
     let tag: string | undefined
-    if (isCurrent && now.getDate() > deadlineDay) tag = 'past deadline'
-    else if (d < new Date(now.getFullYear(), now.getMonth(), 1)) tag = 'late'
-    else if (d > new Date(now.getFullYear(), now.getMonth(), 1)) tag = 'upcoming'
-    opts.push({ value, label, tag, isCurrent })
+    if (!isSubmittable) tag = monthStartUtc > thisMonthUtc ? 'not open yet' : 'closed'
+    else if (isCurrent && now.getUTCDate() > deadlineDay) tag = 'past deadline'
+    else if (monthStartUtc < thisMonthUtc) tag = 'late, still accepted'
+
+    opts.push({
+      value,
+      label: new Date(monthStartUtc).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+      tag,
+      isCurrent,
+      isSubmittable
+    })
   }
+
+  // Always offer what the server will actually take, even outside the program
+  // months. If it is outside the cohort's dates the server says so precisely.
+  push(prev.getUTCFullYear(), prev.getUTCMonth())
+  push(curYear, curMonth)
+  for (let i = 0; i < PROGRAM_MONTHS; i++) {
+    push(
+      PROGRAM_START_YEAR + Math.floor((PROGRAM_START_MONTH + i) / 12),
+      (PROGRAM_START_MONTH + i) % 12
+    )
+  }
+
+  opts.sort((a, b) => a.value.localeCompare(b.value))
   return opts
 }
 
 export default function UploadPage() {
   const monthOptions = buildMonthOptions()
-  const currentMonth = monthOptions.find(o => o.isCurrent) ?? monthOptions[0]
-  const pastMonths = monthOptions.slice(1)
+  // Default to a month the server will accept, so the first submit cannot fail on
+  // the selector's own default. `.slice(1)` used to drop the previous month by
+  // index, which is why September could not be chosen in October.
+  const currentMonth =
+    monthOptions.find(o => o.isCurrent && o.isSubmittable) ??
+    monthOptions.find(o => o.isSubmittable) ??
+    monthOptions[0]
+  const pastMonths = monthOptions.filter(o => o.value !== currentMonth.value)
   const [selectedPeriod, setSelectedPeriod] = useState(currentMonth.value)
   const [showPastMonths, setShowPastMonths] = useState(false)
   const [files, setFiles] = useState<File[]>([])
@@ -196,14 +262,22 @@ export default function UploadPage() {
               )}
             </div>
             {showPastMonths && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                {/* A month the server will not accept is disabled with the reason,
+                    rather than offered and then rejected after the upload. */}
                 {pastMonths.map(o => (
                   <button
                     key={o.value}
                     type="button"
+                    disabled={!o.isSubmittable}
+                    title={o.isSubmittable ? undefined : (o.tag === 'not open yet' ? 'This month has not opened yet' : 'This month is closed')}
                     className={selectedPeriod === o.value ? 'btn-navy' : 'btn-ghost'}
-                    style={{ fontSize: 12, padding: '6px 14px', flex: 1 }}
-                    onClick={() => setSelectedPeriod(o.value)}
+                    style={{
+                      fontSize: 12, padding: '6px 14px',
+                      opacity: o.isSubmittable ? 1 : 0.4,
+                      cursor: o.isSubmittable ? 'pointer' : 'not-allowed'
+                    }}
+                    onClick={() => { if (o.isSubmittable) setSelectedPeriod(o.value) }}
                   >
                     {o.label.split(' ')[0]}
                   </button>
