@@ -5,8 +5,23 @@ import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
 import { reasonProblem, MIN_REASON_LENGTH } from '@/lib/reason'
+/**
+ * The same pure functions the decide route uses, so the preview below is produced by
+ * the code that will produce the stored amount. Nothing here does tax arithmetic:
+ * applyBudLightCorrection re-runs recomputeBudLightTotal (lib/classify-receipt), which
+ * is the one tested place that decides the tax basis. The server recomputes anyway and
+ * its answer is what gets reported after approval.
+ */
+import { applyBudLightCorrection, currentBudLightIndices } from '@/lib/receipt-correction'
 
-type Row = ReceiptRow & { id: string; storageKey?: string; storageMime?: string; ocrJson?: OcrData | null }
+type Row = ReceiptRow & {
+  id: string
+  storageKey?: string
+  storageMime?: string
+  ocrJson?: OcrData | null
+  /** the stored amount as a number, for the correction preview delta */
+  totalCad?: number | null
+}
 
 type OcrData = {
   store?: string
@@ -18,6 +33,14 @@ type OcrData = {
   bud_light_total_incl_tax?: number
   overall_confidence?: number
   notes?: string
+  /**
+   * Written by the decide route when an admin corrects which lines are Bud Light.
+   * Its presence means `lines[].is_bud_light` above is a human answer, not the AI's,
+   * so "Reset to what the AI read" would be a false label. `model_classification`
+   * holds the AI original.
+   */
+  admin_classification?: { corrected_at?: string; corrected_by?: string; bud_light_lines?: number[] }
+  model_classification?: { captured_at?: string; bud_light_total_incl_tax?: number | null }
 }
 
 type DbReceipt = {
@@ -54,6 +77,9 @@ function mapDbReceipt(r: DbReceipt): Row {
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
     }),
     total: r.bud_light_total_incl_tax != null ? `$${Number(r.bud_light_total_incl_tax).toFixed(2)}` : '—',
+    totalCad: r.bud_light_total_incl_tax != null && Number.isFinite(Number(r.bud_light_total_incl_tax))
+      ? Number(r.bud_light_total_incl_tax)
+      : null,
     reason: reasonFor(r),
     status: r.status,
     decidedAt: r.decided_at ? new Date(r.decided_at).toLocaleString('en-US', {
@@ -90,6 +116,12 @@ export default function ReceiptsQueue() {
   const [amountOverride, setAmountOverride] = useState('')
   const [retrying, setRetrying] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  /**
+   * Corrected Bud Light ticks for the row that is open. Only one row expands at a
+   * time, so it is keyed by receipt id rather than kept per row: a selection must
+   * never leak from one student's receipt onto another's.
+   */
+  const [blSelection, setBlSelection] = useState<{ id: string; indices: number[] } | null>(null)
 
   const loadAll = () => {
     fetch('/api/admin/data?table=receipts')
@@ -130,14 +162,45 @@ export default function ReceiptsQueue() {
     setOpenIdx(openIdx === i ? null : i)
     setConfirming(null)
     setReason('')
-    // Never let a corrected amount typed for one receipt survive into another.
+    // Never let a corrected amount or a corrected tick typed for one receipt survive
+    // into another.
     setAmountOverride('')
+    setBlSelection(null)
   }
 
   function decide(action: 'approve' | 'reject') {
     setConfirming(action)
     setReason(action === 'approve' ? 'Meets Bud Light reimbursement criteria' : 'Not a Bud Light purchase')
-    setAmountOverride('')
+    // The corrected ticks and the corrected amount are both set BEFORE this point
+    // now, so neither is cleared here.
+  }
+
+  /** Which lines are ticked right now: the pending edit if there is one, else the record. */
+  function selectedLines(r: Row): number[] {
+    if (blSelection && blSelection.id === r.id) return blSelection.indices
+    return currentBudLightIndices(r.ocrJson)
+  }
+
+  function toggleLine(r: Row, index: number) {
+    const current = selectedLines(r)
+    const next = current.includes(index)
+      ? current.filter(i => i !== index)
+      : [...current, index].sort((a, b) => a - b)
+    setBlSelection({ id: r.id, indices: next })
+  }
+
+  function resetLines(r: Row) {
+    setBlSelection({ id: r.id, indices: currentBudLightIndices(r.ocrJson) })
+  }
+
+  /**
+   * The preview. `applyBudLightCorrection` is the server's own function, so
+   * `recomputed.total` here is what the server will store, but it is still labelled a
+   * preview: the server recomputes from its own copy of ocr_json and that answer wins.
+   */
+  function correctionFor(r: Row) {
+    if (!r.ocrJson || !Array.isArray(r.ocrJson.lines) || r.ocrJson.lines.length === 0) return null
+    return applyBudLightCorrection(r.ocrJson, selectedLines(r))
   }
 
   async function confirmDecision(i: number, action: 'approve' | 'reject') {
@@ -160,6 +223,27 @@ export default function ReceiptsQueue() {
       overrideTotal = Math.round(parsed * 100) / 100
     }
 
+    /*
+     * Corrected classification. Sent only when a tick actually moved, and only on an
+     * approve (a rejection records that the receipt is not reimbursable at all, so
+     * there is no classification to save). The indices are all that is sent: the
+     * server loads its own ocr_json, applies them and re-derives the amount, so a
+     * client total is never trusted.
+     */
+    let budLightLines: number[] | undefined
+    if (action === 'approve') {
+      const corr = correctionFor(row)
+      if (corr && corr.changed.length > 0) {
+        if (corr.indices.length === 0) {
+          notify('error',
+            'No line is ticked as Bud Light, so there is nothing to reimburse. Reject the receipt instead, ' +
+            'or reset the ticks and use the corrected amount if the line items are unreadable.')
+          return
+        }
+        budLightLines = corr.indices
+      }
+    }
+
     const effectiveReason = reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
 
     try {
@@ -170,7 +254,8 @@ export default function ReceiptsQueue() {
           receipt_id: row.id,
           decision: action === 'approve' ? 'approved' : 'rejected',
           reason: effectiveReason,
-          ...(overrideTotal !== undefined ? { override_total: overrideTotal } : {})
+          ...(overrideTotal !== undefined ? { override_total: overrideTotal } : {}),
+          ...(budLightLines !== undefined ? { bud_light_lines: budLightLines } : {})
         })
       })
       const json = await res.json().catch(() => ({}))
@@ -189,6 +274,7 @@ export default function ReceiptsQueue() {
       setOpenIdx(null)
       setConfirming(null)
       setAmountOverride('')
+      setBlSelection(null)
       // Report what the server said it recorded. The old text asserted
       // "Reimbursement confirmed" unconditionally, including on the path where
       // decide skips the ledger entirely (a receipt with no amount), so Robin was
@@ -199,8 +285,24 @@ export default function ReceiptsQueue() {
         if (json.bam_notified === false) notify('error', 'Rejected, but the email to the BAM did not send.')
         else notify('ok', 'Rejected. BAM will be notified')
       } else if (typeof json.ledger_paid_cad === 'number') {
+        // Report what the SERVER says it stored, including the amount it recomputed
+        // from the corrected ticks, so the preview is never the thing that is trusted.
+        const parts: string[] = []
+        if (json.classification_changed) {
+          const added = Array.isArray(json.lines_added) ? json.lines_added.length : 0
+          const removed = Array.isArray(json.lines_removed) ? json.lines_removed.length : 0
+          parts.push(`Bud Light lines corrected (${added} added, ${removed} removed)`)
+        }
+        if (typeof json.stored_total === 'number') {
+          parts.push(`receipt total recorded as $${json.stored_total.toFixed(2)}`
+            + (json.amount_source === 'override_total' && json.classification_changed
+              ? ' from the corrected amount you typed'
+              : json.amount_source === 'corrected_lines' ? ' recomputed from the corrected lines' : ''))
+        } else if (json.override_applied) {
+          parts.push('amount corrected')
+        }
         notify('ok', `Approved. Reimbursement recorded: $${json.ledger_paid_cad.toFixed(2)}`
-          + (json.override_applied ? ' (amount corrected)' : ''))
+          + (parts.length ? `. ${parts.join('. ')}.` : ''))
       } else {
         notify('error', 'Approved, but NO reimbursement was recorded for this receipt. Check the amount.')
       }
@@ -307,7 +409,18 @@ export default function ReceiptsQueue() {
             </tr>
           </thead>
           <tbody>
-            {activeList.map((r, i) => (
+            {activeList.map((r, i) => {
+              /*
+               * The BL? ticks are the correction surface for a receipt still in the
+               * queue: APPROVE / REJECT alone could not fix a mis-tagged line, only
+               * the number it produced. History rows are read-only.
+               */
+              const editable = tab === 'queue'
+              const selected = selectedLines(r)
+              // Only the expanded row needs a recompute; the queue can hold 58 rows.
+              const correction = editable && openIdx === i ? correctionFor(r) : null
+              const touched = (correction?.changed.length ?? 0) > 0
+              return (
               <Fragment key={r.id}>
                 <tr>
                   <td style={{ padding: '4px 6px' }}>
@@ -405,7 +518,12 @@ export default function ReceiptsQueue() {
                               <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--midgray)', marginBottom: 4 }}>
                                 OCR Result {r.ocrJson.store && `| ${r.ocrJson.store}`} {r.ocrJson.date && `(${r.ocrJson.date})`}
                               </div>
-                              <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%', maxWidth: 420 }}>
+                              {editable && (
+                                <div style={{ fontSize: 11.5, color: 'var(--midgray)', marginBottom: 6, lineHeight: 1.5 }}>
+                                  Click a line to include or exclude it from the Bud Light total. Ticked lines are counted.
+                                </div>
+                              )}
+                              <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%', maxWidth: 460 }}>
                                 <thead>
                                   <tr style={{ borderBottom: '1px solid var(--stone)' }}>
                                     <th style={{ textAlign: 'left', padding: '3px 8px 3px 0', fontSize: 10, color: 'var(--midgray)' }}>Item</th>
@@ -414,29 +532,168 @@ export default function ReceiptsQueue() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {r.ocrJson.lines.map((l, li) => (
-                                    <tr key={li} style={{
-                                      borderBottom: '1px solid var(--bl-fog)',
-                                      background: l.is_bud_light ? 'var(--green-bg, #e6f4ea)' : 'transparent'
-                                    }}>
-                                      <td style={{ padding: '3px 8px 3px 0' }}>
-                                        {l.desc}
-                                        {l.ambiguous && <span style={{ color: 'var(--amber)', marginLeft: 4, fontSize: 10 }}>?</span>}
-                                      </td>
-                                      <td style={{ textAlign: 'right', padding: '3px 8px', fontVariantNumeric: 'tabular-nums' }}>${l.total.toFixed(2)}</td>
-                                      <td style={{ textAlign: 'center', padding: '3px 8px' }}>
-                                        {l.is_bud_light
-                                          ? <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓</span>
-                                          : <span style={{ color: 'var(--midgray)' }}>—</span>}
-                                      </td>
-                                    </tr>
-                                  ))}
+                                  {r.ocrJson.lines.map((l, li) => {
+                                    const on = editable ? selected.includes(li) : l.is_bud_light
+                                    const moved = editable && on !== l.is_bud_light
+                                    return (
+                                      <tr
+                                        key={li}
+                                        onClick={editable ? () => toggleLine(r, li) : undefined}
+                                        title={editable ? (on ? 'Counted as Bud Light. Click to exclude.' : 'Not counted. Click to include.') : undefined}
+                                        style={{
+                                          borderBottom: '1px solid var(--bl-fog)',
+                                          background: on ? 'var(--green-bg, #e6f4ea)' : 'transparent',
+                                          cursor: editable ? 'pointer' : 'default',
+                                          outline: moved ? '2px solid var(--bl-blue)' : 'none'
+                                        }}
+                                      >
+                                        <td style={{ padding: '3px 8px 3px 0' }}>
+                                          {l.desc}
+                                          {l.ambiguous && <span style={{ color: 'var(--amber)', marginLeft: 4, fontSize: 10 }}>?</span>}
+                                          {moved && (
+                                            <span style={{ color: 'var(--bl-blue)', marginLeft: 6, fontSize: 10, fontWeight: 600 }}>
+                                              {on ? 'added by you' : 'removed by you'}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td style={{ textAlign: 'right', padding: '3px 8px', fontVariantNumeric: 'tabular-nums' }}>${l.total.toFixed(2)}</td>
+                                        <td style={{ textAlign: 'center', padding: '3px 8px' }}>
+                                          {editable ? (
+                                            <button
+                                              type="button"
+                                              onClick={e => { e.stopPropagation(); toggleLine(r, li) }}
+                                              aria-pressed={on}
+                                              aria-label={`${on ? 'Exclude' : 'Include'} ${l.desc}`}
+                                              style={{
+                                                background: on ? 'var(--green)' : 'transparent',
+                                                color: on ? '#fff' : 'var(--midgray)',
+                                                border: `1px solid ${on ? 'var(--green)' : 'var(--stone)'}`,
+                                                borderRadius: 4, width: 26, height: 20, padding: 0,
+                                                fontSize: 12, fontWeight: 700, lineHeight: 1, cursor: 'pointer'
+                                              }}
+                                            >
+                                              {on ? '✓' : ''}
+                                            </button>
+                                          ) : on ? (
+                                            <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓</span>
+                                          ) : (
+                                            <span style={{ color: 'var(--midgray)' }}>—</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    )
+                                  })}
                                 </tbody>
                               </table>
                               <div style={{ fontSize: 11, marginTop: 6, color: 'var(--midgray)' }}>
-                                BL total: <strong style={{ color: 'var(--text)' }}>${(r.ocrJson.bud_light_total_incl_tax ?? 0).toFixed(2)}</strong>
+                                BL total the AI read: <strong style={{ color: 'var(--text)' }}>${(r.ocrJson.bud_light_total_incl_tax ?? 0).toFixed(2)}</strong>
                                 {' '} · Grand total: ${(r.ocrJson.grand_total ?? 0).toFixed(2)}
                                 {' '} · Confidence: {((r.ocrJson.overall_confidence ?? 0) * 100).toFixed(0)}%
+                              </div>
+
+                              {/*
+                                Live preview of the correction. The figure comes from the SAME
+                                function the route uses (applyBudLightCorrection, which re-runs
+                                recomputeBudLightTotal), but it is labelled a preview because the
+                                server recomputes from its own copy of ocr_json and that answer is
+                                the one stored and reported back after approval.
+                              */}
+                              {editable && correction && (
+                                <div
+                                  style={{
+                                    marginTop: 10, padding: '10px 12px', borderRadius: 8, maxWidth: 460,
+                                    border: `1px solid ${touched ? 'var(--bl-blue)' : 'var(--stone)'}`,
+                                    background: touched ? 'rgba(0,112,206,0.06)' : 'var(--stone-lt)'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
+                                    <div>
+                                      <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--midgray)' }}>On record now</div>
+                                      <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                        {r.totalCad != null ? `$${r.totalCad.toFixed(2)}` : 'no amount'}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--midgray)' }}>Preview, server recomputes</div>
+                                      <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: touched ? 'var(--bl-blue)' : 'var(--text)' }}>
+                                        ${correction.recomputed.total.toFixed(2)}
+                                      </div>
+                                    </div>
+                                    {touched && r.totalCad != null && (
+                                      <div>
+                                        <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--midgray)' }}>Change</div>
+                                        <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: correction.recomputed.total >= r.totalCad ? 'var(--green)' : 'var(--red)' }}>
+                                          {correction.recomputed.total >= r.totalCad ? '+' : '-'}${Math.abs(correction.recomputed.total - r.totalCad).toFixed(2)}
+                                        </div>
+                                      </div>
+                                    )}
+                                    <div style={{ marginLeft: 'auto', alignSelf: 'center' }}>
+                                      <button
+                                        type="button"
+                                        className="btn-ghost"
+                                        style={{ fontSize: 11.5, padding: '4px 10px' }}
+                                        disabled={!touched}
+                                        onClick={() => resetLines(r)}
+                                      >
+                                        {r.ocrJson.admin_classification ? 'Reset to the saved ticks' : 'Reset to what the AI read'}
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ fontSize: 11.5, marginTop: 8, color: 'var(--midgray)', lineHeight: 1.55 }}>
+                                    {correction.indices.length} of {r.ocrJson.lines.length} lines counted
+                                    {touched ? `, ${correction.added.length} added and ${correction.removed.length} removed` : ''}.
+                                    {' '}
+                                    {(correction.recomputed.basis === 'lines_mixed_pretax' || correction.recomputed.basis === 'lines_raw') && (
+                                      <span style={{ color: '#8a5a00' }}>
+                                        This receipt does not let the Bud Light tax be worked out on its own, so the
+                                        preview is the pre-tax sum. If the paper shows a tax-inclusive Bud Light total,
+                                        type it into the corrected amount below and that figure is what will be paid.
+                                      </span>
+                                    )}
+                                    {correction.recomputed.basis === 'lines_grossed_up' && 'Every counted line is Bud Light, so this receipt\u2019s own tax rate was applied.'}
+                                    {correction.recomputed.basis === 'lines_incl_tax' && 'The line totals on this receipt already include tax.'}
+                                    {correction.recomputed.basis === 'lines_mixed_rate_validated' && 'The tax-inclusive figure on this receipt matches a standard Canadian rate, so it was accepted.'}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/*
+                            The corrected amount used to appear only after clicking APPROVE, so it
+                            was invisible while reviewing and easy to miss. It is the FALLBACK, for
+                            when the line items cannot be used (OCR failed, no line detail, or the
+                            tax cannot be derived from the receipt). The ticks above are the primary
+                            tool because they fix the classification as well as the number.
+                          */}
+                          {editable && (
+                            <div className="card" style={{ maxWidth: 460, marginBottom: 12, padding: 12 }}>
+                              <div className="field" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: 12 }}>Corrected amount, optional fallback (CAD)</label>
+                                <input
+                                  value={amountOverride}
+                                  onChange={e => setAmountOverride(e.target.value.replace(/[^\d.]/g, ''))}
+                                  inputMode="decimal"
+                                  placeholder={r.total === '—' ? 'e.g. 113.00' : r.total.replace('$', '')}
+                                />
+                                <div className="muted" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.55 }}>
+                                  Use this when the line items themselves are unusable, or when the tax-inclusive
+                                  Bud Light total can only be read off the paper. Leave it blank to reimburse
+                                  {' '}
+                                  {correction
+                                    ? `$${correction.recomputed.total.toFixed(2)}`
+                                    : r.total === '—' ? 'nothing (no amount was read)' : r.total}.
+                                  {' '}Corrections are written to the audit log.
+                                </div>
+                                {amountOverride.trim() !== '' && touched && (
+                                  <div style={{ fontSize: 11.5, marginTop: 6, color: '#7A0E0E', background: '#FDECEC', border: '1px solid rgba(163,18,18,0.3)', borderRadius: 6, padding: '6px 8px', lineHeight: 1.5 }}>
+                                    Both are set. The ticks are saved as the corrected classification, and
+                                    ${amountOverride.trim()} is the amount that gets paid, not the
+                                    ${correction ? correction.recomputed.total.toFixed(2) : '0.00'} preview.
+                                    Clear this field to pay the recomputed figure.
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -524,43 +781,61 @@ export default function ReceiptsQueue() {
                           )}
 
                           {tab === 'queue' && confirming === 'approve' && (
-                            <div className="card" style={{ maxWidth: 420, marginTop: 8 }}>
+                            <div className="card" style={{ maxWidth: 460, marginTop: 8 }}>
                               <div style={{ marginBottom: 10, fontSize: 13 }}>
-                                Confirm approve reimbursement for <strong>{r.bam}</strong> ({r.total})?
+                                Confirm approve reimbursement for <strong>{r.bam}</strong>?
                               </div>
+
+                              {/*
+                                What will be recorded, spelled out. The corrected amount field and
+                                the Bud Light ticks are both above this card now, so this is a
+                                summary of the choices already made rather than a second place to
+                                make them.
+                              */}
+                              <div style={{ fontSize: 12.5, marginBottom: 10, lineHeight: 1.6 }}>
+                                {amountOverride.trim() !== '' ? (
+                                  <>
+                                    Amount: <strong>${amountOverride.trim()}</strong>{' '}
+                                    <span className="muted">(the corrected amount you typed)</span>
+                                  </>
+                                ) : correction ? (
+                                  <>
+                                    Amount: <strong>${correction.recomputed.total.toFixed(2)}</strong>{' '}
+                                    <span className="muted">
+                                      ({touched ? 'recomputed from the corrected Bud Light lines' : 'unchanged'})
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    Amount: <strong>{r.total}</strong> <span className="muted">(unchanged)</span>
+                                  </>
+                                )}
+                                {touched && correction && (
+                                  <div style={{ color: 'var(--bl-blue)' }}>
+                                    Bud Light lines corrected: {correction.added.length} added,{' '}
+                                    {correction.removed.length} removed. Saved on the record.
+                                  </div>
+                                )}
+                                <div className="muted" style={{ fontSize: 11.5 }}>
+                                  The server recomputes the amount from the corrected lines, so the figure it
+                                  records is reported back here after approval.
+                                </div>
+                              </div>
+
                               <div className="field">
                                 <label>Reason</label>
                                 <input value={reason} onChange={e => setReason(e.target.value)} />
                               </div>
 
-                              {/*
-                                Amount correction. Without this the only choices were
-                                approve the model's number or reject the receipt. On a
-                                mixed receipt whose tax-inclusive figure could not be
-                                corroborated, the classifier stores the PRE-TAX sum and
-                                sends it here expecting a human to fix it, so approving
-                                as-is underpaid the student by the tax.
-                              */}
-                              <div className="field">
-                                <label>Corrected amount (optional)</label>
-                                <input
-                                  value={amountOverride}
-                                  onChange={e => setAmountOverride(e.target.value.replace(/[^\d.]/g, ''))}
-                                  inputMode="decimal"
-                                  placeholder={r.total === '—' ? 'e.g. 113.00' : r.total.replace('$', '')}
-                                />
-                                <div className="muted" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
-                                  Leave blank to reimburse {r.total === '—' ? 'nothing (no amount was read)' : r.total}.
-                                  Enter the tax-inclusive Bud Light total from the receipt if that figure is wrong.
-                                  Corrections are written to the audit log.
-                                </div>
-                              </div>
-
                               <div style={{ display: 'flex', gap: 8 }}>
                                 <button style={{ background: 'var(--green)' }} onClick={() => confirmDecision(i, 'approve')}>
-                                  {amountOverride.trim() ? `Approve at $${amountOverride.trim()}` : 'Confirm approve'}
+                                  {amountOverride.trim()
+                                    ? `Approve at $${amountOverride.trim()}`
+                                    : touched && correction
+                                      ? `Approve at $${correction.recomputed.total.toFixed(2)}`
+                                      : 'Confirm approve'}
                                 </button>
-                                <button className="btn-ghost" onClick={() => { setConfirming(null); setAmountOverride('') }}>Cancel</button>
+                                <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
                               </div>
                             </div>
                           )}
@@ -586,7 +861,8 @@ export default function ReceiptsQueue() {
                   </tr>
                 )}
               </Fragment>
-            ))}
+              )
+            })}
             {activeList.length === 0 && (
               <tr>
                 <td colSpan={tab === 'history' ? 8 : 7}>

@@ -1,6 +1,7 @@
 /**
  * POST /api/admin/receipts/decide
- *   { receipt_id, decision: 'approved'|'rejected', reason: string, override_total?: number }
+ *   { receipt_id, decision: 'approved'|'rejected', reason: string,
+ *     override_total?: number, bud_light_lines?: number[] }
  *
  * Touchpoint 1. Reason required.
  *
@@ -10,6 +11,16 @@
  *   any result" was unimplemented. An override rewrites bud_light_total_incl_tax, is
  *   written to audit_log with the before/after amounts, and the ledger is recomputed
  *   from the corrected value.
+ *
+ * `bud_light_lines` (2026-08-10) fixes the CAUSE rather than the number: it is the
+ *   indices of the lines that ARE Bud Light. The amount is re-derived on the server
+ *   from the corrected flags through recomputeBudLightTotal (never a client total, and
+ *   no tax arithmetic anywhere but that one tested function), the corrected flags are
+ *   persisted so the record matches what was paid, and the model's original flags are
+ *   kept for training. Rules, validation and precedence: lib/receipt-correction.ts.
+ *
+ *   Precedence when both arrive: the ticks set the CLASSIFICATION, `override_total`
+ *   sets the AMOUNT. Reported back as `amount_source` and written to the audit log.
  *
  * P0-H: the reimbursement_ledger upsert is the write that decides what a BAM is paid.
  *   Its error is now checked, the row is read back, and if it fails the receipt status
@@ -26,13 +37,19 @@ import { appBaseUrl } from '../../../../../lib/app-url'
 import { parseNonNegativeMoney } from '../../../../../lib/money'
 import { flagShortfall } from '../../../../../lib/shortfall-warning'
 import { cleanEnvValue } from '../../../../../lib/sanitize'
+import {
+  planReceiptCorrection,
+  annotateCorrectedOcr,
+  buildCorrectionAudit,
+  currentBudLightFlags
+} from '../../../../../lib/receipt-correction'
 
 /** Sanity ceiling for a manual amount correction. A single receipt above this is a typo. */
 const MAX_OVERRIDE_CAD = 5000
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { receipt_id, decision, reason, override_total } = body
+  const { receipt_id, decision, reason, override_total, bud_light_lines } = body
   const reasonIssue = reasonProblem(reason)
   if (!receipt_id || !['approved', 'rejected'].includes(decision)) {
     return NextResponse.json({ ok: false, message: 'receipt_id and a decision of approved or rejected are required.' }, { status: 400 })
@@ -65,7 +82,7 @@ export async function POST(req: NextRequest) {
   const decidedBy = auth.devBypass ? '00000000-0000-0000-0000-000000000000' : auth.userId
 
   const { data: receipt, error: receiptErr } = await admin.from('receipts')
-    .select('bam_id, cohort_id, period, bud_light_total_incl_tax, status')
+    .select('bam_id, cohort_id, period, bud_light_total_incl_tax, status, ocr_json')
     .eq('id', receipt_id).maybeSingle()
   if (receiptErr) return NextResponse.json({ ok: false, error: receiptErr.message }, { status: 500 })
   if (!receipt) return NextResponse.json({ ok: false, message: 'receipt not found' }, { status: 404 })
@@ -75,15 +92,50 @@ export async function POST(req: NextRequest) {
 
   const previousStatus: string = receipt.status
   const previousTotal = parseNonNegativeMoney(receipt.bud_light_total_incl_tax)
+  const previousOcrJson = receipt.ocr_json ?? null
+
+  // Corrected Bud Light ticks. The amount is re-derived server-side from the
+  // corrected flags by recomputeBudLightTotal (via lib/receipt-correction), so no
+  // client-supplied total and no duplicated tax arithmetic reaches the ledger.
+  const plan = planReceiptCorrection({
+    ocrJson: previousOcrJson,
+    budLightLines: bud_light_lines,
+    overrideTotal,
+    decision
+  })
+  if (!plan.ok) {
+    return NextResponse.json({ ok: false, message: plan.message }, { status: 400 })
+  }
+  const correction = plan.correction
 
   // P0-F (d): the corrected amount, if Robin supplied one, is what gets stored and
-  // what the ledger is computed from.
-  const effectiveTotal = overrideTotal !== null ? overrideTotal : previousTotal
-  const overrideApplied = overrideTotal !== null && overrideTotal !== previousTotal
+  // what the ledger is computed from. `plan.amount` is override_total when she typed
+  // one (AMOUNT_PRECEDENCE) and the recompute over the corrected ticks otherwise.
+  const correctedTotal = plan.amount
+  const effectiveTotal = correctedTotal !== null ? correctedTotal : previousTotal
+  const overrideApplied = correctedTotal !== null && correctedTotal !== previousTotal
 
-  const decisionNote = overrideTotal !== null
-    ? `${reason} [amount corrected by admin: ${previousTotal === null ? 'none' : `$${previousTotal.toFixed(2)}`} -> $${overrideTotal.toFixed(2)}]`
-    : reason
+  /**
+   * Every downstream money failure undoes the decision (see rollbackDecision).
+   * Bound once, here, so a call site cannot get the arguments wrong or forget to
+   * put the model's original ocr_json back.
+   */
+  const rollback = (why: string) => rollbackDecision(admin, receipt_id, {
+    previousStatus,
+    previousTotal,
+    restoreTotal: correctedTotal !== null,
+    restoreOcrJson: correction !== null,
+    previousOcrJson,
+    why
+  })
+
+  const amountNote = correctedTotal !== null
+    ? ` [amount corrected by admin: ${previousTotal === null ? 'none' : `$${previousTotal.toFixed(2)}`} -> $${correctedTotal.toFixed(2)}${plan.amountSource === 'corrected_lines' ? ', recomputed from corrected Bud Light lines' : ''}]`
+    : ''
+  const classificationNote = correction
+    ? ` [Bud Light lines corrected: ${correction.changedLines.map(c => `${c.now ? '+' : '-'}${c.desc || `line ${c.index}`}`).join(', ')}]`
+    : ''
+  const decisionNote = `${reason}${amountNote}${classificationNote}`.slice(0, 1000)
 
   const updatePayload: Record<string, unknown> = {
     status: decision,
@@ -91,61 +143,106 @@ export async function POST(req: NextRequest) {
     decided_at: new Date().toISOString(),
     decision_reason: decisionNote
   }
-  if (overrideTotal !== null) updatePayload.bud_light_total_incl_tax = overrideTotal
+  if (correctedTotal !== null) updatePayload.bud_light_total_incl_tax = correctedTotal
+  const correctedOcrJson = correction
+    ? annotateCorrectedOcr(previousOcrJson, correction, {
+        at: new Date().toISOString(),
+        by: auth.email ?? String(decidedBy),
+        amountSource: plan.amountSource,
+        amountStored: effectiveTotal,
+        reason
+      })
+    : null
+  if (correctedOcrJson) updatePayload.ocr_json = correctedOcrJson
 
   const { data: updated, error } = await admin.from('receipts')
     .update(updatePayload)
     .eq('id', receipt_id)
-    .select('id, status, bud_light_total_incl_tax')
+    .select('id, status, bud_light_total_incl_tax, ocr_json')
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   if (!updated || updated.length !== 1) {
     return NextResponse.json({ ok: false, error: `decision write affected ${updated?.length ?? 0} rows, expected 1` }, { status: 500 })
   }
   // Read-back: the stored amount must be the amount we intended to store.
   const storedTotal = parseNonNegativeMoney(updated[0].bud_light_total_incl_tax)
-  if (overrideTotal !== null && storedTotal !== overrideTotal) {
+  if (correctedTotal !== null && storedTotal !== correctedTotal) {
+    // This path used to return 500 and leave the receipt decided. With a corrected
+    // classification there is now an ocr_json write in the same statement, so a
+    // half-applied correction has to be undone like every other money failure.
+    await rollback(`corrected amount did not persist (stored ${String(updated[0].bud_light_total_incl_tax)})`)
     return NextResponse.json({
       ok: false,
-      error: `amount override did not persist (stored ${String(updated[0].bud_light_total_incl_tax)}, expected ${overrideTotal})`
+      error: `amount override did not persist (stored ${String(updated[0].bud_light_total_incl_tax)}, expected ${correctedTotal}). The decision was rolled back.`
     }, { status: 500 })
+  }
+  // ENGINEERING-RULES 1: a write is followed by a read. The corrected ticks decide
+  // the amount, so a silently-unwritten flag would leave the record disagreeing with
+  // what was paid.
+  if (correction) {
+    const storedFlags = currentBudLightFlags(updated[0].ocr_json)
+    const flagsMatch =
+      storedFlags.length === correction.nextFlags.length &&
+      storedFlags.every((f, i) => f === correction.nextFlags[i])
+    if (!flagsMatch) {
+      await rollback('corrected Bud Light lines did not persist')
+      return NextResponse.json({
+        ok: false,
+        error: 'the corrected Bud Light lines did not persist, so nothing was recorded. The decision was rolled back.'
+      }, { status: 500 })
+    }
   }
 
   // P0-F (d): the override must be in the audit trail. receipts has no audit trigger
   // (0004 only covers invoices/ledger/sends/cancellations/bams/policy), so write it here.
-  if (overrideTotal !== null) {
+  if (correctedTotal !== null || correction) {
     // The trusted role from lib/admin-auth. There is no user_metadata fallback:
     // a role that only exists in the client-writable bag is not a role (P0-A).
     const actorRole = auth.role
+    const actorLabel = auth.email ?? String(decidedBy)
+
+    // audit_log has exactly these payload columns. No `meta`: PostgREST would drop it
+    // without an error and the detail would vanish.
+    const payload = correction
+      ? buildCorrectionAudit({
+          previousStatus,
+          decision,
+          previousTotal,
+          storedTotal: effectiveTotal,
+          correction,
+          overrideTotal,
+          amountSource: plan.amountSource,
+          reason,
+          actorLabel
+        })
+      : {
+          action: 'override_total',
+          before_json: {
+            bud_light_total_incl_tax: previousTotal,
+            status: previousStatus
+          },
+          after_json: {
+            bud_light_total_incl_tax: correctedTotal,
+            status: decision,
+            reason,
+            overridden_by: actorLabel
+          }
+        }
 
     const { error: auditErr } = await admin.from('audit_log').insert({
       actor_id: auth.devBypass ? null : auth.userId,
       actor_role: actorRole,
       entity: 'receipts',
       entity_id: receipt_id,
-      action: 'override_total',
-      before_json: {
-        bud_light_total_incl_tax: previousTotal,
-        status: previousStatus
-      },
-      after_json: {
-        bud_light_total_incl_tax: overrideTotal,
-        status: decision,
-        reason,
-        overridden_by: auth.email ?? decidedBy
-      }
+      action: payload.action,
+      before_json: payload.before_json,
+      after_json: payload.after_json
     })
     if (auditErr) {
       // An unlogged money correction is not acceptable: undo and refuse.
-      await admin.from('receipts').update({
-        status: previousStatus,
-        bud_light_total_incl_tax: previousTotal,
-        decided_by: null,
-        decided_at: null,
-        decision_reason: `override rolled back: audit log write failed (${auditErr.message})`
-      }).eq('id', receipt_id)
+      await rollback(`audit log write failed (${auditErr.message})`)
       return NextResponse.json({
         ok: false,
-        error: `amount override refused: could not write the audit log entry (${auditErr.message})`
+        error: `correction refused: could not write the audit log entry (${auditErr.message})`
       }, { status: 500 })
     }
   }
@@ -207,8 +304,7 @@ export async function POST(req: NextRequest) {
     const { data: cohort, error: cohortErr } = await admin.from('cohorts')
       .select('reimbursement_max, rollover_mode, cap_multiplier').eq('id', receipt.cohort_id).maybeSingle()
     if (cohortErr || !cohort) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        `cohort policy unreadable (${cohortErr?.message ?? 'no cohort row'})`)
+      await rollback(`cohort policy unreadable (${cohortErr?.message ?? 'no cohort row'})`)
       return NextResponse.json({
         ok: false,
         error: `cannot compute reimbursement: cohort policy could not be read (${cohortErr?.message ?? 'no cohort row'}). The decision was rolled back.`
@@ -217,8 +313,7 @@ export async function POST(req: NextRequest) {
     const cohortMax = parseNonNegativeMoney(cohort.reimbursement_max)
     const cohortMultiplier = Number(cohort.cap_multiplier)
     if (cohortMax === null || cohortMax <= 0 || !Number.isFinite(cohortMultiplier) || cohortMultiplier <= 0) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        'cohort reimbursement_max / cap_multiplier is not a usable number')
+      await rollback('cohort reimbursement_max / cap_multiplier is not a usable number')
       return NextResponse.json({
         ok: false,
         error: `cannot compute reimbursement: cohort reimbursement_max="${String(cohort.reimbursement_max)}" cap_multiplier="${String(cohort.cap_multiplier)}". The decision was rolled back.`
@@ -240,8 +335,7 @@ export async function POST(req: NextRequest) {
       .eq('bam_id', receipt.bam_id).eq('period', receipt.period)
       .in('status', ['approved', 'auto_pass'])
     if (monthErr) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        `could not sum this period's receipts (${monthErr.message})`)
+      await rollback(`could not sum this period's receipts (${monthErr.message})`)
       return NextResponse.json({
         ok: false,
         error: `cannot compute reimbursement: this period's receipts could not be summed (${monthErr.message}). The decision was rolled back.`
@@ -258,8 +352,7 @@ export async function POST(req: NextRequest) {
       .select('*').eq('bam_id', receipt.bam_id).lt('period', receipt.period)
       .order('period', { ascending: true })
     if (priorErr) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        `could not read the prior ledger (${priorErr.message})`)
+      await rollback(`could not read the prior ledger (${priorErr.message})`)
       return NextResponse.json({
         ok: false,
         error: `cannot compute reimbursement: prior ledger unreadable (${priorErr.message}). The decision was rolled back.`
@@ -314,16 +407,14 @@ export async function POST(req: NextRequest) {
       .select('id, paid_cad, spent_cad')
 
     if (ledgerErr) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        `reimbursement ledger write failed (${ledgerErr.message})`)
+      await rollback(`reimbursement ledger write failed (${ledgerErr.message})`)
       return NextResponse.json({
         ok: false,
         error: `reimbursement could not be recorded (${ledgerErr.message}). The approval was rolled back, nothing was paid.`
       }, { status: 500 })
     }
     if (!ledgerRows || ledgerRows.length !== 1) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        `reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows`)
+      await rollback(`reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows`)
       return NextResponse.json({
         ok: false,
         error: `reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows, expected 1. The approval was rolled back.`
@@ -331,8 +422,7 @@ export async function POST(req: NextRequest) {
     }
     const persistedPaid = parseNonNegativeMoney(ledgerRows[0].paid_cad)
     if (persistedPaid === null || Math.abs(persistedPaid - out.paidThisMonth) > 0.005) {
-      await rollbackDecision(admin, receipt_id, previousStatus, previousTotal, overrideTotal !== null,
-        `ledger stored paid_cad=${String(ledgerRows[0].paid_cad)} but expected ${out.paidThisMonth}`)
+      await rollback(`ledger stored paid_cad=${String(ledgerRows[0].paid_cad)} but expected ${out.paidThisMonth}`)
       return NextResponse.json({
         ok: false,
         error: `ledger read-back mismatch: stored $${String(ledgerRows[0].paid_cad)}, expected $${out.paidThisMonth.toFixed(2)}. The approval was rolled back.`
@@ -409,6 +499,20 @@ export async function POST(req: NextRequest) {
     status: decision,
     stored_total: storedTotal,
     override_applied: overrideApplied,
+    // What the server decided, so the page reports the recorded amount rather than
+    // its own preview, and so a disagreement between the ticks and a typed amount is
+    // visible instead of silent.
+    classification_changed: correction !== null,
+    amount_source: plan.amountSource,
+    ...(correction
+      ? {
+          bud_light_lines: correction.indices,
+          lines_added: correction.added,
+          lines_removed: correction.removed,
+          recomputed_total: correction.recomputed.total,
+          recompute_basis: correction.recomputed.basis
+        }
+      : {}),
     ledger_paid_cad: ledgerPaid,
     bam_notified: bamNotified,
     ...(bamNotifyError ? { bam_notify_error: bamNotifyError } : {}),
@@ -430,15 +534,25 @@ function scheduleBackground(fn: () => Promise<void>) {
  * Undo the receipt decision when a downstream money write fails. Without this the
  * receipt stays 'approved' with no ledger row, which is the exact state that makes
  * the admin UI claim a reimbursement that does not exist.
+ *
+ * Takes an options object rather than five positional arguments: the amount and the
+ * corrected classification both have to go back, and `(…, previousTotal, true, why)`
+ * is too easy to get subtly wrong at the eighth call site.
  */
 async function rollbackDecision(
   admin: ReturnType<typeof serviceClient>,
   receiptId: string,
-  previousStatus: string,
-  previousTotal: number | null,
-  restoreTotal: boolean,
-  why: string
+  opts: {
+    previousStatus: string
+    previousTotal: number | null
+    restoreTotal: boolean
+    /** put the pre-correction ocr_json back, so the record never keeps flags nobody paid on */
+    restoreOcrJson: boolean
+    previousOcrJson: unknown
+    why: string
+  }
 ) {
+  const { previousStatus, previousTotal, restoreTotal, restoreOcrJson, previousOcrJson, why } = opts
   const payload: Record<string, unknown> = {
     status: previousStatus,
     decided_by: null,
@@ -446,6 +560,7 @@ async function rollbackDecision(
     decision_reason: `decision rolled back: ${why}`.slice(0, 1000)
   }
   if (restoreTotal) payload.bud_light_total_incl_tax = previousTotal
+  if (restoreOcrJson) payload.ocr_json = previousOcrJson
   const { error } = await admin.from('receipts').update(payload).eq('id', receiptId)
   if (error) {
     console.error('[decide] ROLLBACK FAILED for receipt', receiptId, error.message,
