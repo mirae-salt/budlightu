@@ -36,6 +36,7 @@
  * plan becomes link-and-resolve with no write to `bams`.
  */
 import { normalizeEmail, parseEmail } from './sanitize'
+import { reasonProblem } from './reason'
 
 /** Written by supabase/functions/onboarding-ingest: "...form=<a>, roster=<b>". */
 export const ROSTER_EMAIL_RE = /roster\s*=\s*([^\s,;]+)/i
@@ -173,7 +174,8 @@ export function planUnmatchedResolution(input: {
 export function parseRejectReason(raw: unknown): { ok: true; reason: string } | { ok: false; message: string } {
   if (typeof raw !== 'string') return { ok: false, message: 'A reason is required to reject a submission.' }
   const reason = raw.replace(/\s+/g, ' ').trim()
-  if (reason.length < 4) return { ok: false, message: 'Give a reason of at least 4 characters so the record explains itself.' }
-  if (reason.length > 300) return { ok: false, message: 'Keep the reason under 300 characters.' }
+  // Shared rule (lib/reason.ts) so the same words are accepted on every screen.
+  const issue = reasonProblem(reason, 'A reason for rejecting')
+  if (issue) return { ok: false, message: issue }
   return { ok: true, reason }
 }

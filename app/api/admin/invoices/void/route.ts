@@ -14,15 +14,19 @@
  * claiming it.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { reasonProblem } from '../../../../../lib/reason'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 
 export async function POST(req: NextRequest) {
   const { invoice_id, reason } = await req.json()
-  if (!invoice_id || !reason || reason.length < 5) {
-    return NextResponse.json({ ok: false, message: 'Please provide a void reason (at least 5 characters).' }, { status: 400 })
+  const reasonIssue = reasonProblem(reason, 'Reason for voiding')
+  if (!invoice_id) {
+    return NextResponse.json({ ok: false, message: 'invoice_id is required.' }, { status: 400 })
   }
-
+  if (reasonIssue) {
+    return NextResponse.json({ ok: false, message: reasonIssue }, { status: 400 })
+  }
   // P0-A: role from app_metadata only.
   const auth = await requireAdmin()
   if (!auth.ok) return denied(auth)

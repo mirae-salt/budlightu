@@ -16,6 +16,7 @@
  *   is rolled back so the UI can never say "Reimbursement confirmed" without a ledger row.
  */
 import { NextRequest, NextResponse, after } from 'next/server'
+import { reasonProblem } from '../../../../../lib/reason'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
@@ -32,10 +33,13 @@ const MAX_OVERRIDE_CAD = 5000
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const { receipt_id, decision, reason, override_total } = body
-  if (!receipt_id || !['approved', 'rejected'].includes(decision) || !reason || reason.length < 3) {
-    return NextResponse.json({ ok: false, message: 'receipt_id, decision, and reason (>=3 chars) required' }, { status: 400 })
+  const reasonIssue = reasonProblem(reason)
+  if (!receipt_id || !['approved', 'rejected'].includes(decision)) {
+    return NextResponse.json({ ok: false, message: 'receipt_id and a decision of approved or rejected are required.' }, { status: 400 })
   }
-
+  if (reasonIssue) {
+    return NextResponse.json({ ok: false, message: reasonIssue }, { status: 400 })
+  }
   // P0-F (d): validate the override before anything is written.
   let overrideTotal: number | null = null
   if (override_total !== undefined && override_total !== null && override_total !== '') {

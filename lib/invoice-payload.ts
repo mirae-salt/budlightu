@@ -104,6 +104,26 @@ export function generateInvoicePayload(input: {
     throw new Error('HARD BLOCK: cohort.poNumber not set — invoice cannot be generated')
   }
 
+  // The mailing address was NOT checked, while banking was, even though both come
+  // from the same onboarding form. A BAM with banking but no address produced an
+  // invoice whose INFLUENCER MAILING ADDRESS block read:
+  //     Mirae Lee
+  //     , ,
+  //     mirae.lee@ilovesalt.com
+  // and that document went to AP looking broken. Robin asked for the address on
+  // 2026-07-15, so it is required. Blocking is the same fail-closed choice already
+  // made for banking, and a BAM who has banking but no address is an anomaly worth
+  // stopping on rather than papering over.
+  const missingAddress = (['street', 'city', 'prov', 'postal'] as const)
+    .filter(f => !String(bam[f] ?? '').trim())
+  if (missingAddress.length > 0) {
+    throw new Error(
+      `HARD BLOCK: mailing address incomplete (missing ${missingAddress.join(', ')}) — ` +
+      'invoice NOT created. An invoice with a blank address must not reach AP. ' +
+      'Have the BAM complete onboarding, or fill it in on the roster.'
+    )
+  }
+
   const invoiceNumber = formatInvoiceNumber(bam.initialsResolved, seq, revision)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
 

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { reasonProblem } from '@/lib/reason'
 import { type InvoiceRow } from '../_lib/dummy'
 
 type PayloadLine = { qty: number; description: string; unitPrice: number; total: number }
@@ -664,7 +665,9 @@ export default function InvoiceBatch() {
                   const rate = inv.taxApplicable ? inv.taxRate : 0
                   const previewTax = rate == null ? null : round2(previewSubtotal * rate)
                   const previewTotal = previewTax == null ? null : round2(previewSubtotal + previewTax)
-                  const reasonOk = editReason.trim().length >= 5
+                  // Shared rule, so the message matches what the server would say.
+                  const reasonIssue = reasonProblem(editReason, 'Reason for the change')
+                  const reasonOk = reasonIssue === null
                   const emptyDesc = lineDrafts.some(d => d.description.trim().length === 0)
                   const badNumber = lineDrafts.some(d =>
                     !/^\d{1,3}$/.test(d.qty.trim()) || !Number.isFinite(Number(d.unitPrice)) || d.unitPrice.trim() === '' || Number(d.unitPrice) < 0
@@ -790,9 +793,9 @@ export default function InvoiceBatch() {
                             maxLength={500}
                             onChange={e => setEditReason(e.target.value)}
                           />
-                          {editReason.trim().length > 0 && !reasonOk && (
+                          {!reasonOk && reasonIssue && (
                             <span className="muted" style={{ fontSize: 11, color: 'var(--amber)' }}>
-                              A bit more detail please (at least 5 characters)
+                              {reasonIssue}
                             </span>
                           )}
                         </div>

@@ -16,6 +16,7 @@
  * longer approved.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { reasonProblem } from '../../../../../lib/reason'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
@@ -30,11 +31,11 @@ export async function POST(req: NextRequest) {
   if (!receipt_id) {
     return NextResponse.json({ ok: false, message: 'receipt_id required' }, { status: 400 })
   }
-  if (!reason || String(reason).trim().length < 3) {
-    return NextResponse.json(
-      { ok: false, message: 'A reason is required so the audit trail explains why this was reopened.' },
-      { status: 400 }
-    )
+  const reasonIssue = reasonProblem(reason, 'Reason for reopening')
+  if (reasonIssue) {
+    // Return the specific problem, not a generic line. The caller has no other way
+    // to find out what the rule is.
+    return NextResponse.json({ ok: false, message: reasonIssue }, { status: 400 })
   }
 
   const auth = await requireAdmin()

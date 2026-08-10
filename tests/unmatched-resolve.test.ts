@@ -8,6 +8,7 @@
  * ambiguous case must refuse rather than pick.
  */
 import { describe, it, expect } from 'vitest'
+import { MAX_REASON_LENGTH } from '../lib/reason'
 import {
   rosterEmailFromFlagReason,
   resolveTargetBam,
@@ -189,7 +190,10 @@ describe('parseRejectReason', () => {
     if (r.ok) expect(r.reason).toBe('not a BAM in this cohort')
   })
 
-  it('caps the length', () => {
-    expect(parseRejectReason('x'.repeat(301)).ok).toBe(false)
+  it('caps the length, using the shared limit rather than its own', () => {
+    // Was a local 300. Every reason field now shares lib/reason.ts, so the same
+    // text is accepted or refused identically on every screen.
+    expect(parseRejectReason('x'.repeat(MAX_REASON_LENGTH)).ok).toBe(true)
+    expect(parseRejectReason('x'.repeat(MAX_REASON_LENGTH + 1)).ok).toBe(false)
   })
 })

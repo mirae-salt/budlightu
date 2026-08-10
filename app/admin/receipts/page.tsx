@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
+import { reasonProblem, MIN_REASON_LENGTH } from '@/lib/reason'
 
 type Row = ReceiptRow & { id: string; storageKey?: string; storageMime?: string; ocrJson?: OcrData | null }
 
@@ -207,12 +208,17 @@ export default function ReceiptsQueue() {
    */
   async function revertToReview(row: Row) {
     const reason = window.prompt(
-      `Reopen ${row.bam}'s receipt for another decision?\n\nWhy are you reopening it? (required, saved to the audit log)`
+      `Reopen ${row.bam}'s receipt for another decision?\n\n` +
+      `Why are you reopening it? Saved to the audit log. ` +
+      `At least ${MIN_REASON_LENGTH} characters, for example "typo".`
     )
     if (reason === null) return
-    if (reason.trim().length < 3) {
-      setMessage('Reopen cancelled: a reason is required')
-      setTimeout(() => setMessage(null), 4000)
+    // Same function the server uses, so what is shown here matches what the server
+    // would have said, instead of a vaguer local guess.
+    const issue = reasonProblem(reason, 'Reason for reopening')
+    if (issue) {
+      setMessage(`Reopen cancelled. ${issue}`)
+      setTimeout(() => setMessage(null), 6000)
       return
     }
 
