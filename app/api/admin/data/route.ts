@@ -19,6 +19,7 @@
 import { NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
+import { provinceTaxRate } from '../../../../lib/invoice-payload'
 
 /** $150/month, no rollover (Robin confirmed 2026-08-04). */
 const MONTHLY_CAP_CAD = 150
@@ -41,6 +42,19 @@ function redactPayload(payload: unknown): unknown {
   const out: Record<string, unknown> = { ...(payload as Record<string, unknown>) }
   for (const k of REDACTED_PAYLOAD_KEYS) delete out[k]
   return out
+}
+
+/**
+ * Pulls `prov` out of the embedded bams row and returns the row without it.
+ * The province is used server-side to derive the tax rate for the invoice line
+ * editor; it is not part of what the invoices table needs in the browser, so it
+ * does not travel. supabase-js types an embedded one-to-one as an array.
+ */
+function stripBamProv(rel: unknown): { bams: unknown; prov: string | null } {
+  const row = Array.isArray(rel) ? rel[0] : rel
+  if (!row || typeof row !== 'object') return { bams: rel ?? null, prov: null }
+  const { prov, ...rest } = row as Record<string, unknown>
+  return { bams: rest, prov: typeof prov === 'string' ? prov : null }
 }
 
 export async function GET(req: Request) {
@@ -82,8 +96,12 @@ export async function GET(req: Request) {
     }
 
     case 'invoices': {
+      // `bams(prov)` is fetched for the tax rate only and is deleted from every
+      // row before the response is built (see stripBamProv). The line editor
+      // needs to preview tax at the SAME rate the server will apply; it does not
+      // need the BAM's address.
       const { data: invoices, error } = await admin.from('invoices')
-        .select('id, invoice_number, period, status, cohort_id, bam_id, payload_json, bams(first_name, last_name)')
+        .select('id, invoice_number, period, status, cohort_id, bam_id, payload_json, bams(first_name, last_name, prov)')
         // Must include 'approved', 'paid' and 'void'. The filter used to be
         // ['draft','sent'], which hid an invoice the moment batch-approve set it to
         // 'approved' — and /api/admin/send-ap only accepts status='approved', so the
@@ -110,13 +128,24 @@ export async function GET(req: Request) {
         }
       }
 
-      const enriched = (invoices as { bam_id: string; period: string; payload_json?: unknown; [k: string]: unknown }[]).map(inv => {
+      const enriched = (invoices as { bam_id: string; period: string; payload_json?: unknown; bams?: unknown; [k: string]: unknown }[]).map(inv => {
         const receipt = receiptMap[`${inv.bam_id}_${inv.period}`]
+        const payload = (inv.payload_json ?? {}) as { subtotal?: unknown; tax?: unknown }
+        // Whether this invoice charges tax is a fact about the invoice, taken
+        // from what the generator already decided. The HST NUMBER itself is never
+        // exposed (REDACTED_PAYLOAD_KEYS), only this boolean and the rate.
+        const taxApplicable = Number(payload.tax ?? 0) > 0
+        const { bams, prov } = stripBamProv(inv.bams)
         return {
           ...inv,
+          bams,
           payload_json: redactPayload(inv.payload_json),
           receipt_status: receipt?.status ?? null,
-          receipt_total: receipt?.total ?? null
+          receipt_total: receipt?.total ?? null,
+          tax_applicable: taxApplicable,
+          /** 0 when no tax applies, null when the province code is unknown (the
+           *  server would refuse the edit rather than guess a rate). */
+          tax_rate: taxApplicable ? provinceTaxRate(prov) : 0
         }
       })
       return NextResponse.json({ data: enriched, error: null })

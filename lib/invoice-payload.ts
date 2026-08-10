@@ -7,6 +7,10 @@
 
 import { validateInstitution, validateTransit, validateAccount } from './validation'
 import { formatInvoiceNumber } from './invoice-numbering'
+// ONE rounding helper. This file used to carry a private `round2` identical to
+// lib/money.ts's; lib/invoice-lines.ts recomputes the same totals when an admin
+// edits a line, and two copies of a money helper is how the two drift apart.
+import { round2 } from './money'
 
 export type BamSnapshot = {
   firstName: string
@@ -193,17 +197,26 @@ const PROVINCE_TAX_RATE: Record<string, number> = {
   NU: 0.05,  // GST only
 }
 
-export function computeHst(subtotal: number, province?: string): number {
+/**
+ * The rate computeHst will use, or null when the province code is unknown.
+ *
+ * Exported so the admin line editor can show a live tax preview with the SAME
+ * rate the server will apply, instead of dividing a stored tax by a stored
+ * subtotal to guess it. The server still recomputes; this is display only.
+ */
+export function provinceTaxRate(province?: string | null): number | null {
   const key = (province ?? 'ON').toUpperCase().trim()
   const rate = PROVINCE_TAX_RATE[key]
+  return rate == null ? null : rate
+}
+
+export function computeHst(subtotal: number, province?: string): number {
+  const rate = provinceTaxRate(province)
   if (rate == null) {
+    const key = (province ?? 'ON').toUpperCase().trim()
     throw new Error(`Unknown province code "${key}" — cannot compute tax. Fix BAM province before invoicing.`)
   }
   return round2(subtotal * rate)
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
 }
 
 function ordinal(_m: string, day: string): string {

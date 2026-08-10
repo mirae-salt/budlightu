@@ -4,7 +4,20 @@ import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { type InvoiceRow } from '../_lib/dummy'
 
-type Row = InvoiceRow & { id: string; cohort_id: string | null; period: string }
+type PayloadLine = { qty: number; description: string; unitPrice: number; total: number }
+
+type Row = InvoiceRow & {
+  id: string
+  cohort_id: string | null
+  period: string
+  /** Line items from payload_json. Banking is stripped server-side (redactPayload). */
+  lines: PayloadLine[]
+  subtotal?: number
+  tax?: number
+  /** Whether this invoice charges tax, and at what rate. Never the HST number. */
+  taxApplicable: boolean
+  taxRate: number | null
+}
 
 /**
  * 0018_invoice_engine_fixes.sql added 'approved' to the invoices status CHECK
@@ -19,10 +32,12 @@ type DbInvoice = {
   period: string
   status: 'draft' | 'approved' | 'sent' | 'paid' | 'void'
   cohort_id: string
-  payload_json: { total?: number } | null
+  payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[] } | null
   bams: { first_name: string; last_name: string } | null
   receipt_status: string | null
   receipt_total: number | null
+  tax_applicable?: boolean
+  tax_rate?: number | null
 }
 
 function periodLabel(period: string): string {
@@ -48,20 +63,84 @@ function mapDbInvoice(inv: DbInvoice): Row {
     status: inv.status,
     cohort_id: inv.cohort_id,
     receiptStatus: mapReceiptStatus(inv.receipt_status),
-    receiptTotal: inv.receipt_total != null ? `$${Number(inv.receipt_total).toFixed(2)}` : undefined
+    receiptTotal: inv.receipt_total != null ? `$${Number(inv.receipt_total).toFixed(2)}` : undefined,
+    lines: Array.isArray(inv.payload_json?.lines) ? inv.payload_json!.lines! : [],
+    subtotal: inv.payload_json?.subtotal,
+    tax: inv.payload_json?.tax,
+    taxApplicable: inv.tax_applicable === true,
+    taxRate: inv.tax_rate ?? null
   }
 }
+
+/** Same predicate the server and the send-time ledger check use. */
+function isReimbursementLine(line: { description?: string }): boolean {
+  return typeof line?.description === 'string' && /reimbursement/i.test(line.description)
+}
+
+function money(n: number): string {
+  return `$${n.toFixed(2)}`
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/** Editable copy of a line. Amounts are held as text so a half-typed value does
+ *  not become NaN and silently show $0.00 while it is being typed. */
+type LineDraft = { description: string; qty: string; unitPrice: string; locked: boolean }
+
+function toDrafts(lines: PayloadLine[]): LineDraft[] {
+  return lines.map(l => ({
+    description: l.description ?? '',
+    qty: String(l.qty ?? 1),
+    unitPrice: Number(l.unitPrice ?? 0).toFixed(2),
+    locked: isReimbursementLine(l)
+  }))
+}
+
+function draftLineTotal(d: LineDraft): number {
+  const qty = Number(d.qty)
+  const unit = Number(d.unitPrice)
+  if (!Number.isFinite(qty) || !Number.isFinite(unit)) return 0
+  return round2(qty * unit)
+}
+
+/**
+ * kind drives the badge colour. A failure must never render in a green badge:
+ * "Void failed" and "AP send failed" both used to, on this page, which is the
+ * bug that was just fixed across /admin/roster and /admin/cohorts.
+ */
+type Notice = { kind: 'ok' | 'error'; text: string }
 
 export default function InvoiceBatch() {
   const [invoices, setInvoices] = useState<Row[]>([])
   const [useDb, setUseDb] = useState(false)
   const [batchConfirming, setBatchConfirming] = useState(false)
-  const [batchMessage, setBatchMessage] = useState<string | null>(null)
+  const [batchNotice, setBatchNotice] = useState<Notice | null>(null)
   const [previewNumber, setPreviewNumber] = useState<string | null>(null)
   const [voidingNumber, setVoidingNumber] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
-  const [rowMessage, setRowMessage] = useState<string | null>(null)
+  const [rowNotice, setRowNotice] = useState<Notice | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  // ── line editing (salary + ad-hoc only) ───────────────────────────────────
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [lineDrafts, setLineDrafts] = useState<LineDraft[]>([])
+  const [editReason, setEditReason] = useState('')
+  const [savingLines, setSavingLines] = useState(false)
+
+  /** Successes clear themselves; failures stay until the next action. */
+  function reportBatch(kind: 'ok' | 'error', text: string) {
+    const n = { kind, text }
+    setBatchNotice(n)
+    if (kind === 'ok') setTimeout(() => setBatchNotice(cur => (cur === n ? null : cur)), 6000)
+  }
+
+  function reportRow(kind: 'ok' | 'error', text: string) {
+    const n = { kind, text }
+    setRowNotice(n)
+    if (kind === 'ok') setTimeout(() => setRowNotice(cur => (cur === n ? null : cur)), 6000)
+  }
 
   useEffect(() => {
     fetch('/api/admin/data?table=invoices')
@@ -103,8 +182,7 @@ export default function InvoiceBatch() {
   async function confirmBatchApprove() {
     setBatchConfirming(false)
     if (!useDb || selectedDrafts.length === 0) {
-      setBatchMessage(`${selectedDrafts.length} invoices approved. AP emails queued (dryrun mode). BAM copies queued.`)
-      setTimeout(() => setBatchMessage(null), 6000)
+      reportBatch('ok', `${selectedDrafts.length} invoices approved. AP emails queued (dryrun mode). BAM copies queued.`)
       return
     }
     try {
@@ -115,21 +193,21 @@ export default function InvoiceBatch() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
-        setBatchMessage(json.message || 'Batch approve failed')
+        reportBatch('error', json.message || `Batch approve failed (${json.failures ?? '?'} of ${json.processed ?? '?'} failed)`)
       } else {
-        setBatchMessage(`Batch approve: ${json.processed ?? 0} invoice(s) processed.`)
+        reportBatch('ok', `Batch approve: ${json.processed ?? 0} invoice(s) processed.`)
         setSelected(new Set())
       }
     } catch {
-      setBatchMessage('Network error: batch approve not sent')
+      reportBatch('error', 'Network error: batch approve not sent')
     }
-    setTimeout(() => setBatchMessage(null), 6000)
   }
 
   function startVoid(number: string) {
     setVoidingNumber(number)
     setVoidReason('')
     setPreviewNumber(null)
+    setEditingId(null)
     if (pdfUrl) { URL.revokeObjectURL(pdfUrl); setPdfUrl(null) }
   }
 
@@ -137,8 +215,7 @@ export default function InvoiceBatch() {
     if (!useDb) {
       setInvoices(list => list.map(i => i.number === inv.number ? { ...i, status: 'void' as const } : i))
       setVoidingNumber(null)
-      setRowMessage(`${inv.number} voided. AP cancellation email drafted.`)
-      setTimeout(() => setRowMessage(null), 5000)
+      reportRow('ok', `${inv.number} voided (local preview only, no database).`)
       return
     }
     try {
@@ -149,16 +226,86 @@ export default function InvoiceBatch() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
-        setRowMessage(json.message || json.error || 'Void failed')
+        reportRow('error', json.message || json.error || 'Void failed')
       } else {
         setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'void' as const } : i))
-        setRowMessage(`${inv.number} voided. AP cancellation email drafted.`)
+        // The route says whether a cancellation draft actually exists. Claiming
+        // one unconditionally is P1-16.
+        reportRow('ok', `${inv.number} voided. ${json.note ?? ''}`.trim())
       }
     } catch {
-      setRowMessage('Network error: void not saved')
+      reportRow('error', 'Network error: void not saved')
     }
     setVoidingNumber(null)
-    setTimeout(() => setRowMessage(null), 5000)
+  }
+
+  // ── line editing ──────────────────────────────────────────────────────────
+
+  function startEditLines(inv: Row) {
+    if (editingId === inv.id) { setEditingId(null); return }
+    setEditingId(inv.id)
+    setLineDrafts(toDrafts(inv.lines))
+    setEditReason('')
+    setVoidingNumber(null)
+    setPreviewNumber(null)
+    if (pdfUrl) { URL.revokeObjectURL(pdfUrl); setPdfUrl(null) }
+  }
+
+  function updateDraft(i: number, patch: Partial<LineDraft>) {
+    setLineDrafts(list => list.map((d, idx) => (idx === i ? { ...d, ...patch } : d)))
+  }
+
+  function addAdhocLine() {
+    setLineDrafts(list => [...list, { description: '', qty: '1', unitPrice: '0.00', locked: false }])
+  }
+
+  function removeLine(i: number) {
+    setLineDrafts(list => list.filter((_, idx) => idx !== i))
+  }
+
+  async function saveLines(inv: Row) {
+    setSavingLines(true)
+    try {
+      const res = await fetch(`/api/admin/invoices/${inv.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: editReason,
+          // No subtotal / tax / total is sent. The server recomputes them and
+          // would ignore them anyway.
+          lines: lineDrafts.map(d => ({
+            description: d.description,
+            qty: d.qty,
+            unitPrice: d.unitPrice
+          }))
+        })
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.ok === false) {
+        reportRow('error', json.message || `Edit not saved (HTTP ${res.status}).`)
+      } else {
+        // Show what the SERVER stored, not what was typed.
+        setInvoices(list => list.map(i => i.id === inv.id ? {
+          ...i,
+          lines: json.lines ?? i.lines,
+          subtotal: json.subtotal,
+          tax: json.tax,
+          amount: `$${Number(json.total).toFixed(2)}`
+        } : i))
+        setEditingId(null)
+        const warnings: string[] = Array.isArray(json.warnings) ? json.warnings : []
+        const saved =
+          `${json.invoice_number}: lines saved. Server total ${money(Number(json.total))}.` +
+          (json.pdf_invalidated ? ' The stored PDF was cleared, so the next send re-renders it.' : '')
+        // A caveat is not a success. It stays on screen, in red, and it says the
+        // edit WAS saved so nobody re-submits it.
+        if (warnings.length > 0) reportRow('error', `${saved} Needs attention: ${warnings.join(' ')}`)
+        else reportRow('ok', saved)
+      }
+    } catch {
+      reportRow('error', 'Network error: the edit was not saved.')
+    }
+    setSavingLines(false)
   }
 
   function downloadFile(filename: string, contents: string, mime = 'text/csv;charset=utf-8;') {
@@ -209,8 +356,7 @@ export default function InvoiceBatch() {
   async function downloadOne(inv: Row) {
     const blob = await fetchPdf(inv)
     if (!blob) {
-      setRowMessage('PDF generation failed')
-      setTimeout(() => setRowMessage(null), 4000)
+      reportRow('error', 'PDF generation failed')
       return
     }
     const url = URL.createObjectURL(blob)
@@ -244,8 +390,7 @@ export default function InvoiceBatch() {
         body: JSON.stringify({ invoice_ids: ids.length > 0 ? ids : undefined })
       })
       if (!res.ok) {
-        setRowMessage('ZIP download failed')
-        setTimeout(() => setRowMessage(null), 4000)
+        reportRow('error', 'ZIP download failed')
         return
       }
       const blob = await res.blob()
@@ -258,8 +403,7 @@ export default function InvoiceBatch() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch {
-      setRowMessage('ZIP download failed. Check server logs')
-      setTimeout(() => setRowMessage(null), 4000)
+      reportRow('error', 'ZIP download failed. Check server logs')
     }
     setZipLoading(false)
   }
@@ -281,24 +425,26 @@ export default function InvoiceBatch() {
         body: JSON.stringify(payload)
       })
       if (res.status === 404) {
-        setRowMessage('AP email endpoint not configured yet.')
+        reportRow('error', 'AP email endpoint not configured yet.')
       } else if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        setRowMessage(`AP email failed: ${body.message ?? res.statusText}`)
+        reportRow('error', `AP email failed: ${body.message ?? res.statusText}`)
       } else {
         const json = await res.json().catch(() => ({}))
         if (testEmail) {
-          setRowMessage(json.failed ? `Test send failed.` : `Test email sent to ${testEmail}`)
+          if (json.failed) reportRow('error', 'Test send failed.')
+          else reportRow('ok', `Test email sent to ${testEmail}`)
+        } else if (json.failed) {
+          reportRow('error', `${inv.number}: AP send failed.`)
         } else {
-          setRowMessage(json.failed ? `${inv.number}: AP send failed.` : `${inv.number} sent to AP.`)
+          reportRow('ok', `${inv.number} sent to AP.`)
           setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'sent' as const } : i))
         }
       }
     } catch {
-      setRowMessage('AP email endpoint not configured yet.')
+      reportRow('error', 'AP email endpoint not configured yet.')
     }
     setApPreview(null)
-    setTimeout(() => setRowMessage(null), 5000)
   }
 
   const now = new Date()
@@ -360,11 +506,21 @@ export default function InvoiceBatch() {
           </div>
         )}
 
-        {batchMessage && (
-          <div className="badge badge-green" style={{ marginBottom: 16, display: 'inline-block' }}>{batchMessage}</div>
+        {batchNotice && (
+          <div
+            className={batchNotice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
+            style={{ marginBottom: 16, display: 'inline-block', whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%' }}
+          >
+            {batchNotice.text}
+          </div>
         )}
-        {rowMessage && (
-          <div className="badge badge-green" style={{ marginBottom: 16, marginLeft: 8, display: 'inline-block' }}>{rowMessage}</div>
+        {rowNotice && (
+          <div
+            className={rowNotice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
+            style={{ marginBottom: 16, marginLeft: 8, display: 'inline-block', whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%' }}
+          >
+            {rowNotice.text}
+          </div>
         )}
 
         <table className="admin-table">
@@ -444,6 +600,21 @@ export default function InvoiceBatch() {
                           <button
                             className="btn-ghost"
                             style={{ padding: '3px 8px', fontSize: 11 }}
+                            onClick={() => startEditLines(inv)}
+                            disabled={!useDb || inv.lines.length === 0}
+                            title={!useDb
+                              ? 'Sample data only. Line editing needs the database.'
+                              : inv.lines.length === 0
+                              ? 'This invoice has no stored line items. Regenerate it first.'
+                              : 'Edit the salary line and ad-hoc items. The reimbursement line is changed on the receipt.'}
+                          >
+                            {editingId === inv.id ? 'Close edit' : 'Edit lines'}
+                          </button>
+                        )}
+                        {(inv.status === 'draft' || inv.status === 'approved') && (
+                          <button
+                            className="btn-ghost"
+                            style={{ padding: '3px 8px', fontSize: 11 }}
                             onClick={() => openApPreview(inv)}
                             title={inv.status === 'approved'
                               ? 'Approved but not marked sent. Retry the AP send.'
@@ -487,6 +658,173 @@ export default function InvoiceBatch() {
                     </td>
                   </tr>
                 )}
+
+                {editingId === inv.id && (() => {
+                  const previewSubtotal = round2(lineDrafts.reduce((s, d) => s + draftLineTotal(d), 0))
+                  const rate = inv.taxApplicable ? inv.taxRate : 0
+                  const previewTax = rate == null ? null : round2(previewSubtotal * rate)
+                  const previewTotal = previewTax == null ? null : round2(previewSubtotal + previewTax)
+                  const reasonOk = editReason.trim().length >= 5
+                  const emptyDesc = lineDrafts.some(d => d.description.trim().length === 0)
+                  const badNumber = lineDrafts.some(d =>
+                    !/^\d{1,3}$/.test(d.qty.trim()) || !Number.isFinite(Number(d.unitPrice)) || d.unitPrice.trim() === '' || Number(d.unitPrice) < 0
+                  )
+                  return (
+                  <tr>
+                    <td colSpan={7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                      <div className="card" style={{ maxWidth: 760 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--bl-navy)', marginBottom: 4 }}>
+                          Edit lines · {inv.number} ({inv.bam})
+                        </div>
+                        <p className="muted" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
+                          Salary and ad-hoc items (bar tab, gas, event costs) are edited here. The reimbursement line is
+                          read-only: that amount comes from the receipt, so change it on{' '}
+                          <a href="/admin/receipts">/admin/receipts</a> and regenerate.
+                        </p>
+
+                        <table className="admin-table" style={{ marginBottom: 12 }}>
+                          <thead>
+                            <tr>
+                              <th>Description</th>
+                              <th style={{ width: 70 }}>Qty</th>
+                              <th style={{ width: 110 }}>Unit price</th>
+                              <th style={{ width: 100, textAlign: 'right' }}>Line total</th>
+                              <th style={{ width: 40 }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lineDrafts.map((d, i) => (
+                              <tr key={i}>
+                                <td>
+                                  {d.locked ? (
+                                    <div>
+                                      <div style={{ fontSize: 13 }}>{d.description}</div>
+                                      <div className="muted" style={{ fontSize: 11 }}>
+                                        Reimbursement. Changed on the receipt, not here.
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <input
+                                      value={d.description}
+                                      maxLength={120}
+                                      placeholder="e.g. Event bar tab, approved by Robin"
+                                      onChange={e => updateDraft(i, { description: e.target.value })}
+                                      style={{ width: '100%' }}
+                                    />
+                                  )}
+                                </td>
+                                <td>
+                                  {d.locked
+                                    ? <span style={{ fontSize: 13 }}>{d.qty}</span>
+                                    : <input
+                                        value={d.qty}
+                                        inputMode="numeric"
+                                        onChange={e => updateDraft(i, { qty: e.target.value })}
+                                        style={{ width: '100%' }}
+                                      />}
+                                </td>
+                                <td>
+                                  {d.locked
+                                    ? <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{money(Number(d.unitPrice))}</span>
+                                    : <input
+                                        value={d.unitPrice}
+                                        inputMode="decimal"
+                                        onChange={e => updateDraft(i, { unitPrice: e.target.value })}
+                                        style={{ width: '100%' }}
+                                      />}
+                                </td>
+                                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
+                                  {money(draftLineTotal(d))}
+                                </td>
+                                <td style={{ textAlign: 'right' }}>
+                                  {d.locked ? (
+                                    <span className="muted" style={{ fontSize: 11 }}>locked</span>
+                                  ) : (
+                                    <button
+                                      className="btn-ghost"
+                                      style={{ padding: '2px 6px', fontSize: 11, color: 'var(--midgray)' }}
+                                      onClick={() => removeLine(i)}
+                                      title="Remove this line"
+                                      disabled={lineDrafts.length <= 1}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 12 }}>
+                          <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={addAdhocLine} disabled={lineDrafts.length >= 12}>
+                            + Add ad-hoc line
+                          </button>
+                          <div style={{ fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                            <div><span className="muted">Subtotal </span><strong>{money(previewSubtotal)}</strong></div>
+                            <div>
+                              <span className="muted">Tax </span>
+                              <strong>
+                                {!inv.taxApplicable ? '$0.00' : previewTax == null ? 'unknown' : money(previewTax)}
+                              </strong>
+                              {inv.taxApplicable && previewTax == null && (
+                                <span className="muted" style={{ fontSize: 11 }}> (province code not recognised)</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 15 }}>
+                              <span className="muted">Total </span>
+                              <strong>{previewTotal == null ? 'unknown' : money(previewTotal)}</strong>
+                            </div>
+                            <div className="muted" style={{ fontSize: 11, maxWidth: 280, lineHeight: 1.4, marginTop: 4 }}>
+                              Preview only. The server recomputes the subtotal, tax and total from the lines and stores
+                              its own figures.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="field">
+                          <label>Why are the amounts changing?</label>
+                          <input
+                            placeholder="e.g. Robin approved $60 bar tab for the Sept 12 event"
+                            value={editReason}
+                            maxLength={500}
+                            onChange={e => setEditReason(e.target.value)}
+                          />
+                          {editReason.trim().length > 0 && !reasonOk && (
+                            <span className="muted" style={{ fontSize: 11, color: 'var(--amber)' }}>
+                              A bit more detail please (at least 5 characters)
+                            </span>
+                          )}
+                        </div>
+
+                        {emptyDesc && (
+                          <div className="muted" style={{ fontSize: 11, color: 'var(--amber)', marginBottom: 8 }}>
+                            Every line needs a description.
+                          </div>
+                        )}
+                        {badNumber && (
+                          <div className="muted" style={{ fontSize: 11, color: 'var(--amber)', marginBottom: 8 }}>
+                            Quantity must be a whole number and the unit price must be zero or more.
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <button
+                            onClick={() => saveLines(inv)}
+                            disabled={savingLines || !reasonOk || emptyDesc || badNumber}
+                          >
+                            {savingLines ? 'Saving…' : 'Save lines'}
+                          </button>
+                          <button className="btn-ghost" onClick={() => setEditingId(null)} disabled={savingLines}>Cancel</button>
+                          <span className="muted" style={{ fontSize: 11, lineHeight: 1.4 }}>
+                            Saving clears the stored PDF so the next send re-renders it from these lines.
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  )
+                })()}
 
                 {voidingNumber === inv.number && (
                   <tr>
