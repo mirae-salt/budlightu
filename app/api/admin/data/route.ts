@@ -123,8 +123,12 @@ export async function GET(req: Request) {
     }
 
     case 'cohorts': {
+      // salary_default / reimbursement_max / rollover_mode /
+      // first_cohort_all_review decide how much money each BAM is paid, and none
+      // of them was selected here, so no UI could show them and nobody could
+      // check them. They are exposed read-only on /admin/cohorts.
       const { data: cohorts, error } = await admin.from('cohorts')
-        .select('id, name, program_label, po_number, start_date, end_date, send_mode, bam_copy_mode')
+        .select('id, name, program_label, po_number, start_date, end_date, send_mode, bam_copy_mode, salary_default, reimbursement_max, rollover_mode, first_cohort_all_review')
       if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
       if (!cohorts) return NextResponse.json({ data: [], error: null })
 

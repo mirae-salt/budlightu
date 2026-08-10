@@ -37,27 +37,63 @@ type DbBam = {
   bank_name: string | null
   initials_resolved: string | null
   school_id: string | null
+  cohort_id: string | null
   cohorts: { name: string } | null
   is_test: boolean | null
 }
 
-type FullRow = BamRow & { id: string }
+/** Placeholder shown for an empty cell. Never sent back to the server: writing
+ *  it into school_id is how a live row ended up with a dash as its school. */
+const EMPTY_CELL = '—'
+
+type FullRow = BamRow & { id: string; cohortId: string | null }
 
 function mapDbBam(b: DbBam): FullRow {
   return {
     id: b.id,
-    name: `${b.first_name} ${b.last_name}`,
+    name: `${b.first_name} ${b.last_name}`.trim(),
     email: b.email,
     status: b.status,
-    bank: b.bank_name || '—',
+    bank: b.bank_name || EMPTY_CELL,
     invoiceCode: b.initials_resolved ? `INV-${b.initials_resolved}` : null,
-    cohort: b.cohorts?.name || '—',
-    school: b.school_id || '—',
+    cohort: b.cohorts?.name || EMPTY_CELL,
+    cohortId: b.cohort_id ?? null,
+    school: b.school_id || EMPTY_CELL,
     isTest: b.is_test ?? false
   }
 }
 
-type EditForm = { name: string; email: string; bank: string; status: string; cohort: string; school: string }
+/** Server response shape for PATCH/POST /api/admin/roster (the read-back). */
+type SavedBam = {
+  id: string
+  first_name: string
+  last_name: string
+  email: string
+  status: 'pending' | 'active' | 'archived'
+  bank_name: string | null
+  school_id: string | null
+  cohort_id: string | null
+  initials_resolved: string | null
+  is_test: boolean | null
+}
+
+/** Build a table row from what the server said it stored, never from the form. */
+function rowFromSaved(saved: SavedBam, cohortName: string | undefined): FullRow {
+  return {
+    id: saved.id,
+    name: `${saved.first_name} ${saved.last_name ?? ''}`.trim(),
+    email: saved.email,
+    status: saved.status,
+    bank: saved.bank_name || EMPTY_CELL,
+    invoiceCode: saved.initials_resolved ? `INV-${saved.initials_resolved}` : null,
+    cohort: cohortName || EMPTY_CELL,
+    cohortId: saved.cohort_id ?? null,
+    school: saved.school_id || EMPTY_CELL,
+    isTest: saved.is_test ?? false
+  }
+}
+
+type EditForm = { name: string; email: string; bank: string; status: string; cohortId: string; school: string }
 
 // --- CSV parsing ---
 type CsvRow = { first_name: string; last_name: string; email: string; school?: string; full_name?: string }
@@ -113,13 +149,17 @@ export default function Roster() {
   const [bams, setBams] = useState<FullRow[]>([])
   const [useDb, setUseDb] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohort: '', school: '' })
-  const [editMsg, setEditMsg] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohortId: '', school: '' })
+  /** kind drives the badge colour: a failure must never render green. */
+  const [editMsg, setEditMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [saving, setSaving] = useState(false)
   const [inviting, setInviting] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
-  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohort: '', isTest: false })
-  const [cohortList, setCohortList] = useState<string[]>([])
+  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false })
+  // Cohorts are held as {id, name}: the API writes cohort_id, so a name-only
+  // list cannot be saved. Empty means "no cohorts in the database", and the
+  // selects say so rather than offering an option that cannot be stored.
   const [cohortOptions, setCohortOptions] = useState<CohortOption[]>([])
 
   // CSV import state
@@ -139,26 +179,23 @@ export default function Roster() {
           setBams((data as DbBam[]).map(mapDbBam))
           setUseDb(true)
         } else {
-          setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}` })))
+          setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}`, cohortId: null })))
         }
       })
       .catch(() => {
-        setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}` })))
+        setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}`, cohortId: null })))
       })
 
     fetch('/api/admin/data?table=cohorts')
       .then(res => res.json())
       .then(({ data }) => {
-        if (data && data.length > 0) {
-          setCohortList((data as { name: string }[]).map(c => c.name))
-          setCohortOptions((data as CohortOption[]).map(c => ({ id: c.id, name: c.name })))
-        } else {
-          setCohortList(['Fall 2026', 'Summer 2026'])
-          setCohortOptions([])
-        }
+        setCohortOptions(data && data.length > 0 ? (data as CohortOption[]).map(c => ({ id: c.id, name: c.name })) : [])
       })
-      .catch(() => { setCohortList(['Fall 2026', 'Summer 2026']); setCohortOptions([]) })
+      .catch(() => setCohortOptions([]))
   }, [])
+
+  const cohortName = (id: string | null | undefined) =>
+    cohortOptions.find(c => c.id === id)?.name
 
   const rows = bams
 
@@ -171,70 +208,126 @@ export default function Roster() {
     : s === 'pending'  ? <span className="badge badge-yellow">PENDING</span>
                        : <span className="badge badge-red">ARCHIVED</span>
 
+  /** Success notices clear themselves; failures stay until the next action. */
+  function report(kind: 'ok' | 'error', text: string) {
+    const msg = { kind, text }
+    setEditMsg(msg)
+    if (kind === 'ok') setTimeout(() => setEditMsg(cur => (cur === msg ? null : cur)), 4000)
+  }
+
   function startEdit(b: FullRow) {
     setEditingId(b.id)
-    setEditForm({ name: b.name, email: b.email, bank: b.bank, status: b.status, cohort: b.cohort, school: b.school })
+    setEditForm({
+      name: b.name,
+      email: b.email,
+      bank: b.bank === EMPTY_CELL ? '' : b.bank,
+      status: b.status,
+      cohortId: b.cohortId ?? '',
+      school: b.school === EMPTY_CELL ? '' : b.school
+    })
     setAdding(false)
   }
 
   async function saveEdit(id: string) {
-    const [firstName, ...rest] = editForm.name.split(' ')
+    const [firstName, ...rest] = editForm.name.trim().split(' ')
     const lastName = rest.join(' ')
+
+    // Bank and cohort used to be written into local state without ever being
+    // sent, so the row visibly changed and the badge said saved while the
+    // database kept the old bank name (the input to the institution-code lookup
+    // that routes payment) and the old cohort.
+    const current = bams.find(b => b.id === id)
+    const body: Record<string, unknown> = {
+      id,
+      first_name: firstName,
+      last_name: lastName,
+      email: editForm.email,
+      status: editForm.status,
+      // null, not the dash placeholder the table renders for an empty cell.
+      school_id: editForm.school.trim() || null
+    }
+    // Bank is sent only when it changed. The server refuses a name that is not
+    // in the institution-code lookup, and a row that already holds an unmapped
+    // name must not block an unrelated edit to the email or status.
+    const currentBank = current && current.bank !== EMPTY_CELL ? current.bank : ''
+    if (editForm.bank.trim() !== currentBank.trim()) {
+      body.bank_name = editForm.bank.trim() || null
+    }
+    if (editForm.cohortId && editForm.cohortId !== (current?.cohortId ?? '')) {
+      body.cohort_id = editForm.cohortId
+    }
+
+    setSaving(true)
     try {
       const resp = await fetch('/api/admin/roster', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      const j = await resp.json()
+      if (!resp.ok || !j.ok) {
+        report('error', `Save failed: ${j.message || resp.statusText}`)
+        return
+      }
+      // Only what the server read back goes into the table.
+      const saved = j.bam as SavedBam
+      setBams(prev => prev.map(b => b.id === id ? rowFromSaved(saved, cohortName(saved.cohort_id) ?? b.cohort) : b))
+      setEditingId(null)
+      report('ok', 'Saved')
+    } catch (e) {
+      report('error', `Save failed: ${(e as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function addBam() {
+    if (!addForm.firstName.trim() || !addForm.email.trim() || !addForm.cohortId) return
+    setSaving(true)
+    try {
+      const resp = await fetch('/api/admin/roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id,
-          first_name: firstName,
-          last_name: lastName,
-          email: editForm.email,
-          status: editForm.status,
-          school_id: editForm.school,
+          first_name: addForm.firstName,
+          last_name: addForm.lastName,
+          email: addForm.email,
+          cohort_id: addForm.cohortId,
+          school_id: addForm.school.trim() || null,
+          is_test: addForm.isTest
         })
       })
       const j = await resp.json()
       if (!resp.ok || !j.ok) {
-        setEditMsg(`Save failed: ${j.message || resp.statusText}`)
-        setTimeout(() => setEditMsg(null), 4000)
+        report('error', `Not added: ${j.message || resp.statusText}`)
         return
       }
+      const saved = j.bam as SavedBam
+      // The row appears only because the database has it. When the table was
+      // showing sample data (no DB rows yet), reload so real and sample rows are
+      // never mixed.
+      if (useDb) {
+        setBams(prev => [...prev, rowFromSaved(saved, j.cohort_name ?? cohortName(saved.cohort_id))])
+      } else {
+        const refetch = await fetch('/api/admin/data?table=bams').then(r => r.json()).catch(() => null)
+        if (refetch?.data?.length) {
+          setBams((refetch.data as DbBam[]).map(mapDbBam))
+          setUseDb(true)
+        } else {
+          setBams([rowFromSaved(saved, j.cohort_name ?? cohortName(saved.cohort_id))])
+          setUseDb(true)
+        }
+      }
+      setAddForm({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false })
+      setAdding(false)
+      report(j.warning ? 'error' : 'ok', j.warning
+        ? `Added ${saved.email}, with a problem: ${j.warning}`
+        : `Added ${saved.email}. Send them an invite from Edit when you are ready.`)
     } catch (e) {
-      setEditMsg(`Save failed: ${(e as Error).message}`)
-      setTimeout(() => setEditMsg(null), 4000)
-      return
+      report('error', `Not added: ${(e as Error).message}`)
+    } finally {
+      setSaving(false)
     }
-    setBams(prev => prev.map(b => b.id === id ? {
-      ...b,
-      name: editForm.name,
-      email: editForm.email,
-      bank: editForm.bank,
-      status: editForm.status as 'active' | 'pending' | 'archived',
-      cohort: editForm.cohort,
-      school: editForm.school
-    } : b))
-    setEditingId(null)
-    setEditMsg('Saved')
-    setTimeout(() => setEditMsg(null), 3000)
-  }
-
-  function addBam() {
-    if (!addForm.firstName.trim() || !addForm.email.trim()) return
-    const newBam: FullRow = {
-      id: `new-${Date.now()}`,
-      name: `${addForm.firstName} ${addForm.lastName}`.trim(),
-      email: addForm.email,
-      status: 'pending',
-      bank: '—',
-      invoiceCode: null,
-      cohort: addForm.cohort || '—',
-      school: addForm.school || '—',
-    }
-    setBams(prev => [...prev, newBam])
-    setAddForm({ firstName: '', lastName: '', email: '', school: '', cohort: '', isTest: false })
-    setAdding(false)
-    setEditMsg('Added (local only, DB insert requires admin auth)')
-    setTimeout(() => setEditMsg(null), 4000)
   }
 
   // --- CSV import handlers ---
@@ -251,8 +344,7 @@ export default function Roster() {
         const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 })
         const nonEmpty = (json as string[][]).filter(r => r.some(c => c != null && String(c).trim()))
         if (nonEmpty.length < 2) {
-          setEditMsg('Could not parse file. Check format')
-          setTimeout(() => setEditMsg(null), 4000)
+          report('error', 'Could not parse that file. Check the format.')
           return
         }
         const headers = nonEmpty[0].map(h => String(h ?? ''))
@@ -270,8 +362,7 @@ export default function Roster() {
         const text = reader.result as string
         const { headers, rows: dataRows } = parseCsv(text)
         if (headers.length === 0) {
-          setEditMsg('Could not parse file. Check format')
-          setTimeout(() => setEditMsg(null), 4000)
+          report('error', 'Could not parse that file. Check the format.')
           return
         }
         setCsvHeaders(headers)
@@ -342,7 +433,12 @@ export default function Roster() {
       <TopBar crumbs={['Roster', 'BAMs']} />
 
       {editMsg && (
-        <div className={editMsg.startsWith('Save failed') ? 'badge badge-red' : 'badge badge-green'} style={{ marginBottom: 12, display: 'inline-block' }}>{editMsg}</div>
+        <div
+          className={editMsg.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
+          style={{ marginBottom: 12, display: 'inline-block', whiteSpace: 'normal', lineHeight: 1.45 }}
+        >
+          {editMsg.text}
+        </div>
       )}
 
       {inviteUrl && (
@@ -540,10 +636,15 @@ export default function Roster() {
               </div>
               <div className="field" style={{ flex: 1 }}>
                 <label>Cohort</label>
-                <select value={addForm.cohort} onChange={e => setAddForm(f => ({ ...f, cohort: e.target.value }))}>
+                <select value={addForm.cohortId} onChange={e => setAddForm(f => ({ ...f, cohortId: e.target.value }))}>
                   <option value="">Select…</option>
-                  {cohortList.map(c => <option key={c} value={c}>{c}</option>)}
+                  {cohortOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+                {cohortOptions.length === 0 && (
+                  <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block' }}>
+                    No cohorts found. Create one on the Cohorts page first.
+                  </span>
+                )}
               </div>
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', margin: '4px 0 8px' }}>
@@ -552,7 +653,12 @@ export default function Roster() {
               <span style={{ fontSize: 11, color: 'var(--midgray)' }}>-- excluded from reports and AP sends</span>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={addBam} disabled={!addForm.firstName.trim() || !addForm.email.trim()}>Add to roster</button>
+              <button
+                onClick={addBam}
+                disabled={saving || !addForm.firstName.trim() || !addForm.email.trim() || !addForm.cohortId}
+              >
+                {saving ? 'Adding...' : 'Add to roster'}
+              </button>
               <button className="btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
             </div>
           </div>
@@ -607,15 +713,23 @@ export default function Roster() {
                               <label>Bank</label>
                               <select value={editForm.bank} onChange={e => setEditForm(f => ({ ...f, bank: e.target.value }))}>
                                 <option value="">Select…</option>
+                                {editForm.bank && !BANK_SEED.some(x => x.displayName === editForm.bank) && (
+                                  <option value={editForm.bank}>{editForm.bank} (not in the lookup)</option>
+                                )}
                                 {BANK_SEED.map(b => <option key={b.normalized} value={b.displayName}>{b.displayName}</option>)}
                               </select>
                             </div>
                             <div className="field" style={{ flex: 1 }}>
                               <label>Cohort</label>
-                              <select value={editForm.cohort} onChange={e => setEditForm(f => ({ ...f, cohort: e.target.value }))}>
+                              <select value={editForm.cohortId} onChange={e => setEditForm(f => ({ ...f, cohortId: e.target.value }))}>
                                 <option value="">Select…</option>
-                                {cohortList.map(c => <option key={c} value={c}>{c}</option>)}
+                                {cohortOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                               </select>
+                              {cohortOptions.length === 0 && (
+                                <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block' }}>
+                                  Cohorts could not be loaded, so the cohort cannot be changed here.
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 12 }}>
@@ -633,7 +747,7 @@ export default function Roster() {
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <button onClick={() => saveEdit(b.id)}>Save</button>
+                            <button onClick={() => saveEdit(b.id)} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
                             <button className="btn-ghost" onClick={() => setEditingId(null)}>Cancel</button>
                             {b.status === 'pending' && (
                               <button
@@ -651,15 +765,15 @@ export default function Roster() {
                                     const j = await res.json()
                                     if (j.ok) {
                                       setInviteUrl(j.invite_url ?? null)
-                                      setEditMsg(j.email_sent ? `Invite sent to ${b.email}` : `Invite created (email failed: ${j.email_error})`)
+                                      if (j.email_sent) report('ok', `Invite sent to ${b.email}`)
+                                      else report('error', `Invite created but the email failed: ${j.email_error}. Copy the link below and send it yourself.`)
                                     } else {
-                                      setEditMsg(`Invite failed: ${j.message}`)
+                                      report('error', `Invite failed: ${j.message}`)
                                     }
                                   } catch (e) {
-                                    setEditMsg(`Invite failed: ${(e as Error).message}`)
+                                    report('error', `Invite failed: ${(e as Error).message}`)
                                   } finally {
                                     setInviting(false)
-                                    setTimeout(() => setEditMsg(null), 5000)
                                   }
                                 }}
                               >

@@ -3,9 +3,9 @@
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { UNMATCHED, type UnmatchedRow } from '../_lib/dummy'
-import { browserClient } from '@/lib/supabase-browser'
+import { rosterEmailFromFlagReason } from '@/lib/unmatched-resolve'
 
-type Row = UnmatchedRow & { id: string }
+type Row = UnmatchedRow & { id: string; rosterEmail: string | null }
 
 type DbSubmission = {
   id: string
@@ -23,17 +23,24 @@ function mapDbSubmission(s: DbSubmission): Row {
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
     }),
     reason: s.flag_reason || 'no matching roster email',
-    matchGuess: s.form_json_meta?.match_guess || '—'
+    // The roster address the submission failed to match. This is what identifies
+    // the target roster row, so show it instead of a guess nothing writes.
+    matchGuess: rosterEmailFromFlagReason(s.flag_reason) || s.form_json_meta?.match_guess || 'unknown',
+    rosterEmail: rosterEmailFromFlagReason(s.flag_reason)
   }
 }
+
+type Notice = { kind: 'ok' | 'error'; text: string }
 
 export default function Unmatched() {
   const [rows, setRows] = useState<Row[]>([])
   const [useDb, setUseDb] = useState(false)
-  const [fixingEmail, setFixingEmail] = useState<string | null>(null)
-  const [rejectingEmail, setRejectingEmail] = useState<string | null>(null)
+  const [fixingId, setFixingId] = useState<string | null>(null)
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [correctedEmail, setCorrectedEmail] = useState('')
-  const [message, setMessage] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<Notice | null>(null)
 
   useEffect(() => {
     fetch('/api/admin/data?table=unmatched')
@@ -43,49 +50,87 @@ export default function Unmatched() {
           setRows((data as DbSubmission[]).map(mapDbSubmission))
           setUseDb(true)
         } else {
-          setRows(UNMATCHED.map((u, i) => ({ ...u, id: `dummy-${i}` })))
+          setRows(UNMATCHED.map((u, i) => ({ ...u, id: `dummy-${i}`, rosterEmail: null })))
         }
       })
       .catch(() => {
-        setRows(UNMATCHED.map((u, i) => ({ ...u, id: `dummy-${i}` })))
+        setRows(UNMATCHED.map((u, i) => ({ ...u, id: `dummy-${i}`, rosterEmail: null })))
       })
   }, [])
 
+  /** Notices stay until replaced when they are failures: a red flash that
+   *  disappears is how the old unconditional green went unnoticed. */
+  function report(n: Notice) {
+    setNotice(n)
+    if (n.kind === 'ok') setTimeout(() => setNotice(cur => (cur === n ? null : cur)), 6000)
+  }
+
   function startFix(row: Row) {
-    setFixingEmail(row.submittedEmail)
-    setRejectingEmail(null)
-    setCorrectedEmail(row.matchGuess.replace('?', ''))
+    setFixingId(row.id)
+    setRejectingId(null)
+    // The address the student actually typed is the one that goes on the roster.
+    setCorrectedEmail(row.submittedEmail)
   }
 
   async function confirmFix(row: Row) {
-    if (useDb) {
-      const supa = browserClient()
-      await supa.from('onboarding_submissions')
-        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-        .eq('id', row.id)
+    if (!useDb) {
+      report({ kind: 'error', text: 'This is demo data, so there is nothing to correct. Sign in as an admin to load real submissions.' })
+      return
     }
-    setRows(list => list.filter(r => r.submittedEmail !== row.submittedEmail))
-    setFixingEmail(null)
-    setMessage('Roster updated')
-    setTimeout(() => setMessage(null), 4000)
+    setBusy(true)
+    try {
+      const res = await fetch('/api/admin/unmatched/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: row.id, corrected_email: correctedEmail })
+      })
+      const j = await res.json()
+      if (!res.ok || !j.ok) {
+        report({ kind: 'error', text: `Not resolved: ${j.message || res.statusText}` })
+        return
+      }
+      // Only now is the work actually done, so only now does the row leave.
+      setRows(list => list.filter(r => r.id !== row.id))
+      setFixingId(null)
+      report({ kind: 'ok', text: j.warning ? `${j.message} (${j.warning})` : j.message })
+    } catch (e) {
+      report({ kind: 'error', text: `Not resolved: ${(e as Error).message}` })
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function startReject(email: string) {
-    setRejectingEmail(email)
-    setFixingEmail(null)
+  function startReject(row: Row) {
+    setRejectingId(row.id)
+    setFixingId(null)
+    setRejectReason('')
   }
 
   async function confirmReject(row: Row) {
-    if (useDb) {
-      const supa = browserClient()
-      await supa.from('onboarding_submissions')
-        .update({ status: 'rejected', resolved_at: new Date().toISOString() })
-        .eq('id', row.id)
+    if (!useDb) {
+      report({ kind: 'error', text: 'This is demo data, so there is nothing to reject. Sign in as an admin to load real submissions.' })
+      return
     }
-    setRows(list => list.filter(r => r.submittedEmail !== row.submittedEmail))
-    setRejectingEmail(null)
-    setMessage('Submission rejected')
-    setTimeout(() => setMessage(null), 4000)
+    setBusy(true)
+    try {
+      const res = await fetch('/api/admin/unmatched/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: row.id, reason: rejectReason })
+      })
+      const j = await res.json()
+      if (!res.ok || !j.ok) {
+        report({ kind: 'error', text: `Not rejected: ${j.message || res.statusText}` })
+        return
+      }
+      setRows(list => list.filter(r => r.id !== row.id))
+      setRejectingId(null)
+      report({ kind: 'ok', text: j.warning ? `${j.message} (${j.warning})` : j.message })
+    } catch (e) {
+      report({ kind: 'error', text: `Not rejected: ${(e as Error).message}` })
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -100,14 +145,19 @@ export default function Unmatched() {
           <span className="badge badge-yellow">{rows.length} pending</span>
         </div>
 
-        {message && (
-          <div className="badge badge-green" style={{ marginBottom: 16, display: 'inline-block' }}>{message}</div>
+        {notice && (
+          <div
+            className={notice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
+            style={{ marginBottom: 16, display: 'inline-block', whiteSpace: 'normal', lineHeight: 1.45 }}
+          >
+            {notice.text}
+          </div>
         )}
 
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Submitted email</th><th>Submitted at</th><th>Reason</th><th>Likely match</th><th></th>
+              <th>Submitted email</th><th>Submitted at</th><th>Reason</th><th>Roster email</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -123,43 +173,64 @@ export default function Unmatched() {
                     <button
                       className="btn-ghost"
                       style={{ padding: '4px 8px', fontSize: 12, color: 'var(--red)', borderColor: 'var(--red)' }}
-                      onClick={() => startReject(u.submittedEmail)}
+                      onClick={() => startReject(u)}
                     >
                       Reject
                     </button>
                   </td>
                 </tr>
 
-                {fixingEmail === u.submittedEmail && (
+                {fixingId === u.id && (
                   <tr>
                     <td colSpan={5} style={{ background: 'var(--bl-silver)', padding: 16 }}>
-                      <div className="card" style={{ maxWidth: 420 }}>
+                      <div className="card" style={{ maxWidth: 480 }}>
                         <div className="field">
-                          <label>Correct roster email for {u.submittedEmail}</label>
+                          <label>Email to store on the roster</label>
                           <input
                             value={correctedEmail}
                             onChange={e => setCorrectedEmail(e.target.value)}
                           />
+                          <div className="muted" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.5 }}>
+                            The roster row for <strong>{u.rosterEmail ?? 'this submission'}</strong> gets this address,
+                            so the student&apos;s existing invite link starts working. Leave it as the address they typed
+                            unless you know the roster address is the correct one.
+                          </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={() => confirmFix(u)} disabled={!correctedEmail.trim()}>Save match</button>
-                          <button className="btn-ghost" onClick={() => setFixingEmail(null)}>Cancel</button>
+                          <button onClick={() => confirmFix(u)} disabled={busy || !correctedEmail.trim()}>
+                            {busy ? 'Saving...' : 'Save match'}
+                          </button>
+                          <button className="btn-ghost" onClick={() => setFixingId(null)}>Cancel</button>
                         </div>
                       </div>
                     </td>
                   </tr>
                 )}
 
-                {rejectingEmail === u.submittedEmail && (
+                {rejectingId === u.id && (
                   <tr>
                     <td colSpan={5} style={{ background: 'var(--bl-silver)', padding: 16 }}>
-                      <div className="card" style={{ maxWidth: 420 }}>
+                      <div className="card" style={{ maxWidth: 480 }}>
                         <div style={{ marginBottom: 10, fontSize: 13 }}>
-                          Confirm reject submission from <strong>{u.submittedEmail}</strong>? This cannot be undone.
+                          Reject the submission from <strong>{u.submittedEmail}</strong>? This cannot be undone.
+                        </div>
+                        <div className="field">
+                          <label>Reason (recorded on the submission)</label>
+                          <input
+                            value={rejectReason}
+                            onChange={e => setRejectReason(e.target.value)}
+                            placeholder="e.g. not a BAM in this cohort"
+                          />
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button style={{ background: 'var(--red)' }} onClick={() => confirmReject(u)}>Confirm reject</button>
-                          <button className="btn-ghost" onClick={() => setRejectingEmail(null)}>Cancel</button>
+                          <button
+                            style={{ background: 'var(--red)' }}
+                            disabled={busy || rejectReason.trim().length < 4}
+                            onClick={() => confirmReject(u)}
+                          >
+                            {busy ? 'Rejecting...' : 'Confirm reject'}
+                          </button>
+                          <button className="btn-ghost" onClick={() => setRejectingId(null)}>Cancel</button>
                         </div>
                       </div>
                     </td>

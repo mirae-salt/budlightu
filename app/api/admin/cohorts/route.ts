@@ -21,17 +21,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { sanitizePoNumber } from '../../../../lib/sanitize'
-
-/** Money amounts stay numbers here; account/transit/institution never appear in this route. */
-function parseAmount(raw: unknown): { ok: true; value: number } | { ok: false; error: string } {
-  if (typeof raw !== 'number' && typeof raw !== 'string') {
-    return { ok: false, error: 'must be a number' }
-  }
-  const value = Number(raw)
-  if (!Number.isFinite(value) || value <= 0) return { ok: false, error: 'must be a positive number' }
-  if (value > 100000) return { ok: false, error: 'is implausibly large — check the value' }
-  return { ok: true, value: Math.round(value * 100) / 100 }
-}
+/** Money amounts stay numbers here; account/transit/institution never appear in
+ *  this route. parseAmount moved to lib/admin-input.ts so the rule that made
+ *  every cohort create fail is unit tested. */
+import { parseAmount } from '../../../../lib/admin-input'
 
 const SEND_MODES = ['dryrun', 'live']
 const BAM_COPY_MODES = ['off', 'draft', 'live']
@@ -51,7 +44,7 @@ export async function POST(req: NextRequest) {
   const salary = parseAmount(salary_default)
   if (!salary.ok) {
     return NextResponse.json(
-      { ok: false, message: `salary_default ${salary.error} (218.75 for the school year, 250 for summer BAMs)` },
+      { ok: false, message: `Monthly salary ${salary.error} (218.75 for the school year, 250 for summer BAMs).` },
       { status: 400 }
     )
   }
