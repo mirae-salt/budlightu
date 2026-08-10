@@ -26,3 +26,6 @@ next-env.d.ts
 .vercel
 supabase/.temp/
 supabase/.branches/
+
+# Personal career material, not part of the product
+CAREER-NOTES.md
