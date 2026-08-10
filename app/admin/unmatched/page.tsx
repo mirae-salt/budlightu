@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { Toast } from '../_components/Toast'
 import { UNMATCHED, type UnmatchedRow } from '../_lib/dummy'
 import { rosterEmailFromFlagReason } from '@/lib/unmatched-resolve'
 
@@ -145,14 +146,8 @@ export default function Unmatched() {
           <span className="badge badge-yellow">{rows.length} pending</span>
         </div>
 
-        {notice && (
-          <div
-            className={notice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
-            style={{ marginBottom: 16, display: 'inline-block', whiteSpace: 'normal', lineHeight: 1.45 }}
-          >
-            {notice.text}
-          </div>
-        )}
+      {/* Fixed toast: an inline badge beside the button was too easy to miss. */}
+      <Toast notice={notice} onDismiss={() => setNotice(null)} />
 
         <table className="admin-table">
           <thead>

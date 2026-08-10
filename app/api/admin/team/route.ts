@@ -57,7 +57,13 @@ export async function GET() {
       }
     })
 
-  return NextResponse.json({ ok: true, admins })
+  // Who is asking. The invoice page needs it so "Test send to me" mails the signed-in
+  // admin rather than a hardcoded address.
+  return NextResponse.json({
+    ok: true,
+    admins,
+    me: { id: auth.devBypass ? null : auth.userId, email: auth.email ?? null, role: auth.role }
+  })
 }
 
 export async function POST(req: NextRequest) {

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
 import { type InvoiceRow } from '../_lib/dummy'
 
@@ -17,6 +18,8 @@ type Row = InvoiceRow & {
   tax?: number
   /** Whether this invoice charges tax, and at what rate. Never the HST number. */
   taxApplicable: boolean
+  /** PO number as stored on the invoice, so the preview shows what will be sent. */
+  poNumber: string | null
   taxRate: number | null
 }
 
@@ -33,7 +36,7 @@ type DbInvoice = {
   period: string
   status: 'draft' | 'approved' | 'sent' | 'paid' | 'void'
   cohort_id: string
-  payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[] } | null
+  payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[]; jobNumber?: string } | null
   bams: { first_name: string; last_name: string } | null
   receipt_status: string | null
   receipt_total: number | null
@@ -69,6 +72,7 @@ function mapDbInvoice(inv: DbInvoice): Row {
     subtotal: inv.payload_json?.subtotal,
     tax: inv.payload_json?.tax,
     taxApplicable: inv.tax_applicable === true,
+    poNumber: inv.payload_json?.jobNumber ?? null,
     taxRate: inv.tax_rate ?? null
   }
 }
@@ -111,7 +115,7 @@ function draftLineTotal(d: LineDraft): number {
  * "Void failed" and "AP send failed" both used to, on this page, which is the
  * bug that was just fixed across /admin/roster and /admin/cohorts.
  */
-type Notice = { kind: 'ok' | 'error'; text: string }
+type Notice = ToastNotice
 
 export default function InvoiceBatch() {
   const [invoices, setInvoices] = useState<Row[]>([])
@@ -123,6 +127,15 @@ export default function InvoiceBatch() {
   const [voidReason, setVoidReason] = useState('')
   const [rowNotice, setRowNotice] = useState<Notice | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  /** Same rule as the server, so the hint matches the eventual error. */
+  const voidReasonIssue = reasonProblem(voidReason, 'Reason for voiding')
+
+  /**
+   * "Test send to me" used to post a hardcoded mirae.lee@ilovesalt.com, so Robin
+   * clicking it mailed someone else. It now goes to whoever is signed in.
+   */
+  const [testSendAddress, setTestSendAddress] = useState<string | null>(null)
 
   // ── line editing (salary + ad-hoc only) ───────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -152,6 +165,12 @@ export default function InvoiceBatch() {
           setUseDb(true)
         }
       })
+      .catch(() => {})
+
+    // Who "me" is, for the test send.
+    fetch('/api/admin/team')
+      .then(res => res.json())
+      .then(j => { if (typeof j?.me?.email === 'string') setTestSendAddress(j.me.email) })
       .catch(() => {})
   }, [])
 
@@ -507,22 +526,13 @@ export default function InvoiceBatch() {
           </div>
         )}
 
-        {batchNotice && (
-          <div
-            className={batchNotice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
-            style={{ marginBottom: 16, display: 'inline-block', whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%' }}
-          >
-            {batchNotice.text}
-          </div>
-        )}
-        {rowNotice && (
-          <div
-            className={rowNotice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
-            style={{ marginBottom: 16, marginLeft: 8, display: 'inline-block', whiteSpace: 'normal', textAlign: 'left', maxWidth: '100%' }}
-          >
-            {rowNotice.text}
-          </div>
-        )}
+        {/*
+          These were 11px inline badges beside the button that triggered them, so a
+          failure was easy to walk past: the button looked finished and the reason sat
+          below the fold. They are now fixed toasts. A failure stays until dismissed.
+        */}
+        <Toast notice={batchNotice} onDismiss={() => setBatchNotice(null)} />
+        <Toast notice={rowNotice} onDismiss={() => setRowNotice(null)} />
 
         <table className="admin-table">
           <thead>
@@ -844,16 +854,17 @@ export default function InvoiceBatch() {
                             onChange={e => setVoidReason(e.target.value)}
                             autoFocus
                           />
-                          {voidReason.trim().length > 0 && voidReason.trim().length < 5 && (
+                          {voidReason.trim().length > 0 && voidReasonIssue && (
                             <span className="muted" style={{ fontSize: 11, color: 'var(--amber)' }}>
-                              A bit more detail please (at least 5 characters)
+                              {voidReasonIssue}
                             </span>
                           )}
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button
                             style={{ background: 'var(--red)' }}
-                            disabled={voidReason.trim().length < 5}
+                            disabled={voidReasonIssue !== null}
+                            title={voidReasonIssue ?? undefined}
                             onClick={() => confirmVoid(inv)}
                           >
                             Void invoice
@@ -887,7 +898,11 @@ export default function InvoiceBatch() {
         const apTo = 'accounts.payable@ilovesalt.com'
         const apCc = 'robin.graham@ilovesalt.com, nb@ilovesalt.com'
         const subject = `${inv.bam} ${month} Invoice #${inv.number}`
-        const body = `Hi there,\n\nAttached is a ${month} invoice for our Bud Light BAM.\nPlease maintain net15 payment terms with direct deposit.\n\nThis is from BUD LIGHT U - PO# (see cohort config).\n\nThanks,\nProgram Team`
+        // The preview must show the PO number that will actually be sent. It used to
+        // print the literal "PO# (see cohort config)", so Robin reviewed a body that
+        // differs from the real email in exactly the field AP keys payment off.
+        const po = inv.poNumber
+        const body = `Hi there,\n\nAttached is a ${month} invoice for our Bud Light BAM.\nPlease maintain net15 payment terms with direct deposit.\n\nThis is from BUD LIGHT U - PO# ${po ?? '(not set on this cohort — the send will be blocked)'}.\n\nThanks,\nProgram Team`
         return (
           <div
             onClick={() => setApPreview(null)}
@@ -902,7 +917,8 @@ export default function InvoiceBatch() {
               style={{
                 background: 'var(--surface, #fff)', borderRadius: 12,
                 boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
-                maxWidth: 560, width: '100%', overflow: 'hidden',
+                // 560 was too narrow for the footer buttons and forced them to wrap.
+                maxWidth: 720, width: '100%', overflow: 'hidden',
               }}
             >
               <div style={{
@@ -952,36 +968,47 @@ export default function InvoiceBatch() {
                 </div>
               </div>
 
+              {/*
+                Footer was one flex row holding a paragraph and three buttons, so at
+                560px the buttons collapsed to three wrapped lines each. The note now
+                sits on its own row above the buttons, and every button gets
+                `whiteSpace: nowrap` so its label cannot break mid-word.
+              */}
               <div style={{
                 padding: '12px 20px', borderTop: '1px solid var(--border, #e5e7eb)',
-                display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center',
+                display: 'flex', flexDirection: 'column', gap: 10,
               }}>
                 {inv.status !== 'approved' && (
-                  <span className="muted" style={{ fontSize: 11, marginRight: 'auto', maxWidth: 260, lineHeight: 1.4 }}>
+                  <span className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
                     This invoice is not approved yet. Test sends are allowed; run batch approval before sending to AP.
                   </span>
                 )}
-                <button className="btn-ghost" onClick={() => setApPreview(null)}>
-                  Cancel
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={() => confirmSendAp('mirae.lee@ilovesalt.com')}
-                  disabled={apPreview.sending}
-                  style={{ color: 'var(--bl-blue)', borderColor: 'var(--bl-blue)' }}
-                >
-                  Test send to me
-                </button>
-                <button
-                  onClick={() => confirmSendAp()}
-                  disabled={apPreview.sending || inv.status !== 'approved'}
-                  title={inv.status !== 'approved'
-                    ? 'Only an approved invoice can go to AP. Run batch approval first.'
-                    : undefined}
-                  style={{ background: 'var(--bl-blue)' }}
-                >
-                  {apPreview.sending ? 'Sending…' : 'Send to AP'}
-                </button>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                  <button className="btn-ghost" onClick={() => setApPreview(null)} style={{ whiteSpace: 'nowrap' }}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => confirmSendAp(testSendAddress ?? undefined)}
+                    disabled={apPreview.sending || !testSendAddress}
+                    title={testSendAddress
+                      ? `Sends this exact email to ${testSendAddress} instead of AP`
+                      : 'Sign in to use a test send'}
+                    style={{ color: 'var(--bl-blue)', borderColor: 'var(--bl-blue)', whiteSpace: 'nowrap' }}
+                  >
+                    Test send to me
+                  </button>
+                  <button
+                    onClick={() => confirmSendAp()}
+                    disabled={apPreview.sending || inv.status !== 'approved'}
+                    title={inv.status !== 'approved'
+                      ? 'Only an approved invoice can go to AP. Run batch approval first.'
+                      : undefined}
+                    style={{ background: 'var(--bl-blue)', whiteSpace: 'nowrap' }}
+                  >
+                    {apPreview.sending ? 'Sending…' : 'Send to AP'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { TopBar } from '../_components/TopBar'
+import { Toast } from '../_components/Toast'
 import { BAMS, type BamRow } from '../_lib/dummy'
 import { BANK_SEED } from '@/lib/banks'
 
@@ -432,14 +433,8 @@ export default function Roster() {
     <>
       <TopBar crumbs={['Roster', 'BAMs']} />
 
-      {editMsg && (
-        <div
-          className={editMsg.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
-          style={{ marginBottom: 12, display: 'inline-block', whiteSpace: 'normal', lineHeight: 1.45 }}
-        >
-          {editMsg.text}
-        </div>
-      )}
+      {/* Fixed toast: an inline badge beside the button was too easy to miss. */}
+      <Toast notice={editMsg} onDismiss={() => setEditMsg(null)} />
 
       {inviteUrl && (
         <div className="surface" style={{ marginBottom: 12, padding: 14 }}>

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { Toast, type ToastNotice } from '../_components/Toast'
 import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
 import { reasonProblem, MIN_REASON_LENGTH } from '@/lib/reason'
 
@@ -74,7 +75,17 @@ export default function ReceiptsQueue() {
   const [tab, setTab] = useState<Tab>('queue')
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   const [confirming, setConfirming] = useState<'approve' | 'reject' | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  /**
+   * Was a plain string always rendered in a GREEN badge, so "Decision failed",
+   * "Reopen failed" and "Retry failed" all looked like successes. Carries a kind
+   * now, and only a success clears itself.
+   */
+  const [notice, setNotice] = useState<ToastNotice | null>(null)
+  function notify(kind: 'ok' | 'error', text: string) {
+    const n: ToastNotice = { kind, text }
+    setNotice(n)
+    if (kind === 'ok') setTimeout(() => setNotice(cur => (cur === n ? null : cur)), 6000)
+  }
   const [reason, setReason] = useState('')
   const [amountOverride, setAmountOverride] = useState('')
   const [retrying, setRetrying] = useState<string | null>(null)
@@ -143,8 +154,7 @@ export default function ReceiptsQueue() {
     if (action === 'approve' && amountOverride.trim() !== '') {
       const parsed = Number(amountOverride.trim())
       if (!Number.isFinite(parsed) || parsed < 0) {
-        setMessage('Corrected amount must be a non-negative number')
-        setTimeout(() => setMessage(null), 5000)
+        notify('error', 'Corrected amount must be a non-negative number')
         return
       }
       overrideTotal = Math.round(parsed * 100) / 100
@@ -165,8 +175,7 @@ export default function ReceiptsQueue() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
-        setMessage(json.message || json.error || 'Decision failed')
-        setTimeout(() => setMessage(null), 5000)
+        notify('error', json.message || json.error || 'Decision failed')
         return
       }
       const decided: Row = {
@@ -185,19 +194,18 @@ export default function ReceiptsQueue() {
       // decide skips the ledger entirely (a receipt with no amount), so Robin was
       // told a reimbursement existed when none had been written.
       if (action === 'reject') {
-        setMessage(json.bam_notified === false
-          ? 'Rejected. Could not email the BAM.'
-          : 'Rejected. BAM will be notified')
+        // A rejection that could not reach the student is a failure, not a success:
+        // they are the one who needs to know.
+        if (json.bam_notified === false) notify('error', 'Rejected, but the email to the BAM did not send.')
+        else notify('ok', 'Rejected. BAM will be notified')
       } else if (typeof json.ledger_paid_cad === 'number') {
-        setMessage(`Approved. Reimbursement recorded: $${json.ledger_paid_cad.toFixed(2)}`
+        notify('ok', `Approved. Reimbursement recorded: $${json.ledger_paid_cad.toFixed(2)}`
           + (json.override_applied ? ' (amount corrected)' : ''))
       } else {
-        setMessage('Approved, but NO reimbursement was recorded for this receipt. Check the amount.')
+        notify('error', 'Approved, but NO reimbursement was recorded for this receipt. Check the amount.')
       }
-      setTimeout(() => setMessage(null), 4000)
     } catch {
-      setMessage('Network error: decision not saved')
-      setTimeout(() => setMessage(null), 5000)
+      notify('error', 'Network error: decision not saved')
     }
   }
 
@@ -217,8 +225,7 @@ export default function ReceiptsQueue() {
     // would have said, instead of a vaguer local guess.
     const issue = reasonProblem(reason, 'Reason for reopening')
     if (issue) {
-      setMessage(`Reopen cancelled. ${issue}`)
-      setTimeout(() => setMessage(null), 6000)
+      notify('error', `Reopen cancelled. ${issue}`)
       return
     }
 
@@ -230,22 +237,17 @@ export default function ReceiptsQueue() {
       })
       const j = await res.json()
       if (!res.ok || !j.ok) {
-        setMessage(`Reopen failed: ${j.message ?? j.error ?? res.status}`)
-        setTimeout(() => setMessage(null), 6000)
+        notify('error', `Reopen failed: ${j.message ?? j.error ?? res.status}`)
         return
       }
 
       setHistory(h => h.filter(r => r.id !== row.id))
       setQueue(q => [...q, { ...row, status: 'review', decidedAt: undefined, decidedReason: undefined }])
-      setMessage(
-        j.warning
-          ? `${row.bam} reopened, but ${j.warning}`
-          : `${row.bam} reopened for review. Reimbursement now $${Number(j.ledger_paid_cad ?? 0).toFixed(2)}`
-      )
-      setTimeout(() => setMessage(null), 6000)
+      // A reopen that could not recompute the ledger needs attention, not a tick.
+      if (j.warning) notify('error', `${row.bam} reopened, but ${j.warning}`)
+      else notify('ok', `${row.bam} reopened for review. Reimbursement now $${Number(j.ledger_paid_cad ?? 0).toFixed(2)}`)
     } catch (e) {
-      setMessage(`Reopen failed: ${(e as Error).message}`)
-      setTimeout(() => setMessage(null), 6000)
+      notify('error', `Reopen failed: ${(e as Error).message}`)
     }
   }
 
@@ -289,10 +291,8 @@ export default function ReceiptsQueue() {
           </div>
         </div>
 
-        {message && (
-          <div className="badge badge-green" style={{ marginBottom: 12, display: 'inline-block' }}>{message}</div>
-        )}
-
+        {/* Fixed toast. This was a badge hardcoded to badge-green, so failures read as successes. */}
+        <Toast notice={notice} onDismiss={() => setNotice(null)} />
         <table className="admin-table">
           <thead>
             <tr>
@@ -510,12 +510,11 @@ export default function ReceiptsQueue() {
                                         body: JSON.stringify({ receipt_id: r.id })
                                       })
                                       const json = await res.json().catch(() => ({}))
-                                      setMessage(json.message || 'OCR retry queued')
+                                      notify('ok', json.message || 'OCR retry queued')
                                     } catch {
-                                      setMessage('Retry failed. Check server logs')
+                                      notify('error', 'Retry failed. Check server logs')
                                     }
                                     setRetrying(null)
-                                    setTimeout(() => setMessage(null), 4000)
                                   }}
                                 >
                                   {retrying === r.id ? 'Retrying…' : 'Retry OCR'}

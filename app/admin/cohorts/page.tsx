@@ -30,6 +30,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { Toast } from '../_components/Toast'
 import { COHORTS, BAMS, type CohortRow } from '../_lib/dummy'
 
 type Row = CohortRow & {
@@ -369,14 +370,8 @@ export default function Cohorts() {
     <>
       <TopBar crumbs={['Roster', 'Cohorts']} />
 
-      {notice && (
-        <div
-          className={notice.kind === 'ok' ? 'badge badge-green' : 'badge badge-red'}
-          style={{ marginBottom: 12, display: 'inline-block', whiteSpace: 'normal', lineHeight: 1.45 }}
-        >
-          {notice.text}
-        </div>
-      )}
+      {/* Fixed toast: an inline badge beside the button was too easy to miss. */}
+      <Toast notice={notice} onDismiss={() => setNotice(null)} />
 
       <div className="surface">
         <div className="surface-header">
