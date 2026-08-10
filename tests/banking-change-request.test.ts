@@ -69,10 +69,23 @@ describe('validation · a bad account number never becomes a request', () => {
     if (!res.ok) expect(res.message).toMatch(/not in our lookup/i)
   })
 
-  it('requires a reason', () => {
-    expect(validateBankingRequestInput({ ...GOOD, reason: 'oops' }).ok).toBe(false)
+  it('requires a reason, but a short real one is fine', () => {
+    // Ten characters was arbitrary and rejected honest answers. Robin still needs
+    // to know why a payout destination is changing, so it stays required.
+    expect(validateBankingRequestInput({ ...GOOD, reason: '' }).ok).toBe(false)
+    expect(validateBankingRequestInput({ ...GOOD, reason: '   ' }).ok).toBe(false)
+    expect(validateBankingRequestInput({ ...GOOD, reason: 'typo' }).ok).toBe(true)
+    expect(validateBankingRequestInput({ ...GOOD, reason: 'wrong bank' }).ok).toBe(true)
     expect(validateBankingRequestInput({ ...GOOD, reason: 'x'.repeat(MIN_REASON_LENGTH) }).ok).toBe(true)
     expect(validateBankingRequestInput({ ...GOOD, reason: 'x'.repeat(5000) }).ok).toBe(false)
+  })
+
+  it('the app minimum matches the CHECK in migration 0023', () => {
+    // An app that accepts a reason the constraint rejects fails at insert time.
+    const sql = readFileSync('supabase/migrations/0023_relax_banking_request_reason.sql', 'utf8')
+    const m = /length\(btrim\(reason\)\)\s*>=\s*(\d+)/.exec(sql)
+    expect(m, '0023 must state the reason minimum').toBeTruthy()
+    expect(Number(m![1])).toBe(MIN_REASON_LENGTH)
   })
 
   it('accepts a valid request and keeps every digit a string, leading zeros intact', () => {

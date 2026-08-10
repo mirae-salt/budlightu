@@ -15,8 +15,15 @@ import { validateInstitution, validateTransit, validateAccount } from './validat
 import { lookupBank } from './banks'
 import { stripInvisible } from './sanitize'
 
-/** Minimum length for the BAM's explanation. Mirrors bcr_reason_not_empty in 0022. */
-export const MIN_REASON_LENGTH = 10
+/**
+ * The reason must be present but may be short. Ten characters was arbitrary and
+ * rejected real answers ("typo", "wrong bank"), while the form gave no hint about
+ * why Send was disabled.
+ *
+ * Mirrors `bcr_reason_not_empty` in migration 0023. If you change one, change the
+ * other: an app that accepts a reason the CHECK rejects fails at insert time.
+ */
+export const MIN_REASON_LENGTH = 1
 /** Hard ceiling so the free-text field cannot be used as storage. */
 export const MAX_REASON_LENGTH = 1000
 

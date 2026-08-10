@@ -99,12 +99,19 @@ export default function AccountPage() {
   useEffect(() => { load() }, [])
 
   const digitsOnly = (s: string) => s.replace(/[^0-9]/g, '')
-  const formReady =
-    bankName !== '' &&
-    /^\d{3}$/.test(institution) &&
-    /^\d{5}$/.test(transit) &&
-    /^\d{6,12}$/.test(account) &&
-    reason.trim().length >= MIN_REASON_LENGTH
+
+  /**
+   * What is still missing, in words. The button used to be greyed out with no
+   * explanation, so the only way to discover that the reason had a minimum was to
+   * guess. A disabled control that will not say why is a dead end.
+   */
+  const missing: string[] = []
+  if (bankName === '') missing.push('pick your bank')
+  if (!/^\d{3}$/.test(institution)) missing.push('institution number needs 3 digits')
+  if (!/^\d{5}$/.test(transit)) missing.push('transit number needs 5 digits')
+  if (!/^\d{6,12}$/.test(account)) missing.push('account number needs 6 to 12 digits')
+  if (reason.trim().length < MIN_REASON_LENGTH) missing.push('tell us why you need the change')
+  const formReady = missing.length === 0
 
   async function submit() {
     setErr(null)
@@ -288,8 +295,18 @@ export default function AccountPage() {
                   change where your pay goes without you seeing it.
                 </div>
 
+                {!formReady && (
+                  <p className="muted" style={{ fontSize: 12.5, margin: '0 0 4px' }}>
+                    Still needed: {missing.join(' · ')}
+                  </p>
+                )}
+
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <button onClick={submit} disabled={busy || !formReady}>
+                  <button
+                    onClick={submit}
+                    disabled={busy || !formReady}
+                    title={formReady ? undefined : `Still needed: ${missing.join(', ')}`}
+                  >
                     {busy ? 'Sending...' : 'Send request'}
                   </button>
                   <button className="btn-ghost" onClick={() => { setShowForm(false); setErr(null) }}>Cancel</button>
