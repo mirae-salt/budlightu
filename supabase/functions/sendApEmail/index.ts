@@ -41,6 +41,7 @@ import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '.
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../lib/invoice-ledger'
 import { ensureInvoicePdf, bytesToBase64 } from '../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../lib/bam-cc'
+import { sendEmail } from '../../../lib/send-email'
 import type { InvoicePayload } from '../../../lib/invoice-payload'
 
 export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live' }) {
@@ -121,9 +122,62 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   if (!pdf.ok) return { ok: false, error: pdf.error }
   const base64 = bytesToBase64(pdf.bytes)   // F16: chunked, no argument spread
 
-  // Get Graph token (client credentials flow)
+  // ── Provider choice ───────────────────────────────────────────────────────
+  // MS Graph is preferred (the AP mailbox lives in Outlook), but Salt IT has not
+  // issued Graph credentials, and MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET
+  // are absent from production. That created a deadlock in which nobody could be
+  // paid: batch-approve only sets status='approved' when this function returns ok,
+  // and /api/admin/send-ap refuses anything that is not already 'approved'. So a
+  // missing Graph credential silently blocked BOTH senders.
+  //
+  // When Graph is unavailable we fall back to the shared cascade in
+  // lib/send-email.ts, which prefers Resend and is already configured. Resend has
+  // no concept of a draft, so a dryrun records the intent without emailing anyone,
+  // which is what dryrun is for, and says so rather than implying a draft is
+  // waiting in Outlook.
   const token = await getGraphToken()
-  if (!token.ok) return { ok: false, error: token.error }
+
+  if (!token.ok) {
+    const claim = await claimSend(db, { invoiceId: req.invoice_id, target: 'ap', mode: req.mode, address: AP_TO })
+    if (!claim.ok) return { ok: false, error: `${claim.reason}: ${claim.error}` }
+
+    if (req.mode !== 'live') {
+      const drafted = await markSendDrafted(db, claim.sendRowId, { messageId: null })
+      const note = 'Recorded as a dry run. Microsoft Graph is not configured, so no Outlook draft was created and no email was sent.'
+      const draftWarning = [drafted.error, pdf.warning, ccNote, note].filter(Boolean).join(' | ')
+      return { ok: true, mode: req.mode, message_id: null, warning: draftWarning }
+    }
+
+    const sent = await sendEmail({
+      to: AP_TO,
+      cc: ccList,
+      subject,
+      text: body,
+      html: `<pre style="font-family: inherit; white-space: pre-wrap; margin: 0;">${escapeHtml(body)}</pre>`,
+      attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
+    })
+
+    if (!sent.sent) {
+      const msg = `AP send failed via ${sent.provider}: ${sent.error ?? 'provider reported sent=false'}`
+      await markSendFailed(db, claim.sendRowId, msg)
+      return { ok: false, error: msg }
+    }
+
+    const marked = await markSendSucceeded(db, claim.sendRowId, { messageId: sent.messageId ?? null })
+    const { error: statusErr } = await db.from('invoices')
+      .update({ status: 'sent', sent_at: new Date().toISOString() })
+      .eq('id', req.invoice_id)
+
+    const warning = [
+      marked.error,
+      statusErr ? `invoices.status update failed: ${statusErr.message}` : null,
+      pdf.warning,
+      ccNote,
+      `Sent via ${sent.provider} because Microsoft Graph is not configured.`
+    ].filter(Boolean).join(' | ')
+
+    return { ok: true, mode: req.mode, message_id: sent.messageId ?? null, warning: warning || undefined }
+  }
 
   const graphBody = {
     message: {
@@ -198,6 +252,11 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     .join(' | ')
 
   return { ok: true, mode: req.mode, message_id: messageId, warning: warning || undefined }
+}
+
+/** The AP body is plain text; escape it before dropping it into an HTML part. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 async function getGraphToken(): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
