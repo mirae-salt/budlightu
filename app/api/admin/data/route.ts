@@ -84,7 +84,13 @@ export async function GET(req: Request) {
     case 'invoices': {
       const { data: invoices, error } = await admin.from('invoices')
         .select('id, invoice_number, period, status, cohort_id, bam_id, payload_json, bams(first_name, last_name)')
-        .in('status', ['draft', 'sent'])
+        // Must include 'approved', 'paid' and 'void'. The filter used to be
+        // ['draft','sent'], which hid an invoice the moment batch-approve set it to
+        // 'approved' — and /api/admin/send-ap only accepts status='approved', so the
+        // only invoices Robin could send were the only ones she could not see. It
+        // also made the "N approved, not sent to AP" badge and the Retry AP button
+        // unreachable, and left VOID visible only as in-session local state.
+        .in('status', ['draft', 'approved', 'sent', 'paid', 'void'])
         .order('created_at', { ascending: false })
       if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
       if (!invoices) return NextResponse.json({ data: [], error: null })

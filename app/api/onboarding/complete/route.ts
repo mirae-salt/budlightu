@@ -47,6 +47,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'No BAM record found for your account.' }, { status: 404 })
   }
 
+  // This route writes banking details, so it must only ever complete a FIRST
+  // onboarding. `status` was selected and never checked, which meant an already
+  // active BAM could POST here and rewrite their own payout destination — the
+  // exact thing /portal/account tells students is impossible ("if someone ever
+  // got into your account, they could point your pay at themselves"), and a
+  // violation of CLAUDE.md constraint 5. Corrections go through
+  // /portal/account -> /api/portal/banking-request, where an admin applies them
+  // and the change is audited.
+  if (bam.status !== 'pending') {
+    return NextResponse.json({
+      ok: false,
+      message: 'Your account is already set up. To correct your banking details, use Banking details in the portal so your program manager can apply the change.'
+    }, { status: 409 })
+  }
+
   // Validate banking info
   try {
     validateInstitution(form.institution_no)
