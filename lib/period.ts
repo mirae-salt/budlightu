@@ -22,10 +22,25 @@ function currentMonthIndex(now: Date): number {
   return monthIndex(now.getUTCFullYear(), now.getUTCMonth() + 1)
 }
 
+export type PeriodOptions = {
+  /**
+   * `bams.is_test`. A test account may submit for the CURRENT month even when it
+   * falls outside the cohort's dates, so the flow can be exercised before the
+   * program opens. Everything else still applies: no future month, nothing older
+   * than the previous month.
+   *
+   * This exists so nobody has to temporarily move a cohort's start_date to test,
+   * which distorts the real program window and has to be remembered and reverted.
+   * A real student (is_test false) is never granted the exception.
+   */
+  isTest?: boolean
+}
+
 export function validatePeriod(
   raw: string,
   cohort: { start_date?: string | null; end_date?: string | null } | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  options: PeriodOptions = {}
 ): { ok: true; period: string } | { ok: false; message: string } {
   const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(String(raw).trim())
   if (!m) return { ok: false, message: 'Invalid month. Expected YYYY-MM.' }
@@ -46,6 +61,13 @@ export function validatePeriod(
   }
   const startIdx = range(cohort?.start_date)
   const endIdx = range(cohort?.end_date)
+
+  // A test account may submit for the current month regardless of the cohort
+  // window, so the flow can be exercised before the program opens. Scoped to the
+  // CURRENT month only: a test account still cannot backdate or post ahead.
+  const testException = options.isTest === true && idx === cur
+  if (testException) return { ok: true, period }
+
   if (startIdx === null || endIdx === null) {
     return { ok: false, message: 'Your program dates are not set up yet. Please contact your program manager.' }
   }

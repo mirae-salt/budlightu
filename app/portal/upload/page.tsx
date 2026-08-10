@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 import { resolveBamId } from '@/lib/portal-bam'
 
@@ -10,7 +10,10 @@ const PROGRAM_START_MONTH = 8 // September (0-indexed)
 const PROGRAM_START_YEAR = 2026
 const PROGRAM_MONTHS = 8 // Sept through April
 
-type MonthOption = { value: string; label: string; tag?: string; isCurrent?: boolean; isSubmittable?: boolean }
+type MonthOption = { value: string; label: string; shortLabel: string; tag?: string; isCurrent?: boolean; isSubmittable?: boolean }
+
+/** The cohort's first and last month as YYYY-MM-01, so a string compare works. */
+type CohortWindow = { startMonth: string; endMonth: string }
 
 /** UTC month key, matching lib/period.ts. `new Date(y, m, 1).toISOString()` is a
  *  LOCAL midnight, which at a negative UTC offset lands on the last day of the
@@ -37,8 +40,7 @@ function monthValue(year: number, month0: number): string {
  * context. Anything not submittable is shown disabled with the reason, instead of
  * being offered and then rejected.
  */
-function buildMonthOptions(): MonthOption[] {
-  const now = new Date()
+function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolean, now: Date = new Date()): MonthOption[] {
   const deadlineDay = 15
   const curYear = now.getUTCFullYear()
   const curMonth = now.getUTCMonth()
@@ -58,18 +60,37 @@ function buildMonthOptions(): MonthOption[] {
     seen.add(value)
 
     const isCurrent = year === curYear && month0 === curMonth
-    const isSubmittable = submittable.has(value)
     const monthStartUtc = Date.UTC(year, month0, 1)
     const thisMonthUtc = Date.UTC(curYear, curMonth, 1)
 
+    // Both halves of the server rule (lib/period.ts): the current or previous
+    // month, AND inside the cohort's dates. Checking only the first half is what
+    // would leave August selectable in September once the cohort's start_date goes
+    // back to the 1st of September, i.e. the same UI-allows/server-rejects bug
+    // this function was just fixed for. Until the cohort loads, nothing outside
+    // the date rule is offered.
+    const inWindow = cohort ? value >= cohort.startMonth && value <= cohort.endMonth : true
+    // Mirrors the server exception in lib/period.ts: a test account may submit for
+    // the CURRENT month even outside the program window, so the flow can be
+    // exercised before the program opens. Labelled "Test" rather than by month
+    // name, because it is not a real program month and should not look like one.
+    const isTestSlot = isTestBam && isCurrent && !inWindow
+    const isSubmittable = (submittable.has(value) && inWindow) || isTestSlot
+
     let tag: string | undefined
-    if (!isSubmittable) tag = monthStartUtc > thisMonthUtc ? 'not open yet' : 'closed'
+    if (isTestSlot) tag = 'test only'
+    else if (!isSubmittable) {
+      if (!inWindow) tag = 'outside your program'
+      else tag = monthStartUtc > thisMonthUtc ? 'not open yet' : 'closed'
+    }
     else if (isCurrent && now.getUTCDate() > deadlineDay) tag = 'past deadline'
     else if (monthStartUtc < thisMonthUtc) tag = 'late, still accepted'
 
+    const monthName = new Date(monthStartUtc).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
     opts.push({
       value,
-      label: new Date(monthStartUtc).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+      label: isTestSlot ? 'Test' : monthName,
+      shortLabel: isTestSlot ? 'Test' : monthName.split(' ')[0],
       tag,
       isCurrent,
       isSubmittable
@@ -92,7 +113,12 @@ function buildMonthOptions(): MonthOption[] {
 }
 
 export default function UploadPage() {
-  const monthOptions = buildMonthOptions()
+  // A BAM can read their own cohort (policy cohorts_bam_read_own), so the selector
+  // can enforce the same window the server does instead of guessing.
+  const [cohortWindow, setCohortWindow] = useState<CohortWindow | null>(null)
+  const [isTestBam, setIsTestBam] = useState(false)
+
+  const monthOptions = useMemo(() => buildMonthOptions(cohortWindow, isTestBam), [cohortWindow, isTestBam])
   // Default to a month the server will accept, so the first submit cannot fail on
   // the selector's own default. `.slice(1)` used to drop the previous month by
   // index, which is why September could not be chosen in October.
@@ -133,6 +159,42 @@ export default function UploadPage() {
       .order('uploaded_at', { ascending: false })
     setPastReceipts(data ?? [])
     setLoadingReceipts(false)
+  }, [])
+
+  // Load the cohort window and the test flag so the selector enforces exactly what
+  // lib/period.ts enforces. Reading these is permitted: policy cohorts_bam_read_own
+  // and the BAM's own bams row. Failure leaves the selector on the date rule alone,
+  // which is the conservative side: the server still has the last word.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const sb = browserClient()
+      const { data: userRes } = await sb.auth.getUser()
+      if (!userRes.user) return
+      const bamId = await resolveBamId(sb, userRes.user)
+      if (!bamId) return
+
+      const { data: bam, error } = await sb.from('bams')
+        .select('is_test, cohort_id, cohorts(start_date, end_date)')
+        .eq('id', bamId)
+        .maybeSingle()
+      if (cancelled || error || !bam) return
+
+      if (bam.is_test === true) setIsTestBam(true)
+
+      // supabase-js types an embedded to-one relation as an array even though it
+      // returns an object, so accept either shape rather than casting blindly.
+      type CohortDates = { start_date: string | null; end_date: string | null }
+      const embedded = bam.cohorts as unknown as CohortDates | CohortDates[] | null
+      const c = Array.isArray(embedded) ? embedded[0] ?? null : embedded
+      if (c?.start_date && c?.end_date) {
+        setCohortWindow({
+          startMonth: `${c.start_date.slice(0, 7)}-01`,
+          endMonth: `${c.end_date.slice(0, 7)}-01`
+        })
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => { loadReceipts(selectedPeriod) }, [selectedPeriod, loadReceipts])
@@ -257,7 +319,7 @@ export default function UploadPage() {
                   style={{ fontSize: 12, padding: '6px 14px' }}
                   onClick={() => { setSelectedPeriod(currentMonth.value); setShowPastMonths(false) }}
                 >
-                  Back to {currentMonth.label.split(' ')[0]}
+                  Back to {currentMonth.shortLabel}
                 </button>
               )}
             </div>
@@ -279,7 +341,7 @@ export default function UploadPage() {
                     }}
                     onClick={() => { if (o.isSubmittable) setSelectedPeriod(o.value) }}
                   >
-                    {o.label.split(' ')[0]}
+                    {o.shortLabel}
                   </button>
                 ))}
               </div>

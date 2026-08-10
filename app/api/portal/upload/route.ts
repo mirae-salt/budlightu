@@ -104,7 +104,20 @@ export async function POST(req: NextRequest) {
   if (cohortErr) {
     return NextResponse.json({ ok: false, message: `Could not verify your program dates: ${cohortErr.message}` }, { status: 500 })
   }
-  const periodCheck = validatePeriod(periodRaw, cohortRow)
+  // One lookup after bamId is settled, rather than adding is_test to each of the
+  // three resolution branches above where the three copies could drift apart.
+  // A test account may submit for the current month even before the program opens;
+  // a real student never gets that exception (see lib/period.ts).
+  const { data: bamFlags, error: flagErr } = await admin.from('bams')
+    .select('is_test')
+    .eq('id', bamId)
+    .maybeSingle()
+  if (flagErr) {
+    return NextResponse.json({ ok: false, message: `Could not verify your account: ${flagErr.message}` }, { status: 500 })
+  }
+  const isTestBam = bamFlags?.is_test === true
+
+  const periodCheck = validatePeriod(periodRaw, cohortRow, new Date(), { isTest: isTestBam })
   if (!periodCheck.ok) {
     return NextResponse.json({ ok: false, message: periodCheck.message }, { status: 400 })
   }
