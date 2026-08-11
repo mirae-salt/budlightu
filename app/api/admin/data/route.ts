@@ -182,6 +182,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ data, error: null })
     }
 
+    // Support questions. /api/portal/support has always written these rows and
+    // linked an admin notification to /admin/questions, but that page did not exist
+    // and nothing read this table -- so email was the only way a question reached
+    // anyone, and the route's own fallback comment ("Robin will see it in the
+    // dashboard") was not true.
+    case 'questions': {
+      const { data, error } = await admin.from('portal_questions')
+        .select('id, question, submitted_at, bam_id, bams(first_name, last_name, email)')
+        .order('submitted_at', { ascending: false })
+        .limit(200)
+      if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
+      return NextResponse.json({ data, error: null })
+    }
+
     case 'audit': {
       const { data, error } = await admin.from('audit_log')
         .select('ts, actor_role, entity, entity_id, action, after_json')

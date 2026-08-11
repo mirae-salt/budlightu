@@ -232,7 +232,7 @@ export default function Cohorts() {
       })
       setAllBams(prev => prev.map(b => b.id === bamId ? { ...b, cohortId: null } as typeof b : b))
       setCohorts(list => list.map(c => c.id === cohortId ? { ...c, bams: Math.max(0, c.bams - 1) } : c))
-      report('ok', 'BAM removed from cohort')
+      report(j.warning ? 'error' : 'ok', j.warning ? `Removed, but: ${j.warning}` : 'BAM removed from cohort')
     } catch (e) {
       report('error', `Not removed: ${(e as Error).message}`)
     }
@@ -261,7 +261,7 @@ export default function Cohorts() {
         setAllBams(prev => prev.map(b => b.id === bamId ? { ...b, cohortId } as typeof b : b))
         setCohorts(list => list.map(c => c.id === cohortId ? { ...c, bams: c.bams + 1 } : c))
       }
-      report('ok', 'BAM added to cohort')
+      report(j.warning ? 'error' : 'ok', j.warning ? `Added, but: ${j.warning}` : 'BAM added to cohort')
       setAddingBam(false)
     } catch (e) {
       report('error', `Not added: ${(e as Error).message}`)

@@ -30,20 +30,28 @@ import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
 import { parseBankName, parseSchoolId, parseCohortId } from '../../../../lib/admin-input'
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
+import { provinceTaxRate } from '../../../../lib/invoice-payload'
 
 const ALLOWED_FIELDS = [
   'first_name', 'last_name', 'email', 'phone', 'status',
-  'school_id', 'cohort_id', 'bank_name', 'is_test'
+  'school_id', 'cohort_id', 'bank_name', 'is_test',
+  // The mailing address HARD BLOCKS invoice generation when any part of it is
+  // blank (lib/invoice-payload.ts), and that block tells the admin to "fill it in
+  // on the roster" — which was impossible: these four were not editable anywhere
+  // outside onboarding, and onboarding refuses a BAM who is no longer 'pending'.
+  // So a typo in a postal code could stop an invoice with no way for Robin to fix
+  // it. They are editable here now.
+  'street', 'city', 'prov', 'postal'
 ] as const
 
 /** Values the bams.status CHECK constraint accepts. */
 const VALID_STATUSES = ['pending', 'active', 'archived'] as const
 
 /** Free-text fields that get invisible-character cleanup but keep their case. */
-const TEXT_FIELDS = new Set<string>(['first_name', 'last_name', 'phone'])
+const TEXT_FIELDS = new Set<string>(['first_name', 'last_name', 'phone', 'street', 'city', 'postal'])
 
 /** Columns echoed back to the client so the table only shows what was stored. */
-const READBACK = 'id, first_name, last_name, email, status, bank_name, school_id, cohort_id, initials_resolved, is_test'
+const READBACK = 'id, first_name, last_name, email, phone, status, bank_name, school_id, cohort_id, initials_resolved, is_test, street, city, prov, postal'
 
 /** Postgres unique_violation. Surfaced as a clear 409, not a raw driver string. */
 const UNIQUE_VIOLATION = '23505'
@@ -95,6 +103,44 @@ export async function PATCH(req: NextRequest) {
       const bank = parseBankName(raw)
       if (!bank.ok) return NextResponse.json({ ok: false, message: bank.error }, { status: 400 })
       update.bank_name = bank.value
+      continue
+    }
+
+    // Province is not free text: computeHst() THROWS on a code outside its table,
+    // which turns a typo like "Ontario" or "ONT" into a failed invoice run rather
+    // than a validation message. The list comes from the same table the tax
+    // calculation uses, so the two cannot drift apart.
+    if (k === 'prov') {
+      if (raw === null || raw === undefined || (typeof raw === 'string' && !cleanText(raw))) {
+        update.prov = null
+        continue
+      }
+      if (typeof raw !== 'string') {
+        return NextResponse.json({ ok: false, message: 'Province must be text.' }, { status: 400 })
+      }
+      const code = cleanText(raw).toUpperCase()
+      if (provinceTaxRate(code) === null) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: `"${cleanText(raw)}" is not a province code we can calculate tax for. ` +
+              'Use the two-letter code: ON, QC, BC, AB, MB, SK, NS, NB, NL, PE, YT, NT, NU.'
+          },
+          { status: 400 }
+        )
+      }
+      update.prov = code
+      continue
+    }
+
+    if (k === 'is_test') {
+      // Was a bare pass-through, so any JSON value landed in the column. A row whose
+      // is_test is null instead of false is skipped by the archive-on-revoke step in
+      // /api/admin/team, which would leave a portal login open.
+      if (typeof raw !== 'boolean') {
+        return NextResponse.json({ ok: false, message: 'is_test must be true or false.' }, { status: 400 })
+      }
+      update.is_test = raw
       continue
     }
 

@@ -27,7 +27,8 @@ const groups: NavGroup[] = [
       { href: '/admin/roster',    label: 'BAMs',       icon: <IconUsers /> },
       { href: '/admin/cohorts',   label: 'Cohorts',    icon: <IconLayers /> },
       { href: '/admin/unmatched', label: 'Unmatched',  icon: <IconAlert /> },
-      { href: '/admin/banking-requests', label: 'Banking changes', icon: <IconBank /> }
+      { href: '/admin/banking-requests', label: 'Banking changes', icon: <IconBank /> },
+      { href: '/admin/questions', label: 'Questions', icon: <IconInfo /> }
     ]
   },
   {

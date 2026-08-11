@@ -79,7 +79,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: `Bank "${form.bank_name}" not in our lookup. Please contact your program manager.` }, { status: 400 })
   }
 
-  // Update BAM record
+  // ORDER MATTERS. This used to write status:'active' first and encrypt banking
+  // second. When the encrypt failed the row was left 'active' with NULL banking, and
+  // the guard at the top of this route ("already set up", 409) then refused every
+  // retry — so the student could not get back to the form, and their invoice was hard
+  // blocked on missing banking forever. The sibling Edge Function (onboarding-ingest)
+  // rolls back in the same situation; this route did not.
+  //
+  // Now: profile fields first, then banking, and status flips to 'active' only after
+  // the banking write is confirmed. A failure anywhere leaves the row 'pending', which
+  // is exactly the state that lets them try again.
   const { error: updErr } = await db.from('bams').update({
     first_name:    form.first_name,
     last_name:     form.last_name,
@@ -94,9 +103,8 @@ export async function POST(req: NextRequest) {
     // T&C acceptance was collected by the form and thrown away. Stamped
     // server-side, never taken from the client, and versioned (see 0020).
     consent_terms_at: form.consent_terms ? new Date().toISOString() : null,
-    consent_terms_version: form.consent_terms ? '2026-09-01' : null,
-    status:        'active',
-    email_verified_at: new Date().toISOString()
+    consent_terms_version: form.consent_terms ? '2026-09-01' : null
+    // status and email_verified_at are set AFTER banking succeeds, below.
   }).eq('id', bam.id)
 
   if (updErr) {
@@ -127,7 +135,41 @@ export async function POST(req: NextRequest) {
   })
 
   if (encErr) {
-    return NextResponse.json({ ok: false, message: `Encrypt failed: ${encErr.message}` }, { status: 500 })
+    // The row is still 'pending', so the student can submit the form again. Say that,
+    // rather than leaving them with a dead end.
+    console.error('[onboarding/complete] banking encrypt failed for bam', bam.id, encErr.message)
+    return NextResponse.json(
+      {
+        ok: false,
+        message: 'We saved your details but could not store your banking information securely. ' +
+          'Please submit the form again. If it keeps failing, contact your program manager.'
+      },
+      { status: 500 }
+    )
+  }
+
+  // Banking is stored. Only now is the account actually set up.
+  const { data: activated, error: actErr } = await db.from('bams')
+    .update({ status: 'active', email_verified_at: new Date().toISOString() })
+    .eq('id', bam.id)
+    .select('id, status')
+
+  // Read-back: an update that matches zero rows reports success. If this did not
+  // take, the row stays 'pending' and the student can retry — which is the safe
+  // direction, but they must be told rather than shown a success screen.
+  if (actErr || !activated || activated.length !== 1 || activated[0].status !== 'active') {
+    console.error(
+      '[onboarding/complete] banking stored but activation did not take for bam', bam.id,
+      actErr?.message ?? `rows=${activated?.length ?? 0}`
+    )
+    return NextResponse.json(
+      {
+        ok: false,
+        message: 'Your details were saved but we could not finish activating your account. ' +
+          'Please contact your program manager before submitting again.'
+      },
+      { status: 500 }
+    )
   }
 
   return NextResponse.json({ ok: true, message: 'Onboarding complete.' })

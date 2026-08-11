@@ -83,7 +83,14 @@ export default function MyInvoices() {
         body: JSON.stringify({ invoice_id: inv.id })
       })
       const j = await res.json()
-      setEmailMsg(j.ok ? 'Invoice copy sent to your email' : (j.error || 'Failed to send'))
+      // A partial success (the mail went out, but the PDF's storage key could not be
+      // recorded) arrives as `warning` and used to be dropped, so the student was told
+      // it was sent either way.
+      setEmailMsg(
+        j.ok
+          ? (j.warning ? `Sent, but: ${j.warning}` : 'Invoice copy sent to your email')
+          : (j.error || j.message || 'Failed to send')
+      )
     } catch {
       setEmailMsg('Failed to send')
     } finally {

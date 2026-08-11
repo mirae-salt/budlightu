@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const { data: receipt, error: readErr } = await admin
     .from('receipts')
-    .select('id, bam_id, cohort_id, period, status, bud_light_total_incl_tax, reverted_count')
+    .select('id, bam_id, cohort_id, period, status, bud_light_total_incl_tax, reverted_count, decided_by, decided_at, decision_reason, reverted_at, reverted_by')
     .eq('id', receipt_id)
     .maybeSingle()
   if (readErr) return NextResponse.json({ ok: false, error: readErr.message }, { status: 500 })
@@ -58,6 +58,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // The decision fields are in the select above because the rollback path restores
+  // them. Leave them there: without them, `receipt.decided_by ?? null` is always null
+  // and a rollback would wipe the decision instead of putting it back.
   const previousStatus: string = receipt.status
 
   // Compare-and-set on the status we read, so two admins clicking revert at the
@@ -96,9 +99,41 @@ export async function POST(req: NextRequest) {
   })
   if (auditErr) {
     // Undo the reopen rather than leave an unlogged change behind.
-    await admin.from('receipts')
-      .update({ status: previousStatus, reverted_count: receipt.reverted_count ?? 0, reverted_at: null, reverted_by: null })
+    //
+    // This used to be a bare `await` with no error binding and no read-back, and the
+    // response said "revert rolled back" whether or not it had been. It also did not
+    // restore decided_by / decided_at / decision_reason, so even a successful undo
+    // left an approved receipt with no decider and a reason reading "reopened by
+    // admin" -- the exact state the undo exists to prevent.
+    const { data: restored, error: rbErr } = await admin.from('receipts')
+      .update({
+        status: previousStatus,
+        decided_by: receipt.decided_by ?? null,
+        decided_at: receipt.decided_at ?? null,
+        decision_reason: receipt.decision_reason ?? null,
+        reverted_count: receipt.reverted_count ?? 0,
+        reverted_at: receipt.reverted_at ?? null,
+        reverted_by: receipt.reverted_by ?? null
+      })
       .eq('id', receipt_id)
+      .select('id, status')
+
+    const rolledBack = !rbErr && restored?.length === 1 && restored[0].status === previousStatus
+    if (!rolledBack) {
+      console.error(
+        '[receipts/revert] ROLLBACK FAILED for receipt', receipt_id,
+        rbErr?.message ?? `rows=${restored?.length ?? 0}`
+      )
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `The audit log write failed (${auditErr.message}) AND the rollback did not take. ` +
+            'This receipt is reopened with no audit record. Do not act on it, and tell Mirae.'
+        },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(
       { ok: false, error: `revert rolled back: audit log write failed (${auditErr.message})` },
       { status: 500 }

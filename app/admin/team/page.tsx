@@ -20,14 +20,22 @@ export default function TeamPage() {
   const [form, setForm] = useState<{ email: string; first_name: string; last_name: string; role: 'program_admin' | 'super_admin' }>({ email: '', first_name: '', last_name: '', role: 'program_admin' })
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const res = await fetch('/api/admin/team')
       const data = await res.json()
+      // A failed request used to leave `admins` at [], which renders "No admin users
+      // configured yet" — unknown displayed as none. On this page that reads as
+      // "nobody has access", which is the opposite of what a failure means.
       if (data.ok) setAdmins(data.admins ?? [])
-    } catch { /* ignore */ }
+      else setLoadError(data.message || 'Could not load the admin list.')
+    } catch {
+      setLoadError('Could not reach the server to load the admin list.')
+    }
     setLoading(false)
   }, [])
 
@@ -148,7 +156,9 @@ export default function TeamPage() {
           <p className="muted" style={{ padding: 20, textAlign: 'center' }}>Loading...</p>
         ) : admins.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--midgray)', fontSize: 14 }}>
-            No admin users configured yet. Add your first admin above.
+            {loadError
+              ? `We could not load the admin list: ${loadError} This does not mean the list is empty.`
+              : 'No admin users configured yet. Add your first admin above.'}
           </div>
         ) : (
           <div className="table-scroll">
