@@ -44,26 +44,29 @@ async function main() {
   for (const u of admins) {
     const email = norm(u.email)
     const row = bams.find(b => norm(b.email) === email)
-    if (row) {
-      info(`${email.padEnd(32)} already has a roster row (is_test=${row.is_test}, status=${row.status})`)
+    const meta = u.user_metadata || {}
+    const target = {
+      userId: u.id,
+      email,
+      firstName: String(meta.first_name || email.split('@')[0]),
+      lastName: String(meta.last_name || 'Admin')
+    }
+    if (!row) {
+      info(`${email.padEnd(32)} NEEDS a test BAM account (${target.firstName} ${target.lastName})`)
+      missing.push(target)
+    } else if (row.is_test === true) {
+      // Existing test rows still get topped up: address and banking are what make
+      // the invoice chain reachable, and older rows were created without them.
+      info(`${email.padEnd(32)} has a test row; will fill any missing address/banking`)
+      missing.push(target)
     } else {
-      const meta = u.user_metadata || {}
-      missing.push({
-        userId: u.id,
-        email,
-        firstName: String(meta.first_name || email.split('@')[0]),
-        lastName: String(meta.last_name || 'Admin')
-      })
+      info(`${email.padEnd(32)} is a REAL BAM row (is_test=false) — left untouched`)
     }
   }
 
   if (missing.length === 0) {
-    pass('every admin already has a BAM account')
+    pass('nothing to do')
     return verdict('admin test accounts')
-  }
-
-  for (const m of missing) {
-    info(`${m.email.padEnd(32)} NEEDS a test BAM account (${m.firstName} ${m.lastName})`)
   }
 
   if (!APPLY) {
@@ -80,7 +83,7 @@ async function main() {
 
   // Read back from the DB rather than trusting the return value.
   const { data: after, error: aErr } = await db
-    .from('bams').select('email, is_test, status, cohort_id, auth_user_id')
+    .from('bams').select('email, is_test, status, cohort_id, auth_user_id, street, city, prov, bank_name, account_no')
   if (aErr) { fail('read-back failed: ' + aErr.message); return verdict('admin test accounts') }
 
   console.log('')
@@ -94,14 +97,16 @@ async function main() {
     } else if (row.auth_user_id !== m.userId) {
       fail(`${m.email.padEnd(32)} created but not linked to their login`)
     } else {
-      pass(`${m.email.padEnd(32)} test BAM created (status=${row.status}, is_test=true)`)
+      pass(`${m.email.padEnd(32)} ready (status=${row.status}, is_test=true, ${row.street || 'NO STREET'} / ${row.bank_name || 'NO BANK'}, banking ${row.account_no ? 'set' : 'MISSING'})`)
       if (r && r.warning) info(`   note: ${r.warning}`)
     }
   }
 
   console.log('')
-  info('these accounts have no banking or address on purpose: the portal routes them')
-  info('through onboarding, which is the student journey an admin needs to test.')
+  info('these accounts carry obviously-fake test data (123 Test Street, TD 004) so an')
+  info('admin can run an invoice end to end without walking onboarding first.')
+  info('banking was written through encrypt_bam_banking and read back through')
+  info('decrypt_bam_banking, so the invoice will not block on it.')
   verdict('admin test accounts')
 }
 main()

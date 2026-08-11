@@ -103,10 +103,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: `Update failed: ${updErr.message}` }, { status: 500 })
   }
 
+  // An institution number is a property of the BANK, not something a student knows,
+  // and validateInstitution only checks the SHAPE (three digits). A form saying
+  // "TD Canada Trust" with institution 703 used to be stored exactly as submitted,
+  // so the invoice PDF would name one bank and route the deposit to another. The
+  // lookup table is the authority (lib/banks.ts). The banking-CHANGE path handles
+  // this differently on purpose: there an admin reviews the mismatch before it
+  // takes effect, and here nobody does.
+  if (form.institution_no !== bank.institutionNo) {
+    console.warn(
+      `[onboarding/complete] institution number for "${bank.displayName}" was submitted as ` +
+      `${JSON.stringify(form.institution_no)}; storing ${bank.institutionNo} from the bank lookup instead.`
+    )
+  }
+
   // Encrypt banking fields
   const { error: encErr } = await db.rpc('encrypt_bam_banking', {
     p_bam_id: bam.id,
-    p_institution_no: form.institution_no,
+    p_institution_no: bank.institutionNo,
     p_transit_no:     form.transit_no,
     p_account_no:     form.account_no,
     p_hst_number:     form.hst_number ?? null

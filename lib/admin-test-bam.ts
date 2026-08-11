@@ -55,6 +55,133 @@ export const NO_TEST_COHORT_WARNING =
 type Db = any
 
 /**
+ * The profile a test account is pre-filled with, so an admin can exercise the whole
+ * downstream chain (invoice → PDF → AP preview) without first walking onboarding.
+ *
+ * Every value here is chosen to clear a real gate rather than to look plausible.
+ * The gates, and what breaks without them:
+ *
+ *  street/city/prov/postal  lib/invoice-payload.ts HARD BLOCKS an invoice with an
+ *                           incomplete mailing address. Any blank one stops the run.
+ *  prov = 'ON'              computeHst() THROWS on a province code outside its table.
+ *  bank_name                Must be a displayName from lib/banks.ts, or the roster
+ *                           editor rejects it as having an unknown institution number.
+ *  institution_no '004'     Must agree with bank_name (TD), or the direct-deposit
+ *                           block on the PDF names one bank and routes to another.
+ *  transit/account          Written through encrypt_bam_banking, NEVER by a plain
+ *                           update: the columns hold base64 pgp_sym_encrypt output,
+ *                           so a cleartext write makes decrypt_bam_banking return
+ *                           garbage and the invoice HARD BLOCKS on banking.
+ *  account_no leading zero  Deliberate. Banking fields are TEXT precisely so a
+ *                           leading zero survives; a test account should exercise it.
+ *  hst_number = null        Tax is charged only when an HST number exists
+ *                           (invoice-payload.ts:154). Most BAMs are students with no
+ *                           HST number, so null is the case worth testing by default.
+ *                           Set one on the roster to test the taxed variant.
+ *
+ * These are obviously fake on sight, which matters: a test row must never be
+ * mistaken for a real student's banking details.
+ */
+export const TEST_BAM_PROFILE = {
+  phone: '555-555-0100',
+  street: '123 Test Street',
+  city: 'Test City',
+  prov: 'ON',
+  postal: 'M5V 1A1',
+  school_id: 'Test University',
+  bank_name: 'TD Canada Trust',
+  consent_ap_cc: true
+} as const
+
+/** Banking, applied separately because it must go through the encrypting RPC. */
+export const TEST_BAM_BANKING = {
+  institution_no: '004',   // TD — must match TEST_BAM_PROFILE.bank_name
+  transit_no: '01234',
+  account_no: '0123456'    // leading zero on purpose
+} as const
+
+/**
+ * Fills a test account's profile so the downstream chain is reachable.
+ *
+ * Only ever fills a field that is EMPTY. It never overwrites a value someone
+ * entered, so it is safe to re-run and safe on a row that has been edited by hand.
+ * Returns a warning string on failure, never throws.
+ */
+export async function fillTestBamProfile(db: Db, bamId: string): Promise<string | null> {
+  const cols = 'id, cohort_id, phone, street, city, prov, postal, school_id, bank_name, consent_ap_cc, ' +
+    'institution_no, transit_no, account_no, email_verified_at, consent_terms_at, consent_terms_version, ' +
+    'initials_resolved'
+  const { data: rows, error: readErr } = await db.from('bams').select(cols).eq('id', bamId)
+  if (readErr) return `Could not read the test account to fill it in: ${readErr.message}`
+  if (!rows || rows.length !== 1) return 'Could not find the test account to fill in.'
+  const row = rows[0] as Record<string, unknown>
+
+  const blank = (v: unknown) => v === null || v === undefined || String(v).trim() === ''
+
+  const patch: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(TEST_BAM_PROFILE)) {
+    if (k === 'consent_ap_cc') {
+      if (row[k] === null || row[k] === undefined) patch[k] = v
+    } else if (blank(row[k])) {
+      patch[k] = v
+    }
+  }
+  // Stamped rather than left for a first login: without it the portal bounces the
+  // account to /portal/verify-account before it can reach anything. Fair for an
+  // admin, whose address is already proven by the admin invite they received.
+  if (blank(row.email_verified_at)) patch.email_verified_at = new Date().toISOString()
+  if (blank(row.consent_terms_at)) {
+    patch.consent_terms_at = new Date().toISOString()
+    patch.consent_terms_version = 'test-seed'
+  }
+
+  if (Object.keys(patch).length > 0) {
+    const { data: updated, error: updErr } = await db
+      .from('bams').update(patch).eq('id', bamId).select('id, street, city, prov, bank_name')
+    if (updErr) return `Could not fill in the test account: ${updErr.message}`
+    // Read-back: an update that matches zero rows reports success.
+    if (!updated || updated.length !== 1) return 'The test account fields did not save.'
+  }
+
+  // Banking LAST and only when all three are absent: a partial encrypted set would
+  // leave the invoice blocked, and overwriting real encrypted values is destructive.
+  if (blank(row.institution_no) && blank(row.transit_no) && blank(row.account_no)) {
+    const { error: encErr } = await db.rpc('encrypt_bam_banking', {
+      p_bam_id: bamId,
+      p_institution_no: TEST_BAM_BANKING.institution_no,
+      p_transit_no: TEST_BAM_BANKING.transit_no,
+      p_account_no: TEST_BAM_BANKING.account_no,
+      p_hst_number: null
+    })
+    if (encErr) return `Test banking could not be stored: ${encErr.message}`
+
+    // Prove it round-trips. Storing cleartext by mistake, or encrypting with a key
+    // the reader does not have, both fail HERE rather than at invoice time.
+    const { data: dec, error: decErr } = await db.rpc('decrypt_bam_banking', { p_bam_id: bamId })
+    if (decErr) return `Test banking was stored but cannot be decrypted: ${decErr.message}`
+    const got = Array.isArray(dec) ? dec[0] : dec
+    if (
+      !got ||
+      got.institution_no !== TEST_BAM_BANKING.institution_no ||
+      got.transit_no !== TEST_BAM_BANKING.transit_no ||
+      got.account_no !== TEST_BAM_BANKING.account_no
+    ) {
+      return 'Test banking did not round-trip through encryption. The invoice would block on it.'
+    }
+  }
+
+  // Invoice initials. Without them formatInvoiceNumber throws, so a row that looks
+  // complete on the roster still cannot produce an invoice. Older test rows predate
+  // the roster route assigning these.
+  if (blank(row.initials_resolved) && row.cohort_id) {
+    const initials = await ensureInitialsResolved(db, bamId, String(row.cohort_id))
+    if (!initials.ok) return `Test invoice initials could not be assigned: ${initials.error}`
+  }
+
+  return null
+}
+
+/**
  * Gives an admin a TEST BAM account so they can walk the student journey.
  * See the file header for why this is the test cohort or nothing.
  *
@@ -79,13 +206,24 @@ export async function ensureTestBam(
   }
   if (existingRows && existingRows.length > 0) {
     if (existingRows.length > 1) return null // duplicate roster: the sign-in gate reports it
-    const row = existingRows[0] as { id: string; auth_user_id: string | null }
-    if (row.auth_user_id) return null
-    const { error: linkErr } = await db
-      .from('bams').update({ auth_user_id: opts.userId }).eq('id', row.id)
-    if (linkErr) {
-      console.error('[ensureTestBam] linking existing bam to admin user failed:', linkErr.message)
-      return 'Admin access was granted, but their existing BAM account could not be linked to this login.'
+    const row = existingRows[0] as { id: string; auth_user_id: string | null; is_test: boolean | null }
+    if (!row.auth_user_id) {
+      const { error: linkErr } = await db
+        .from('bams').update({ auth_user_id: opts.userId }).eq('id', row.id)
+      if (linkErr) {
+        console.error('[ensureTestBam] linking existing bam to admin user failed:', linkErr.message)
+        return 'Admin access was granted, but their existing BAM account could not be linked to this login.'
+      }
+    }
+    // Fill a TEST row so the downstream chain is reachable. A real student's row is
+    // left alone: seeding fake banking into a participant's record would be a
+    // payment error, not a convenience.
+    if (row.is_test === true) {
+      const fillWarn = await fillTestBamProfile(db, row.id)
+      if (fillWarn) {
+        console.error('[ensureTestBam] filling existing test bam failed:', fillWarn)
+        return `Admin access was granted, but their test BAM account is incomplete: ${fillWarn}`
+      }
     }
     return null
   }
@@ -137,5 +275,14 @@ export async function ensureTestBam(
     console.error('[ensureTestBam] initials for test bam failed:', initials.error)
     return 'Admin access and a test BAM account were created, but the test invoice initials could not be assigned.'
   }
+
+  // Pre-fill address and banking so the admin can run an invoice immediately
+  // instead of having to walk onboarding first.
+  const fillWarn = await fillTestBamProfile(db, bam.id)
+  if (fillWarn) {
+    console.error('[ensureTestBam] filling new test bam failed:', fillWarn)
+    return `Admin access and a test BAM account were created, but it is not ready to invoice: ${fillWarn}`
+  }
+
   return null
 }

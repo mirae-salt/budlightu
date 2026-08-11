@@ -153,6 +153,23 @@ export async function handler(req: {
     return { ok: false, message: `Bank "${req.form.bank_name}" not in our lookup. Please contact your program manager.` }
   }
 
+  // An institution number is a property of the BANK, not something a student knows.
+  // validateInstitution above only checks the SHAPE (three digits), so a form that
+  // said "TD Canada Trust" with institution 703 was stored exactly as submitted: the
+  // invoice PDF would then name one bank and route the deposit to another. The
+  // lookup table is the authority (lib/banks.ts), so the stored value comes from it.
+  //
+  // The submitted value is not silently discarded — a disagreement is logged, since
+  // a student consistently typing the same "wrong" number is more likely to mean the
+  // lookup is wrong for their bank than that they mistyped it.
+  const institutionNo = bank.institutionNo
+  if (req.form.institution_no !== institutionNo) {
+    console.warn(
+      `[onboarding-ingest] institution number for "${bank.displayName}" was submitted as ` +
+      `${JSON.stringify(req.form.institution_no)}; storing ${institutionNo} from the bank lookup instead.`
+    )
+  }
+
   // ── 5. Create Supabase Auth user ──────────────────────────────
   // email_confirm: true — we already verified the email matches the roster
   // above (step 3), so Supabase's own "confirm your signup" email would be
@@ -207,7 +224,7 @@ export async function handler(req: {
 
   const { error: encErr } = await db.rpc('encrypt_bam_banking', {
     p_bam_id: pendingBam.id,
-    p_institution_no: req.form.institution_no,
+    p_institution_no: institutionNo,
     p_transit_no: req.form.transit_no,
     p_account_no: req.form.account_no,
     p_hst_number: req.form.hst_number ?? null
