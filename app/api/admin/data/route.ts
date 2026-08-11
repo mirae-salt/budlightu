@@ -20,9 +20,30 @@ import { NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
+import { SHORTFALL_WARN_BELOW_CAD, DEFAULT_POLICY } from '../../../../lib/policy'
+import { REEVALUATE_THRESHOLD, consecutiveWarningStreak } from '../../../../lib/shortfall-warning'
 
 /** $150/month, no rollover (Robin confirmed 2026-08-04). */
-const MONTHLY_CAP_CAD = 150
+/**
+ * Fallback only. The cap is a COHORT setting (`cohorts.reimbursement_max`), and this
+ * file used to hardcode 150 in three places while selecting the real value for a
+ * different tab and ignoring it. Every cohort happens to be 150 today, so the number
+ * on screen was right by coincidence; the first cohort with a different cap would have
+ * shown Robin a budget that was quietly wrong.
+ */
+const FALLBACK_CAP_CAD = DEFAULT_POLICY.reimbursementMax
+
+/**
+ * A cohort's reimbursement cap from an embedded relation, which PostgREST types as an
+ * object on some selects and an array on others. Falls back rather than throwing: a
+ * dashboard that renders nothing is worse than one that renders a documented default,
+ * and the caller reports the fallback in `warnings`.
+ */
+function cohortCap(embedded: unknown): number {
+  const row = Array.isArray(embedded) ? embedded[0] : embedded
+  const raw = Number((row as { reimbursement_max?: unknown } | null | undefined)?.reimbursement_max)
+  return Number.isFinite(raw) && raw > 0 ? raw : FALLBACK_CAP_CAD
+}
 
 function countConsecutiveLow(monthly: Record<string, number>, threshold: number): number {
   const months = Object.keys(monthly).sort()
@@ -77,7 +98,7 @@ export async function GET(req: Request) {
       // token hash to the browser has no upside. `has_invite` is enough to show
       // whether an invite is outstanding.
       const { data, error } = await admin.from('bams')
-        .select('id, first_name, last_name, email, status, bank_name, initials_resolved, invite_token_hash, school_id, cohort_id, is_test, cohorts(name)')
+        .select('id, first_name, last_name, email, phone, status, bank_name, initials_resolved, invite_token_hash, school_id, cohort_id, is_test, street, city, prov, postal, cohorts(name)')
       if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
 
       const scrubbed = (data ?? []).map((row: Record<string, unknown>) => {
@@ -240,9 +261,25 @@ export async function GET(req: Request) {
         }
       }
 
-      // P1-15: cap once per BAM for the month.
-      const receiptDerivedSpend = Object.values(eligiblePerBam)
-        .reduce((sum, v) => sum + Math.min(v, MONTHLY_CAP_CAD), 0)
+      // P1-15: cap once per BAM for the month, at THAT BAM's cohort cap.
+      const { data: capBams, error: capErr } = await admin.from('bams')
+        .select('id, status, cohorts(reimbursement_max)')
+        .eq('status', 'active')
+      const capWarnings: string[] = []
+      if (capErr) {
+        console.error('[admin/data] cohort cap read failed:', capErr.message)
+        capWarnings.push(`Cohort reimbursement caps are unreadable (${capErr.message}). Budget figures use $${FALLBACK_CAP_CAD.toFixed(2)} per BAM, which may not match your cohorts.`)
+      }
+      const capFor: Record<string, number> = {}
+      let capSum = 0
+      for (const b of (capBams ?? []) as unknown as { id: string; cohorts?: unknown }[]) {
+        const cap = cohortCap(b.cohorts)
+        capFor[b.id] = cap
+        capSum += cap
+      }
+
+      const receiptDerivedSpend = Object.entries(eligiblePerBam)
+        .reduce((sum, [bamId, v]) => sum + Math.min(v, capFor[bamId] ?? FALLBACK_CAP_CAD), 0)
 
       // Truth source for money is the ledger (ENGINEERING-RULES 7.2). Use it when
       // it has rows for this period; otherwise say so explicitly.
@@ -251,7 +288,7 @@ export async function GET(req: Request) {
       // not depend on it, and blanking the entire dashboard over one unavailable
       // table hides more than it reveals. It IS reported in `warnings` and shown in
       // the UI, so it can never pass as "no spend yet".
-      const warnings: string[] = []
+      const warnings: string[] = [...capWarnings]
 
       const { data: periodLedger, error: plErr } = await admin.from('reimbursement_ledger')
         .select('paid_cad')
@@ -269,7 +306,8 @@ export async function GET(req: Request) {
       const budgetSource: 'ledger' | 'receipts_capped' = useLedger ? 'ledger' : 'receipts_capped'
 
       const nActive = activeBams.count ?? 0
-      const budgetCap = nActive * MONTHLY_CAP_CAD
+      // Sum of each active BAM's own cohort cap, not headcount times a constant.
+      const budgetCap = capSum > 0 ? capSum : nActive * FALLBACK_CAP_CAD
       const budgetPct = budgetCap > 0 ? Math.round((totalReimbSpent / budgetCap) * 100) : 0
 
       // Monthly chart data
@@ -341,7 +379,7 @@ export async function GET(req: Request) {
 
     case 'bam_spending': {
       const { data: bams, error: bErr } = await admin.from('bams')
-        .select('id, cohort_id, first_name, last_name, email, status, cohorts(name, start_date, end_date)')
+        .select('id, cohort_id, first_name, last_name, email, status, cohorts(name, start_date, end_date, reimbursement_max)')
         .eq('status', 'active')
       if (bErr) return NextResponse.json({ data: null, error: bErr.message }, { status: 500 })
       if (!bams || bams.length === 0) return NextResponse.json({ data: [], error: null })
@@ -382,17 +420,26 @@ export async function GET(req: Request) {
         warningMap[w.bam_id].periods.push(w.period)
       }
 
-      const LOW_THRESHOLD = 130
-      const REEVALUATE_THRESHOLD = 2
-      const result = (bams as unknown as { id: string; first_name: string; last_name: string; email: string; cohort_id: string; cohorts?: { name: string } | null }[]).map(b => {
+      // "Low" now means the SAME number that triggers a warning email. It was 130
+      // here and 75 in lib/policy.ts, so a BAM who spent $100 was shown to Robin as
+      // low while no warning was ever sent to them. One threshold, one source.
+      const LOW_THRESHOLD = SHORTFALL_WARN_BELOW_CAD
+      const result = (bams as unknown as { id: string; first_name: string; last_name: string; email: string; cohort_id: string; cohorts?: { name: string; reimbursement_max?: number | null } | null }[]).map(b => {
         const monthly = spendMap[b.id] ?? {}
         const months = Object.keys(monthly).sort()
-        // P1-15: cap per month before totalling.
-        const eligibleTotal = months.reduce((sum, m) => sum + Math.min(monthly[m], MONTHLY_CAP_CAD), 0)
+        const cap = cohortCap(b.cohorts)
+        // P1-15: cap per month before totalling, at this BAM's own cohort cap.
+        const eligibleTotal = months.reduce((sum, m) => sum + Math.min(monthly[m], cap), 0)
         const avgMonthly = months.length > 0 ? eligibleTotal / months.length : 0
         const lowMonths = Object.entries(monthly).filter(([, v]) => v < LOW_THRESHOLD).length
         const consecutiveLow = countConsecutiveLow(monthly, LOW_THRESHOLD)
         const warnInfo = warningMap[b.id] ?? { count: 0, sent: 0, periods: [] }
+        // Consecutive, per Robin over Teams. This read `warnInfo.count >= 2`, which
+        // flagged two shortfalls in different halves of the year as if they had been
+        // back to back. The streak was already being computed and thrown away.
+        const warnedPeriods = warnInfo.periods.map(p => String(p).slice(0, 8) + '01')
+        const latestWarned = [...warnedPeriods].sort().pop()
+        const warningStreak = latestWarned ? consecutiveWarningStreak(warnedPeriods, latestWarned) : 0
         return {
           bam_id: b.id,
           cohort_id: b.cohort_id,
@@ -408,7 +455,9 @@ export async function GET(req: Request) {
           warningCount: warnInfo.count,
           warningsSent: warnInfo.sent,
           warningPeriods: warnInfo.periods,
-          needsReevaluation: warnInfo.count >= REEVALUATE_THRESHOLD,
+          warningStreak,
+          monthlyCap: cap,
+          needsReevaluation: warningStreak >= REEVALUATE_THRESHOLD,
         }
       })
 

@@ -218,6 +218,14 @@ const PROVINCE_TAX_RATE: Record<string, number> = {
 }
 
 /**
+ * The province codes computeHst accepts, derived from the rate table rather than
+ * retyped. The roster editor renders this as a <select>, so a code that would make
+ * computeHst throw during the monthly invoice run cannot be entered in the first
+ * place. Sorted so the list is stable rather than dependent on key order.
+ */
+export const PROVINCE_CODES: readonly string[] = Object.keys(PROVINCE_TAX_RATE).sort()
+
+/**
  * The rate computeHst will use, or null when the province code is unknown.
  *
  * Exported so the admin line editor can show a live tax preview with the SAME

@@ -21,6 +21,40 @@ export const NATHAN_EMAIL = 'nb@ilovesalt.com'
 export const REEVALUATE_THRESHOLD = 2
 
 /**
+ * The month before an ISO first-of-month period string. Pure string arithmetic, not
+ * Date parsing, so it cannot shift a month across a timezone boundary.
+ */
+export function previousPeriod(period: string): string {
+  const [y, m] = period.split('-').map(Number)
+  const py = m === 1 ? y - 1 : y
+  const pm = m === 1 ? 12 : m - 1
+  return `${py}-${String(pm).padStart(2, '0')}-01`
+}
+
+/**
+ * How many periods IN A ROW, counting back from `period`, have a warning.
+ *
+ * Reevaluation is a CONSECUTIVE rule (two shortfalls in a row), which is what Robin
+ * confirmed over Teams. The code counted total warnings for the cohort instead, so a
+ * BAM who underspent in September and again in February was flagged as though it had
+ * happened twice running. Two isolated months are not the same situation as two in a
+ * row, and the second is the one that means something.
+ *
+ * `period` itself counts as 1 when present, so the caller includes the row it is
+ * about to insert.
+ */
+export function consecutiveWarningStreak(warnedPeriods: readonly string[], period: string): number {
+  const set = new Set(warnedPeriods)
+  let streak = 0
+  let cursor = period
+  while (set.has(cursor)) {
+    streak++
+    cursor = previousPeriod(cursor)
+  }
+  return streak
+}
+
+/**
  * bam_warnings.period is TEXT "YYYY-MM" (0011_bam_warnings.sql) while
  * receipts.period is a DATE "YYYY-MM-01". Callers passed both, so the same month
  * could produce two warning rows under the UNIQUE(bam_id, cohort_id, period)
@@ -90,16 +124,21 @@ export async function flagShortfall(
     return { ok: true, skipped: true, reason: 'already flagged for this period', notifiedRobin: false }
   }
 
-  const { count, error: countErr } = await admin.from('bam_warnings')
-    .select('id', { count: 'exact', head: true })
+  // The PERIODS, not just how many. Reevaluation is a consecutive rule, so a count
+  // cannot answer it. See consecutiveWarningStreak above.
+  const { data: priorWarnings, error: countErr } = await admin.from('bam_warnings')
+    .select('period')
     .eq('bam_id', input.bamId)
     .eq('cohort_id', input.cohortId)
   if (countErr) {
-    return { ok: false, notifiedRobin: false, error: `warning count failed: ${countErr.message}`, status: 500 }
+    return { ok: false, notifiedRobin: false, error: `warning lookup failed: ${countErr.message}`, status: 500 }
   }
 
-  const warningNumber = (count ?? 0) + 1
-  const needsReevaluation = warningNumber >= REEVALUATE_THRESHOLD
+  const priorPeriods = (priorWarnings ?? []).map(w => String(w.period))
+  const warningNumber = priorPeriods.length + 1
+  // Include the period being warned about now: the row is not inserted yet.
+  const streak = consecutiveWarningStreak([...priorPeriods, period], period)
+  const needsReevaluation = streak >= REEVALUATE_THRESHOLD
 
   const insertRow: Record<string, unknown> = {
     bam_id: input.bamId,
@@ -120,7 +159,7 @@ export async function flagShortfall(
   const monthLabel = formatWarningMonth(period)
   const capLabel = input.cap != null && Number.isFinite(input.cap) ? input.cap.toFixed(2) : '150.00'
   const reevalLine = needsReevaluation
-    ? `\n\nThis is warning #${warningNumber} for ${bamName}. Per policy, their standing in the program should be reevaluated.`
+    ? `\n\nThis is ${streak} shortfall months in a row for ${bamName} (warning #${warningNumber} overall). Per policy, their standing in the program should be reevaluated.`
     : ''
 
   const result = await sendEmail({

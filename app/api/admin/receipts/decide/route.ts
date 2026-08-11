@@ -169,10 +169,10 @@ export async function POST(req: NextRequest) {
     // This path used to return 500 and leave the receipt decided. With a corrected
     // classification there is now an ocr_json write in the same statement, so a
     // half-applied correction has to be undone like every other money failure.
-    await rollback(`corrected amount did not persist (stored ${String(updated[0].bud_light_total_incl_tax)})`)
+    const rb = await rollback(`corrected amount did not persist (stored ${String(updated[0].bud_light_total_incl_tax)})`)
     return NextResponse.json({
       ok: false,
-      error: `amount override did not persist (stored ${String(updated[0].bud_light_total_incl_tax)}, expected ${correctedTotal}). The decision was rolled back.`
+      error: `amount override did not persist (stored ${String(updated[0].bud_light_total_incl_tax)}, expected ${correctedTotal}).${rollbackNote(rb)}`
     }, { status: 500 })
   }
   // ENGINEERING-RULES 1: a write is followed by a read. The corrected ticks decide
@@ -184,10 +184,10 @@ export async function POST(req: NextRequest) {
       storedFlags.length === correction.nextFlags.length &&
       storedFlags.every((f, i) => f === correction.nextFlags[i])
     if (!flagsMatch) {
-      await rollback('corrected Bud Light lines did not persist')
+      const rb = await rollback('corrected Bud Light lines did not persist')
       return NextResponse.json({
         ok: false,
-        error: 'the corrected Bud Light lines did not persist, so nothing was recorded. The decision was rolled back.'
+        error: 'the corrected Bud Light lines did not persist, so nothing was recorded.${rollbackNote(rb)}'
       }, { status: 500 })
     }
   }
@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
     })
     if (auditErr) {
       // An unlogged money correction is not acceptable: undo and refuse.
-      await rollback(`audit log write failed (${auditErr.message})`)
+      const rb = await rollback(`audit log write failed (${auditErr.message})`)
       return NextResponse.json({
         ok: false,
         error: `correction refused: could not write the audit log entry (${auditErr.message})`
@@ -304,19 +304,19 @@ export async function POST(req: NextRequest) {
     const { data: cohort, error: cohortErr } = await admin.from('cohorts')
       .select('reimbursement_max, rollover_mode, cap_multiplier').eq('id', receipt.cohort_id).maybeSingle()
     if (cohortErr || !cohort) {
-      await rollback(`cohort policy unreadable (${cohortErr?.message ?? 'no cohort row'})`)
+      const rb = await rollback(`cohort policy unreadable (${cohortErr?.message ?? 'no cohort row'})`)
       return NextResponse.json({
         ok: false,
-        error: `cannot compute reimbursement: cohort policy could not be read (${cohortErr?.message ?? 'no cohort row'}). The decision was rolled back.`
+        error: `cannot compute reimbursement: cohort policy could not be read (${cohortErr?.message ?? 'no cohort row'}).${rollbackNote(rb)}`
       }, { status: 500 })
     }
     const cohortMax = parseNonNegativeMoney(cohort.reimbursement_max)
     const cohortMultiplier = Number(cohort.cap_multiplier)
     if (cohortMax === null || cohortMax <= 0 || !Number.isFinite(cohortMultiplier) || cohortMultiplier <= 0) {
-      await rollback('cohort reimbursement_max / cap_multiplier is not a usable number')
+      const rb = await rollback('cohort reimbursement_max / cap_multiplier is not a usable number')
       return NextResponse.json({
         ok: false,
-        error: `cannot compute reimbursement: cohort reimbursement_max="${String(cohort.reimbursement_max)}" cap_multiplier="${String(cohort.cap_multiplier)}". The decision was rolled back.`
+        error: `cannot compute reimbursement: cohort reimbursement_max="${String(cohort.reimbursement_max)}" cap_multiplier="${String(cohort.cap_multiplier)}".${rollbackNote(rb)}`
       }, { status: 500 })
     }
 
@@ -335,10 +335,10 @@ export async function POST(req: NextRequest) {
       .eq('bam_id', receipt.bam_id).eq('period', receipt.period)
       .in('status', ['approved', 'auto_pass'])
     if (monthErr) {
-      await rollback(`could not sum this period's receipts (${monthErr.message})`)
+      const rb = await rollback(`could not sum this period's receipts (${monthErr.message})`)
       return NextResponse.json({
         ok: false,
-        error: `cannot compute reimbursement: this period's receipts could not be summed (${monthErr.message}). The decision was rolled back.`
+        error: `cannot compute reimbursement: this period's receipts could not be summed (${monthErr.message}).${rollbackNote(rb)}`
       }, { status: 500 })
     }
     let receiptsTotal = 0
@@ -352,10 +352,10 @@ export async function POST(req: NextRequest) {
       .select('*').eq('bam_id', receipt.bam_id).lt('period', receipt.period)
       .order('period', { ascending: true })
     if (priorErr) {
-      await rollback(`could not read the prior ledger (${priorErr.message})`)
+      const rb = await rollback(`could not read the prior ledger (${priorErr.message})`)
       return NextResponse.json({
         ok: false,
-        error: `cannot compute reimbursement: prior ledger unreadable (${priorErr.message}). The decision was rolled back.`
+        error: `cannot compute reimbursement: prior ledger unreadable (${priorErr.message}).${rollbackNote(rb)}`
       }, { status: 500 })
     }
     const priorLedger = (prior ?? []).map(p => ({
@@ -407,25 +407,25 @@ export async function POST(req: NextRequest) {
       .select('id, paid_cad, spent_cad')
 
     if (ledgerErr) {
-      await rollback(`reimbursement ledger write failed (${ledgerErr.message})`)
+      const rb = await rollback(`reimbursement ledger write failed (${ledgerErr.message})`)
       return NextResponse.json({
         ok: false,
-        error: `reimbursement could not be recorded (${ledgerErr.message}). The approval was rolled back, nothing was paid.`
+        error: `reimbursement could not be recorded (${ledgerErr.message}).${rollbackNote(rb)}`
       }, { status: 500 })
     }
     if (!ledgerRows || ledgerRows.length !== 1) {
-      await rollback(`reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows`)
+      const rb = await rollback(`reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows`)
       return NextResponse.json({
         ok: false,
-        error: `reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows, expected 1. The approval was rolled back.`
+        error: `reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows, expected 1.${rollbackNote(rb)}`
       }, { status: 500 })
     }
     const persistedPaid = parseNonNegativeMoney(ledgerRows[0].paid_cad)
     if (persistedPaid === null || Math.abs(persistedPaid - out.paidThisMonth) > 0.005) {
-      await rollback(`ledger stored paid_cad=${String(ledgerRows[0].paid_cad)} but expected ${out.paidThisMonth}`)
+      const rb = await rollback(`ledger stored paid_cad=${String(ledgerRows[0].paid_cad)} but expected ${out.paidThisMonth}`)
       return NextResponse.json({
         ok: false,
-        error: `ledger read-back mismatch: stored $${String(ledgerRows[0].paid_cad)}, expected $${out.paidThisMonth.toFixed(2)}. The approval was rolled back.`
+        error: `ledger read-back mismatch: stored $${String(ledgerRows[0].paid_cad)}, expected $${out.paidThisMonth.toFixed(2)}.${rollbackNote(rb)}`
       }, { status: 500 })
     }
     ledgerPaid = persistedPaid
@@ -561,9 +561,30 @@ async function rollbackDecision(
   }
   if (restoreTotal) payload.bud_light_total_incl_tax = previousTotal
   if (restoreOcrJson) payload.ocr_json = previousOcrJson
-  const { error } = await admin.from('receipts').update(payload).eq('id', receiptId)
-  if (error) {
-    console.error('[decide] ROLLBACK FAILED for receipt', receiptId, error.message,
+  // Read back. Every caller responds "The decision was rolled back", and that
+  // sentence used to be printed whether or not the update landed: the error was
+  // logged to the server console and the function returned void, so Robin was told
+  // the approval had been undone while the receipt stayed approved with no ledger
+  // row. The return value lets the caller tell the truth.
+  const { data: after, error } = await admin.from('receipts')
+    .update(payload).eq('id', receiptId).select('id, status')
+
+  const rolledBack = !error && after?.length === 1 && after[0].status === previousStatus
+  if (!rolledBack) {
+    console.error('[decide] ROLLBACK FAILED for receipt', receiptId,
+      error?.message ?? `rows=${after?.length ?? 0}`,
       '- receipt may be approved without a ledger row; manual check required')
   }
+  return rolledBack
+}
+
+/**
+ * The sentence appended to a failure message. Keeps every caller honest without
+ * having to remember the wording, and makes the bad case impossible to omit.
+ */
+function rollbackNote(rolledBack: boolean): string {
+  return rolledBack
+    ? '${rollbackNote(rb)}'
+    : ' THE ROLLBACK ALSO FAILED: this receipt is still approved with no matching ledger row. ' +
+      'Do not send an invoice for this period and tell Mirae.'
 }

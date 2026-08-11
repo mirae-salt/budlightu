@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { TopBar } from '../_components/TopBar'
+import { PROVINCE_CODES } from '@/lib/invoice-payload'
 import { Toast } from '../_components/Toast'
 import { BAMS, type BamRow } from '../_lib/dummy'
 import { BANK_SEED } from '@/lib/banks'
@@ -41,13 +42,20 @@ type DbBam = {
   cohort_id: string | null
   cohorts: { name: string } | null
   is_test: boolean | null
+  // The mailing address. An invoice HARD BLOCKS when any of these is blank
+  // (lib/invoice-payload.ts), so the roster has to be able to show and fix them.
+  street: string | null
+  city: string | null
+  prov: string | null
+  postal: string | null
 }
 
 /** Placeholder shown for an empty cell. Never sent back to the server: writing
  *  it into school_id is how a live row ended up with a dash as its school. */
 const EMPTY_CELL = '—'
 
-type FullRow = BamRow & { id: string; cohortId: string | null }
+type Address = { street: string; city: string; prov: string; postal: string }
+type FullRow = BamRow & { id: string; cohortId: string | null } & Address
 
 function mapDbBam(b: DbBam): FullRow {
   return {
@@ -60,7 +68,11 @@ function mapDbBam(b: DbBam): FullRow {
     cohort: b.cohorts?.name || EMPTY_CELL,
     cohortId: b.cohort_id ?? null,
     school: b.school_id || EMPTY_CELL,
-    isTest: b.is_test ?? false
+    isTest: b.is_test ?? false,
+    street: b.street ?? '',
+    city: b.city ?? '',
+    prov: b.prov ?? '',
+    postal: b.postal ?? ''
   }
 }
 
@@ -76,6 +88,10 @@ type SavedBam = {
   cohort_id: string | null
   initials_resolved: string | null
   is_test: boolean | null
+  street: string | null
+  city: string | null
+  prov: string | null
+  postal: string | null
 }
 
 /** Build a table row from what the server said it stored, never from the form. */
@@ -90,11 +106,15 @@ function rowFromSaved(saved: SavedBam, cohortName: string | undefined): FullRow 
     cohort: cohortName || EMPTY_CELL,
     cohortId: saved.cohort_id ?? null,
     school: saved.school_id || EMPTY_CELL,
-    isTest: saved.is_test ?? false
+    isTest: saved.is_test ?? false,
+    street: saved.street ?? '',
+    city: saved.city ?? '',
+    prov: saved.prov ?? '',
+    postal: saved.postal ?? ''
   }
 }
 
-type EditForm = { name: string; email: string; bank: string; status: string; cohortId: string; school: string }
+type EditForm = { name: string; email: string; bank: string; status: string; cohortId: string; school: string } & Address
 
 // --- CSV parsing ---
 type CsvRow = { first_name: string; last_name: string; email: string; school?: string; full_name?: string }
@@ -150,7 +170,7 @@ export default function Roster() {
   const [bams, setBams] = useState<FullRow[]>([])
   const [useDb, setUseDb] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohortId: '', school: '' })
+  const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohortId: '', school: '', street: '', city: '', prov: '', postal: '' })
   /** kind drives the badge colour: a failure must never render green. */
   const [editMsg, setEditMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -180,11 +200,11 @@ export default function Roster() {
           setBams((data as DbBam[]).map(mapDbBam))
           setUseDb(true)
         } else {
-          setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}`, cohortId: null })))
+          setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}`, cohortId: null, street: '', city: '', prov: '', postal: '' })))
         }
       })
       .catch(() => {
-        setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}`, cohortId: null })))
+        setBams(BAMS.map((b, i) => ({ ...b, id: `dummy-${i}`, cohortId: null, street: '', city: '', prov: '', postal: '' })))
       })
 
     fetch('/api/admin/data?table=cohorts')
@@ -224,7 +244,11 @@ export default function Roster() {
       bank: b.bank === EMPTY_CELL ? '' : b.bank,
       status: b.status,
       cohortId: b.cohortId ?? '',
-      school: b.school === EMPTY_CELL ? '' : b.school
+      school: b.school === EMPTY_CELL ? '' : b.school,
+      street: b.street,
+      city: b.city,
+      prov: b.prov,
+      postal: b.postal
     })
     setAdding(false)
   }
@@ -256,6 +280,14 @@ export default function Roster() {
     }
     if (editForm.cohortId && editForm.cohortId !== (current?.cohortId ?? '')) {
       body.cohort_id = editForm.cohortId
+    }
+    // Address fields, sent only when changed. The server validates `prov` against the
+    // same table computeHst uses, so a bad code is rejected here with a sentence
+    // instead of throwing during the monthly invoice run. An empty value is sent as
+    // null rather than '' so the invoice block reports it as missing, not blank.
+    for (const k of ['street', 'city', 'prov', 'postal'] as const) {
+      const next = editForm[k].trim()
+      if (next !== (current?.[k] ?? '').trim()) body[k] = next || null
     }
 
     setSaving(true)
@@ -741,6 +773,41 @@ export default function Roster() {
                               </select>
                             </div>
                           </div>
+                          {/* Mailing address. An invoice HARD BLOCKS when any of the four
+                              is blank, and until now they were only settable during
+                              onboarding, which refuses a BAM who is no longer 'pending' --
+                              so a typo here stopped an invoice with no way to fix it. */}
+                          <div style={{ display: 'flex', gap: 12 }}>
+                            <div className="field" style={{ flex: 2 }}>
+                              <label>Street</label>
+                              <input value={editForm.street} onChange={e => setEditForm(f => ({ ...f, street: e.target.value }))} placeholder="123 King St W, Apt 4" />
+                            </div>
+                            <div className="field" style={{ flex: 1 }}>
+                              <label>City</label>
+                              <input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} placeholder="Toronto" />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 12 }}>
+                            <div className="field" style={{ flex: 1 }}>
+                              <label>Province</label>
+                              {/* A select, not free text: computeHst throws on a code outside
+                                  this list, which would fail the whole monthly run. */}
+                              <select value={editForm.prov} onChange={e => setEditForm(f => ({ ...f, prov: e.target.value }))}>
+                                <option value="">Select...</option>
+                                {PROVINCE_CODES.map(p => <option key={p} value={p}>{p}</option>)}
+                              </select>
+                            </div>
+                            <div className="field" style={{ flex: 1 }}>
+                              <label>Postal code</label>
+                              <input value={editForm.postal} onChange={e => setEditForm(f => ({ ...f, postal: e.target.value }))} placeholder="M5V 1A1" />
+                            </div>
+                          </div>
+                          {(!editForm.street.trim() || !editForm.city.trim() || !editForm.prov.trim() || !editForm.postal.trim()) && (
+                            <span className="muted" style={{ fontSize: 11, marginBottom: 8, display: 'block', color: '#b45309' }}>
+                              An invoice cannot be generated until all four address fields are filled in.
+                            </span>
+                          )}
+
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <button onClick={() => saveEdit(b.id)} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
                             <button className="btn-ghost" onClick={() => setEditingId(null)}>Cancel</button>
