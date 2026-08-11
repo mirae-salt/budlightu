@@ -1,4 +1,5 @@
 import { ensureInitialsResolved } from './ensure-initials'
+import { lookupBank } from './banks'
 
 /**
  * Every administrator also gets a TEST BAM account.
@@ -146,9 +147,18 @@ export async function fillTestBamProfile(db: Db, bamId: string): Promise<string 
   // Banking LAST and only when all three are absent: a partial encrypted set would
   // leave the invoice blocked, and overwriting real encrypted values is destructive.
   if (blank(row.institution_no) && blank(row.transit_no) && blank(row.account_no)) {
+    // Derive the institution number from THIS row's bank name, not from the
+    // constant. bank_name is only filled when it was blank, so a hand-set
+    // "RBC Royal Bank" survives — and seeding TD's 004 next to it would recreate
+    // exactly the name/number mismatch this file warns about above.
+    const bankName = String(row.bank_name ?? TEST_BAM_PROFILE.bank_name)
+    const looked = lookupBank(bankName)
+    if (!looked) return `Test banking not stored: "${bankName}" is not in the bank lookup.`
+    const institutionNo = looked.institutionNo
+
     const { error: encErr } = await db.rpc('encrypt_bam_banking', {
       p_bam_id: bamId,
-      p_institution_no: TEST_BAM_BANKING.institution_no,
+      p_institution_no: institutionNo,
       p_transit_no: TEST_BAM_BANKING.transit_no,
       p_account_no: TEST_BAM_BANKING.account_no,
       p_hst_number: null
@@ -162,7 +172,7 @@ export async function fillTestBamProfile(db: Db, bamId: string): Promise<string 
     const got = Array.isArray(dec) ? dec[0] : dec
     if (
       !got ||
-      got.institution_no !== TEST_BAM_BANKING.institution_no ||
+      got.institution_no !== institutionNo ||
       got.transit_no !== TEST_BAM_BANKING.transit_no ||
       got.account_no !== TEST_BAM_BANKING.account_no
     ) {

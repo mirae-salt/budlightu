@@ -37,7 +37,10 @@ async function main() {
     .eq('is_test', true)
   if (bErr) { fail('bams read: ' + bErr.message); return verdict('test accounts invoice-ready') }
   if (!bams || bams.length === 0) {
-    info('no test accounts exist')
+    // Not a pass. Zero test accounts is the exact state NO_TEST_COHORT_WARNING
+    // describes, and CLAUDE.md tells people to run this before a demo. A probe that
+    // reports PASS after checking nothing is worse than no probe.
+    fail('no test accounts exist, so nothing was checked. Run fix-admin-test-bams.js, or create a TEST cohort first.')
     return verdict('test accounts invoice-ready')
   }
 
