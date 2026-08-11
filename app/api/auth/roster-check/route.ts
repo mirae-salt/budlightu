@@ -22,11 +22,9 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
-import { parseEmail } from '../../../../lib/sanitize'
+import { parseEmail, normalizeEmail } from '../../../../lib/sanitize'
 import { getRole, isAdminRole, roleClaimPatch } from '../../../../lib/auth-claims'
-
-/** Statuses that may request a login code. Anything else denies (fail closed). */
-const LOGIN_ALLOWED_STATUSES = ['active', 'pending'] as const
+import { signInDecision, type GateBamRow } from '../../../../lib/signin-gate'
 
 export async function POST(req: NextRequest) {
   let body: unknown
@@ -53,6 +51,27 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // An ADMIN is not necessarily on the roster, and the roster is the only gate this
+  // route had. Robin is a super_admin with no `bams` row, so she was told "This email
+  // is not in our program roster" and could not sign in at all. It went unnoticed
+  // because the only admin who had ever logged in also happened to have a BAM row.
+  //
+  // Existing admins are let through on the strength of their app_metadata claim,
+  // which only the service role can write. This does not widen the door: the account
+  // must already exist AND already hold an admin role, so nothing here can create an
+  // admin or promote anyone. Students still have to be on the roster.
+  const { data: userList, error: userErr } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 })
+  if (userErr) {
+    console.error('[roster-check] auth user lookup failed:', userErr.message)
+    return NextResponse.json(
+      { ok: false, message: 'Sign-in is temporarily unavailable. Please try again shortly.' },
+      { status: 503 }
+    )
+  }
+  const isExistingAdmin = (userList?.users ?? []).some(
+    u => normalizeEmail(u.email ?? '') === normEmail && isAdminRole(getRole(u))
+  )
+
   // The unique index is on lower(email); rows are normalized on write by the
   // trigger in 0016_auth_hardening.sql. Match on the normalized value.
   const { data: bamRows, error: bamErr } = await db
@@ -69,30 +88,29 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (!bamRows || bamRows.length === 0) {
-    return NextResponse.json(
-      { ok: false, message: 'This email is not in our program roster. Contact your program manager if you think this is a mistake.' },
-      { status: 404 }
-    )
-  }
-  if (bamRows.length > 1) {
-    // Should be impossible (unique index on lower(email)). Deny rather than pick.
-    console.error(`[roster-check] duplicate roster rows for ${normEmail}. Denying.`)
-    return NextResponse.json(
-      { ok: false, message: 'Your roster record needs attention. Please contact your program manager.' },
-      { status: 409 }
-    )
+  // The rule itself lives in lib/signin-gate.ts so it can be unit tested and checked
+  // against live data by scripts/probe/can-sign-in.js without calling this endpoint,
+  // which has a side effect (it creates an auth user for an unlinked BAM).
+  const decision = signInDecision({
+    email: normEmail,
+    isExistingAdmin,
+    bamRows: (bamRows ?? []) as GateBamRow[]
+  })
+
+  if (!decision.allow) {
+    if (decision.reason === 'duplicate_roster') {
+      console.error(`[roster-check] duplicate roster rows for ${normEmail}. Denying.`)
+    }
+    return NextResponse.json({ ok: false, message: decision.message }, { status: decision.status })
   }
 
-  const bam = bamRows[0] as { id: string; auth_user_id: string | null; status: string }
-
-  // Fail closed on any status we do not explicitly allow, including future ones.
-  if (!(LOGIN_ALLOWED_STATUSES as readonly string[]).includes(bam.status)) {
-    return NextResponse.json(
-      { ok: false, message: 'This account is no longer active. Contact your program manager.' },
-      { status: 403 }
-    )
+  // An administrator who is not on the roster stops here: there is no BAM row to
+  // create or link, and they already have an auth user by definition.
+  if (decision.as === 'admin') {
+    return NextResponse.json({ ok: true, role: 'admin' })
   }
+
+  const bam = decision.bam
 
   // Create or find the auth user if this BAM doesn't have one yet (first-time flow)
   if (!bam.auth_user_id) {

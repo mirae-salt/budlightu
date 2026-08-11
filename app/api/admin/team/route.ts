@@ -23,6 +23,7 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { requireSuperAdmin, requireAdmin, denied } from '../../../../lib/admin-auth'
 import { getRole, isAdminRole, roleClaimPatch, type AdminRole } from '../../../../lib/auth-claims'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
+import { ensureTestBam } from '../../../../lib/admin-test-bam'
 
 type MetaName = { first_name?: string; last_name?: string }
 
@@ -153,6 +154,8 @@ export async function POST(req: NextRequest) {
   // passed one, so PostgREST rejected the insert and, because the error was
   // discarded, EVERY add_admin/remove_admin audit row silently failed to exist.
   // `entity_id` is uuid, so the email goes in after_json, not there.
+  const warnings: string[] = []
+
   const { error: auditErr } = await admin.from('audit_log').insert({
     actor_id: auth.devBypass ? null : auth.userId,
     actor_role: 'super_admin',
@@ -165,13 +168,23 @@ export async function POST(req: NextRequest) {
     // The grant succeeded and is verified; refusing now would leave the grant in
     // place anyway. Report it so the missing audit row is not invisible.
     console.error('[team POST] audit_log insert failed:', auditErr.message)
-    return NextResponse.json({
-      ok: true,
-      warning: 'Admin added, but the audit log entry could not be written. Tell Mirae.'
-    })
+    warnings.push('Admin added, but the audit log entry could not be written. Tell Mirae.')
   }
 
-  return NextResponse.json({ ok: true })
+  // An admin has to be able to walk the student journey to check what they are
+  // approving, and they are not on the roster. Give them a TEST BAM account.
+  const testBamWarning = await ensureTestBam(admin, {
+    userId: grantedUserId,
+    email: parsedEmail.email,
+    firstName,
+    lastName
+  })
+  if (testBamWarning) warnings.push(testBamWarning)
+
+  return NextResponse.json({
+    ok: true,
+    ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {})
+  })
 }
 
 export async function DELETE(req: NextRequest) {
@@ -240,6 +253,31 @@ export async function DELETE(req: NextRequest) {
     if (legacyErr) console.error('[team DELETE] could not clear legacy user_metadata.role:', legacyErr.message)
   }
 
+  const revokeWarnings: string[] = []
+
+  // Adding an admin creates a TEST BAM row for them. Leaving it active after
+  // revocation would keep the portal login open, so revoking admin access would
+  // not actually remove access. Archive it (the sign-in gate denies 'archived').
+  //
+  // Scoped to is_test rows on purpose: an admin who is ALSO a real student keeps
+  // their student account. Archiving a real BAM here would cut off a participant.
+  const { data: archived, error: archiveErr } = await admin
+    .from('bams')
+    .update({ status: 'archived' })
+    .eq('auth_user_id', user_id)
+    .eq('is_test', true)
+    .neq('status', 'archived')
+    .select('id, email, status')
+  if (archiveErr) {
+    console.error('[team DELETE] archiving test bam failed:', archiveErr.message)
+    revokeWarnings.push('Admin access was removed, but their test BAM account could not be archived, so they may still be able to sign in to the portal. Tell Mirae.')
+  } else if (archived && archived.length > 0) {
+    const stuck = (archived as { status: string }[]).filter(r => r.status !== 'archived')
+    if (stuck.length > 0) {
+      revokeWarnings.push('Admin access was removed, but the test BAM account did not archive. They may still be able to sign in. Tell Mirae.')
+    }
+  }
+
   const { error: auditErr } = await admin.from('audit_log').insert({
     actor_id: auth.devBypass ? null : auth.userId,
     actor_role: 'super_admin',
@@ -247,15 +285,20 @@ export async function DELETE(req: NextRequest) {
     entity_id: user_id,
     action: 'remove_admin',
     before_json: { role: getRole(user), email: user.email },
-    after_json: { role: null, email: user.email, user_id }
+    after_json: {
+      role: null,
+      email: user.email,
+      user_id,
+      test_bams_archived: archiveErr ? null : (archived ?? []).length
+    }
   })
   if (auditErr) {
     console.error('[team DELETE] audit_log insert failed:', auditErr.message)
-    return NextResponse.json({
-      ok: true,
-      warning: 'Access removed, but the audit log entry could not be written. Tell Mirae.'
-    })
+    revokeWarnings.push('Access removed, but the audit log entry could not be written. Tell Mirae.')
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    ...(revokeWarnings.length > 0 ? { warning: revokeWarnings.join(' ') } : {})
+  })
 }

@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 import { resolveBamId } from '@/lib/portal-bam'
+import { getRole, isAdminRole } from '@/lib/auth-claims'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -98,6 +99,17 @@ export default function LoginPage() {
     }
 
     const { data: userRes } = await sb.auth.getUser()
+
+    // An administrator lands in /admin, which is their actual job. They also get a
+    // test BAM account (see lib/admin-test-bam.ts), so sending them to the portal
+    // first would open an onboarding form asking Robin for HER banking details.
+    // The portal is one click away in the sidebar ("Switch to BAM Portal").
+    if (isAdminRole(getRole(userRes.user))) {
+      setBusy(false)
+      window.location.href = '/admin'
+      return
+    }
+
     // P0-A: trusted app_metadata claim (with a bams.auth_user_id fallback),
     // never the client-writable user_metadata bag.
     const bamId = await resolveBamId(sb, userRes.user)

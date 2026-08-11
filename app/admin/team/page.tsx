@@ -44,18 +44,28 @@ export default function TeamPage() {
       })
       const data = await res.json()
       if (data.ok) {
-        setToast(`Added ${form.first_name} as ${form.role === 'super_admin' ? 'Super Admin' : 'Program Admin'}`)
+        // A partial success (role granted, but the test BAM account or audit row
+        // failed) arrives as `warning`. It used to be dropped, so the admin was
+        // told "Added" either way. Show it, and leave it up long enough to read.
+        setToast(
+          data.warning
+            ? `Added ${form.first_name}, but: ${data.warning}`
+            : `Added ${form.first_name} as ${form.role === 'super_admin' ? 'Super Admin' : 'Program Admin'} (with a test BAM account for the student portal)`
+        )
         setShowAdd(false)
         setForm({ email: '', first_name: '', last_name: '', role: 'program_admin' })
         load()
       } else {
         setToast(data.message || 'Failed to add admin')
       }
+      setBusy(false)
+      setTimeout(() => setToast(null), data.warning ? 15000 : 5000)
+      return
     } catch {
       setToast('Network error')
     }
     setBusy(false)
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 5000)
   }
 
   async function handleRemove(admin: AdminUser) {
@@ -66,9 +76,13 @@ export default function TeamPage() {
       body: JSON.stringify({ user_id: admin.id })
     })
     const data = await res.json()
-    setToast(data.ok ? `Removed ${admin.first_name}` : (data.message || 'Failed'))
+    setToast(
+      data.ok
+        ? (data.warning ? `Removed ${admin.first_name}, but: ${data.warning}` : `Removed ${admin.first_name}`)
+        : (data.message || 'Failed')
+    )
     if (data.ok) load()
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), data.warning ? 15000 : 5000)
   }
 
   return (

@@ -56,4 +56,40 @@ function verdict(label) {
   process.exit(failed ? 1 : 0)
 }
 
-module.exports = { ROOT, loadEnv, serviceClient, pass, fail, info, verdict }
+/**
+ * Loads a TypeScript module from the app so a probe can call the REAL rule instead
+ * of reimplementing it in JS. A probe that reimplements the rule agrees with itself,
+ * not with the app, which is the whole failure mode probes exist to prevent.
+ *
+ * Uses the esbuild already in node_modules (a vite dependency). `npx tsx` was tried
+ * first and is not usable here: tsx is not a local dependency, and Node 26 refuses
+ * to spawn `npx.cmd` without `shell: true`, which in turn does not escape arguments.
+ *
+ * Throws loudly on a transpile or load error. Never silently returns a stub.
+ */
+function loadTs(relPath) {
+  const esbuild = require(path.join(ROOT, 'node_modules', 'esbuild'))
+  const entry = path.join(ROOT, relPath)
+  if (!fs.existsSync(entry)) throw new Error(`loadTs: ${relPath} does not exist`)
+
+  const out = esbuild.buildSync({
+    entryPoints: [entry],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node18',
+    // Anything under node_modules stays a normal require at runtime.
+    packages: 'external'
+  })
+  const code = out.outputFiles[0].text
+
+  const Module = require('module')
+  const m = new Module(entry, null)
+  m.filename = entry
+  m.paths = Module._nodeModulePaths(path.dirname(entry))
+  m._compile(code, entry)
+  return m.exports
+}
+
+module.exports = { ROOT, loadEnv, serviceClient, pass, fail, info, verdict, loadTs }
