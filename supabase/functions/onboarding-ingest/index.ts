@@ -186,15 +186,80 @@ export async function handler(req: {
   // the P0-A sweep nothing reads that copy: server routes use requireBam()
   // (bams.auth_user_id) and the portal pages use lib/portal-bam.ts. It is kept so
   // a session minted before the sweep cannot break, and can be dropped after.
-  const { data: authUser, error: authErr } = await db.auth.admin.createUser({
+  const { data: created, error: authErr } = await db.auth.admin.createUser({
     email: normEmail,
     email_confirm: true,
     app_metadata: { role: 'bam', bam_id: pendingBam.id },
     user_metadata: { bam_id: pendingBam.id }
   })
-  if (authErr || !authUser?.user) {
-    return { ok: false, message: `Auth creation failed: ${authErr?.message}` }
+
+  // AN EXISTING AUTH USER IS NOT A FAILURE.
+  //
+  // This used to return "Auth creation failed: A user with this email address has
+  // already been registered" and stop, which is a dead end the student cannot get out
+  // of: the invite token is spent by this point, and nothing in the portal will create
+  // the link for them. It happens whenever an auth user outlives its roster row --
+  // a BAM removed and re-added, a roster row deleted while the login survived, or a
+  // second onboarding attempt after a partial failure. It happened for real on
+  // 2026-08-12 after a roster row was deleted by hand and re-created.
+  //
+  // /api/auth/roster-check already handled this case; this path did not. Same shape as
+  // there: find the user, link it, and MERGE the claims rather than replacing them, so
+  // an admin who is also on the roster is not demoted to 'bam' and locked out of /admin.
+  let authUserId: string | null = created?.user?.id ?? null
+  // Whether THIS request created the login. The rollback below deletes the auth user,
+  // and deleting one we merely linked would destroy a login that predates this attempt --
+  // possibly an administrator's.
+  const weCreatedTheAuthUser = Boolean(created?.user?.id)
+
+  if (!authUserId) {
+    const alreadyExists =
+      authErr?.status === 422 ||
+      (authErr?.message ?? '').toLowerCase().includes('already')
+    if (!alreadyExists) {
+      return { ok: false, message: `Auth creation failed: ${authErr?.message}` }
+    }
+
+    const { data: listed, error: listErr } = await db.auth.admin.listUsers({ perPage: 1000 })
+    if (listErr) {
+      return {
+        ok: false,
+        message: 'We could not finish setting up your login. Please try again, or contact your program manager.'
+      }
+    }
+    const existing = (listed?.users ?? []).find(
+      (u: { email?: string | null }) => (u.email ?? '').trim().toLowerCase() === normEmail
+    )
+    if (!existing) {
+      // Supabase said the address is taken but it is not in the list. Do not guess.
+      return {
+        ok: false,
+        message: 'This email already has a login we could not match to your record. Please contact your program manager.'
+      }
+    }
+
+    // Preserve an admin role instead of overwriting it with 'bam'. The spread keeps any
+    // other claim too; only role and bam_id are set here.
+    const existingMeta = (existing.app_metadata ?? {}) as Record<string, unknown>
+    const existingRole = typeof existingMeta.role === 'string' ? existingMeta.role : null
+    const keepAdmin = existingRole === 'super_admin' || existingRole === 'program_admin'
+
+    const { error: linkErr } = await db.auth.admin.updateUserById(existing.id, {
+      app_metadata: { ...existingMeta, role: keepAdmin ? existingRole : 'bam', bam_id: pendingBam.id },
+      user_metadata: { ...(existing.user_metadata ?? {}), bam_id: pendingBam.id }
+    })
+    if (linkErr) {
+      return {
+        ok: false,
+        message: 'We could not finish setting up your login. Please try again, or contact your program manager.'
+      }
+    }
+    authUserId = existing.id
   }
+
+  // Shaped like the createUser result so the rest of this function is unchanged, and so
+  // the rollback below still has an id to clean up.
+  const authUser = { user: { id: authUserId } }
 
   // ── 6. Upsert BAM row (banking via encrypted helper) ──────────
   const { error: updErr } = await db.from('bams').update({
@@ -242,8 +307,14 @@ export async function handler(req: {
     // told only "Encrypt failed". They could not re-onboard (the token is spent, and the
     // route refuses a non-pending row) and their invoice would HARD BLOCK on missing
     // banking. Nobody would know until the 17th.
-    const { error: delErr } = await db.auth.admin.deleteUser(authUser.user.id)
-    if (delErr) console.error('[onboarding-ingest] could not delete the new auth user:', delErr.message)
+    if (weCreatedTheAuthUser) {
+      const { error: delErr } = await db.auth.admin.deleteUser(authUser.user.id)
+      if (delErr) console.error('[onboarding-ingest] could not delete the new auth user:', delErr.message)
+    } else {
+      // Linked, not created. Leaving it is the only safe choice: it existed before this
+      // request and may be an admin's login.
+      console.error('[onboarding-ingest] rolling back a LINKED auth user, leaving it in place:', authUser.user.id)
+    }
 
     const { data: reverted, error: revErr } = await db.from('bams').update({
       status: 'pending',

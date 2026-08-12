@@ -1,39 +1,33 @@
--- 한 사람 완전 삭제. 이메일만 바꾸면 됩니다.
--- 실제 참가자는 쓰지 마세요 (영수증·인보이스는 회계 기록). archive가 맞습니다:
---   update bams set status='archived' where lower(email)=lower('...');
-
--- ══ A. AUDIT — 뭐가 딸려 있는지 먼저 본다 ═══════════════════════════════════
-select b.email, b.first_name||' '||b.last_name as name, b.status, b.is_test,
-       b.auth_user_id is not null                                     as has_login,
-       (select count(*) from receipts             where bam_id=b.id)  as receipts,
-       (select count(*) from invoices             where bam_id=b.id)  as invoices,
-       (select count(*) from reimbursement_ledger where bam_id=b.id)  as ledger,
-       (select count(*) from bam_warnings         where bam_id=b.id)  as warnings,
-       (select count(*) from portal_questions     where bam_id=b.id)  as questions
-from bams b
-where lower(b.email) = lower('여기에@이메일.com');      -- ← 바꿀 곳
-
--- receipts / invoices / ledger / warnings 가 0이 아니면 여기서 멈추세요.
-
-
--- ══ B. DELETE — 위가 전부 0일 때만 ═════════════════════════════════════════
-begin;
-
-  -- 참조만 끊는 것들 (질문은 익명으로 남김)
-  update portal_questions       set bam_id         = null where bam_id         = (select id from bams where lower(email)=lower('여기에@이메일.com'));
-  update onboarding_submissions set matched_bam_id = null where matched_bam_id = (select id from bams where lower(email)=lower('여기에@이메일.com'));
-
-  -- 명부 행
-  delete from bams where lower(email) = lower('여기에@이메일.com');
-
-  -- 로그인 계정 (role claim도 여기 있으므로 같이 사라짐)
-  delete from auth.users where lower(email) = lower('여기에@이메일.com');
-
-commit;
--- receipts/invoices가 남아 있으면 여기서 FK 에러가 나고 전체가 롤백됩니다. 그게 안전장치입니다.
-
-
--- ══ C. 확인 ════════════════════════════════════════════════════════════════
-select (select count(*) from bams       where lower(email)=lower('여기에@이메일.com')) as bams_left,
-       (select count(*) from auth.users where lower(email)=lower('여기에@이메일.com')) as auth_left;
--- 둘 다 0. 그다음 터미널에서: node scripts/probe/can-sign-in.js
+-- ⚠️ 이 파일은 쓰지 마세요. 대신:
+--
+--     node scripts/probe/fix-delete-person.js someone@example.com
+--     node scripts/probe/fix-delete-person.js someone@example.com --apply
+--
+-- WHY THIS SQL WAS RETIRED (2026-08-12)
+-- ------------------------------------
+-- The version that used to live here deleted the `bams` row and then ran
+-- `delete from auth.users where lower(email) = ...`. It reported no error.
+--
+-- On 2026-08-12 a person was deleted that way, re-added to the roster, invited, and the
+-- student hit a dead end when they clicked the link:
+--
+--     Auth creation failed: A user with this email address has already been registered
+--
+-- The login had survived the delete. By then the invite token was spent, so there was no
+-- way forward for that student from inside the portal.
+--
+-- Two things came out of it, both fixed:
+--   1. `supabase/functions/onboarding-ingest` now LINKS an existing login instead of
+--      failing, so a surviving auth user is no longer a dead end for anybody.
+--   2. Deleting is done through the Admin API, which was verified to actually remove the
+--      user, and the script reads BOTH the roster and the auth list back afterwards
+--      before it says it worked. A delete you cannot confirm is not a delete.
+--
+-- The script also refuses two things this SQL happily did:
+--   - anyone with receipts, invoices, ledger rows or warnings, because deleting those
+--     silently changes a month's totals. It prints the `status='archived'` statement
+--     to run instead.
+--   - anyone holding an admin role, since revoking that on /admin/team is the path that
+--     also archives their test BAM row.
+--
+-- If you only want to look before deciding, the script's default is a dry run.
