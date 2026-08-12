@@ -13,7 +13,9 @@ const { serviceClient, loadEnv, pass, fail, info, verdict } = require('./_lib')
 const WANT = [
   { table: 'receipts', columns: ['bam_id'] },
   { table: 'banking_change_requests', columns: ['status'] },
-  { table: 'portal_questions', columns: ['notified_at'] }
+  { table: 'portal_questions', columns: ['notified_at', 'answered_at', 'answered_by', 'answer'] },
+  { table: 'bams', columns: ['wants_reminders'] },
+  { table: 'student_reminders', columns: ['kind', 'sent_at', 'mode'] }
 ]
 
 async function main() {
@@ -52,12 +54,10 @@ async function main() {
   else if (banking === null) fail('banking count came back null with no error, which is what a wrong table name looks like')
   else info(`pending banking changes: ${banking}`)
 
-  // No answered/unanswered column exists yet, so there is no such thing as an OPEN question
-  // to count. The badge shows the total instead of inventing a status.
   const { count: questions, error: qErr } = await db
-    .from('portal_questions').select('id', { count: 'exact', head: true })
-  if (qErr) fail(`question count: ${qErr.message}`)
-  else info(`questions (total, no answered column exists): ${questions}`)
+    .from('portal_questions').select('id', { count: 'exact', head: true }).is('answered_at', null)
+  if (qErr) fail(`unanswered question count: ${qErr.message}`)
+  else info(`unanswered questions: ${questions}`)
 
   verdict()
 }

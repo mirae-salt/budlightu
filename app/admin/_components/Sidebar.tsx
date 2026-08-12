@@ -16,7 +16,14 @@ import { NotificationBell } from './TopBar'
  * Banking changes onto BAMs -- as _components/QueueLink, which is loud when there is work and
  * one quiet line when there is not. Nothing was hidden and nothing became unreachable.
  */
-type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
+type NavItem = {
+  href: string
+  label: string
+  icon: ReactNode
+  badge?: string
+  /** A live count from /api/admin/nav-counts. Null renders as no badge, never as 0. */
+  countKey?: 'questions'
+}
 type NavGroup = { title: string; items: NavItem[] }
 
 const groups: NavGroup[] = [
@@ -33,7 +40,7 @@ const groups: NavGroup[] = [
     items: [
       { href: '/admin/roster',    label: 'BAMs',       icon: <IconUsers /> },
       { href: '/admin/cohorts',   label: 'Cohorts',    icon: <IconLayers /> },
-      { href: '/admin/questions', label: 'Questions', icon: <IconInfo /> }
+      { href: '/admin/questions', label: 'Questions', icon: <IconInfo />, countKey: 'questions' }
     ]
   },
   {
@@ -49,6 +56,17 @@ const groups: NavGroup[] = [
 
 export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const path = usePathname()
+  // Unanswered questions only. Refetched on navigation so answering the last one clears the
+  // badge without a reload. Unknown stays unknown: a failed read shows no badge rather than 0.
+  const [counts, setCounts] = useState<Record<string, number | null>>({})
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/nav-counts')
+      .then(r => r.json())
+      .then(j => { if (!cancelled && j?.ok) setCounts(j.counts ?? {}) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [path])
   const [profile, setProfile] = useState<{ name: string; initial: string }>({ name: '', initial: '' })
   useEffect(() => {
     const sb = browserClient()
@@ -83,11 +101,13 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
           <div className="nav-group-title">{g.title}</div>
           {g.items.map(it => {
             const active = it.href === '/admin' ? path === '/admin' : path.startsWith(it.href)
+            const live = it.countKey ? counts[it.countKey] : undefined
             return (
               <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`} onClick={onNavigate}>
                 {it.icon}
                 <span>{it.label}</span>
-                {it.badge && it.badge !== '0' && <span className="nav-badge">{it.badge}</span>}
+                {typeof live === 'number' && live > 0 && <span className="nav-badge">{live}</span>}
+                {it.badge && it.badge !== '0' && !it.countKey && <span className="nav-badge">{it.badge}</span>}
               </Link>
             )
           })}

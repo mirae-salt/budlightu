@@ -28,6 +28,8 @@ type DbQuestion = {
   submitted_at: string
   bam_id: string | null
   notified_at: string | null
+  answered_at: string | null
+  answer: string | null
   bams: {
     first_name: string | null
     last_name: string | null
@@ -57,24 +59,87 @@ export default function QuestionsPage() {
   // Filter by cohort, because that is the grouping Robin actually thinks in: a question from
   // a summer BAM and one from a fall BAM are different conversations.
   const [cohort, setCohort] = useState('all')
+  // Open first, because an open question is the only kind that needs anything from you.
+  const [status, setStatus] = useState<'open' | 'answered' | 'all'>('open')
+  /** Which card has its reply box open. */
+  const [replyTo, setReplyTo] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  /** Re-read the list. Called after answering so the card shows what the server stored. */
+  async function reload() {
+    try {
+      const res = await fetch('/api/admin/data?table=questions')
+      const j = await res.json()
+      // A failed read must not render as "no questions". Unknown is not none --
+      // that confusion is what made the empty admin-team list misleading too.
+      if (j.error || !res.ok) setError(j.error || `Request failed (${res.status})`)
+      else { setRows((j.data ?? []) as DbQuestion[]); setError(null) }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /**
+   * Send a reply, or just mark it done.
+   *
+   * Empty text means "I already answered this in my own email client", which is faster for a
+   * one-line answer and is why the text is optional. The server does the same thing: text sends
+   * an email, no text only records it.
+   */
+  async function answer(id: string, text: string) {
+    setBusyId(id)
+    setActionMsg(null)
+    try {
+      const res = await fetch('/api/admin/questions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, answered: true, ...(text.trim() ? { answer: text.trim() } : {}) })
+      })
+      const j = await res.json()
+      if (!res.ok || !j?.ok) {
+        setActionMsg({ ok: false, text: j?.message ?? 'That did not work.' })
+        return
+      }
+      setReplyTo(null)
+      setReplyText('')
+      setActionMsg({
+        ok: true,
+        text: j.emailed ? 'Sent, and marked answered.' : 'Marked answered. No email was sent.'
+      })
+      await reload()
+    } catch (e) {
+      setActionMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function reopen(id: string) {
+    setBusyId(id)
+    setActionMsg(null)
+    try {
+      const res = await fetch('/api/admin/questions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, answered: false })
+      })
+      const j = await res.json()
+      if (!res.ok || !j?.ok) setActionMsg({ ok: false, text: j?.message ?? 'That did not work.' })
+      else { setActionMsg({ ok: true, text: 'Back in the open list.' }); await reload() }
+    } catch (e) {
+      setActionMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch('/api/admin/data?table=questions')
-        const j = await res.json()
-        if (cancelled) return
-        // A failed read must not render as "no questions". Unknown is not none --
-        // that confusion is what made the empty admin-team list misleading too.
-        if (j.error || !res.ok) setError(j.error || `Request failed (${res.status})`)
-        else setRows((j.data ?? []) as DbQuestion[])
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+    ;(async () => { if (!cancelled) await reload() })()
     ;(async () => {
       try {
         const res = await fetch('/api/admin/question-notify')
@@ -93,7 +158,10 @@ export default function QuestionsPage() {
   // on a card. Searching for what you can see is the only rule worth having here.
   const q = query.trim().toLowerCase()
   const cohorts = [...new Set(rows.map(cohortName).filter((c): c is string => Boolean(c)))].sort()
+  const openCount = rows.filter(r => !r.answered_at).length
   const visible = rows.filter(r => {
+    if (status === 'open' && r.answered_at) return false
+    if (status === 'answered' && !r.answered_at) return false
     if (cohort !== 'all' && cohortName(r) !== cohort) return false
     if (q === '') return true
     const b = r.bams
@@ -157,6 +225,23 @@ export default function QuestionsPage() {
             not exist, and the reasonable conclusion was that it had never been built. */}
         {!loading && !error && rows.length > 0 && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            {/* Open first. An answered question is history; an open one is work. */}
+            <div style={{ display: 'flex', gap: 0 }}>
+              {([
+                ['open', openCount > 0 ? `Open (${openCount})` : 'Open'],
+                ['answered', 'Answered'],
+                ['all', 'All']
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setStatus(key)}
+                  className={status === key ? 'btn-navy' : 'btn-ghost'}
+                  style={{ fontSize: 13, whiteSpace: 'nowrap' }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
@@ -180,9 +265,9 @@ export default function QuestionsPage() {
                 {cohorts.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
-            {(query.trim() !== '' || cohort !== 'all') && (
+            {(query.trim() !== '' || cohort !== 'all' || status !== 'open') && (
               <button
-                onClick={() => { setQuery(''); setCohort('all') }}
+                onClick={() => { setQuery(''); setCohort('all'); setStatus('open') }}
                 className="btn-ghost"
                 style={{ fontSize: 13 }}
               >
@@ -193,9 +278,18 @@ export default function QuestionsPage() {
         )}
 
         {/* The count, so a filter that hides most of the page says so. */}
-        {!loading && !error && rows.length > 0 && (query.trim() !== '' || cohort !== 'all') && (
+        {!loading && !error && rows.length > 0 && (
           <p className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>
             Showing {visible.length} of {rows.length}
+          </p>
+        )}
+
+        {actionMsg && (
+          <p style={{
+            fontSize: 13, marginBottom: 12,
+            color: actionMsg.ok ? '#065f46' : '#991b1b'
+          }}>
+            {actionMsg.text}
           </p>
         )}
 
@@ -219,7 +313,9 @@ export default function QuestionsPage() {
 
         {!loading && !error && rows.length > 0 && visible.length === 0 && (
           <p className="muted" style={{ fontSize: 13 }}>
-            Nothing matches. {rows.length} question{rows.length === 1 ? '' : 's'} in total.
+            {status === 'open' && query.trim() === '' && cohort === 'all'
+              ? 'Nothing waiting. Every question has been answered.'
+              : `Nothing matches. ${rows.length} question${rows.length === 1 ? '' : 's'} in total.`}
           </p>
         )}
 
@@ -230,7 +326,11 @@ export default function QuestionsPage() {
               return (
                 <div key={r.id} style={{
                   padding: '14px 16px', borderRadius: 10,
-                  border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(0,0,0,0.015)'
+                  // An answered card recedes. Left unstyled they were all identical, which is
+                  // why there was no way to tell what still needed attention.
+                  border: r.answered_at ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(0,163,224,0.35)',
+                  background: r.answered_at ? 'rgba(0,0,0,0.015)' : 'rgba(0,163,224,0.04)',
+                  opacity: r.answered_at ? 0.85 : 1
                 }}>
                   <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
@@ -253,6 +353,111 @@ export default function QuestionsPage() {
                   <div style={{ fontSize: 14, color: '#1a1a2e', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
                     {r.question}
                   </div>
+
+                  {/* What was sent, if anything was. Kept when a question is reopened, because
+                      it is a record of what was already said. */}
+                  {r.answer && (
+                    <div style={{
+                      marginTop: 12, padding: '10px 12px', borderRadius: 8,
+                      background: 'rgba(0,0,0,0.03)', borderLeft: '3px solid rgba(0,163,224,0.5)'
+                    }}>
+                      <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Replied</div>
+                      <div style={{ fontSize: 13, color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                        {r.answer}
+                      </div>
+                    </div>
+                  )}
+
+                  {replyTo === r.id ? (
+                    <div style={{ marginTop: 12 }}>
+                      <textarea
+                        value={replyText}
+                        onChange={e => setReplyText(e.target.value)}
+                        rows={4}
+                        autoFocus
+                        placeholder={`Reply to ${w.name.split(' ')[0]}. This is emailed to them and saved here.`}
+                        style={{
+                          width: '100%', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit',
+                          padding: '10px 12px', border: '1px solid rgba(0,0,0,0.15)',
+                          borderRadius: 8, resize: 'vertical'
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <button
+                          className="btn-navy"
+                          disabled={busyId === r.id || replyText.trim().length === 0}
+                          onClick={() => void answer(r.id, replyText)}
+                          style={{ fontSize: 13 }}
+                        >
+                          {busyId === r.id ? 'Sending...' : 'Send and mark answered'}
+                        </button>
+                        <button
+                          className="btn-ghost"
+                          disabled={busyId === r.id}
+                          onClick={() => { setReplyTo(null); setReplyText('') }}
+                          style={{ fontSize: 13 }}
+                        >
+                          Cancel
+                        </button>
+                        {!w.email && (
+                          <span style={{ fontSize: 12, color: '#991b1b' }}>
+                            No email on file for this BAM, so a reply cannot be sent.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                      {!r.answered_at && (
+                        <>
+                          <button
+                            className="btn-navy"
+                            disabled={busyId === r.id}
+                            onClick={() => { setReplyTo(r.id); setReplyText('') }}
+                            style={{ fontSize: 13 }}
+                          >
+                            Reply
+                          </button>
+                          {/* For when the reply already went out of Outlook. Without this the
+                              only way to close a question is to retype the answer. */}
+                          <button
+                            className="btn-ghost"
+                            disabled={busyId === r.id}
+                            onClick={() => void answer(r.id, '')}
+                            style={{ fontSize: 13 }}
+                          >
+                            {busyId === r.id ? 'Saving...' : 'Mark answered without sending'}
+                          </button>
+                        </>
+                      )}
+                      {r.answered_at && (
+                        <>
+                          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
+                            Answered {new Date(r.answered_at).toLocaleDateString('en-US', {
+                              month: 'short', day: 'numeric'
+                            })}
+                          </span>
+                          <button
+                            className="btn-ghost"
+                            disabled={busyId === r.id}
+                            onClick={() => void reopen(r.id)}
+                            style={{ fontSize: 13 }}
+                          >
+                            Reopen
+                          </button>
+                        </>
+                      )}
+                      {w.email && (
+                        <a
+                          href={`mailto:${w.email}?subject=${encodeURIComponent('Re: your Bud Light U question')}`}
+                          className="btn-ghost"
+                          style={{ fontSize: 13, textDecoration: 'none', alignSelf: 'center' }}
+                        >
+                          Open in email
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
