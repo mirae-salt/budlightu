@@ -90,7 +90,7 @@ export async function sendBamInvite(db: Db, bam: InviteTarget): Promise<InviteRe
 
   const result = await sendEmail({
     to: bam.email,
-    subject: `You're invited to Bud Light U — set up your account`,
+    subject: `You're invited to Bud Light U: set up your account`,
     html: inviteEmailHtml(bam.first_name, inviteUrl),
     text: `Hi ${bam.first_name},\n\nYou've been selected as a Bud Light U Brand Ambassador! Set up your account here:\n\n${inviteUrl}\n\nThis link is one-time use and tied to your email. If you have any questions, reply to this email or contact your program manager.\n\nBud Light U - Campus Ambassador Program`
   })

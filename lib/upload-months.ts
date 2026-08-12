@@ -10,9 +10,25 @@
  * cases as the server rule.
  */
 import { PROGRAM_START_MONTH, PROGRAM_START_YEAR, PROGRAM_MONTHS } from './program'
-import { isPastDeadline, DEADLINE_DAY } from './deadline'
+import { isPastDeadline, DEADLINE_DAY, spendingWindowLabel } from './deadline'
 
-export type MonthOption = { value: string; label: string; shortLabel: string; tag?: string; isCurrent?: boolean; isSubmittable?: boolean }
+export type MonthOption = {
+  value: string
+  label: string
+  shortLabel: string
+  tag?: string
+  isCurrent?: boolean
+  isSubmittable?: boolean
+  /**
+   * The purchase dates this month's $150 actually covers, e.g. "Aug 16 to Sep 15".
+   *
+   * Spelled out because the label says "September" and a student reads that as
+   * September 1-30. With receipts closing on the 15th and no rollover, the real window
+   * is the 16th to the 15th, so without this a student buys on the 20th and finds out
+   * later that it counted against the next month's cap instead.
+   */
+  windowLabel?: string
+}
 
 /** The cohort's first and last month as YYYY-MM-01, so a string compare works. */
 export type CohortWindow = { startMonth: string; endMonth: string }
@@ -92,7 +108,7 @@ export function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolea
       // The current month, offered but not submittable, means its deadline has passed.
       // Said plainly, because "closed" on the month a student is standing in reads as a
       // bug rather than a deadline.
-      else if (isCurrent) tag = `closed — receipts were due on the ${DEADLINE_DAY}th`
+      else if (isCurrent) tag = `closed, receipts were due on the ${DEADLINE_DAY}th`
       else tag = 'closed'
     }
 
@@ -103,7 +119,8 @@ export function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolea
       shortLabel: isTestSlot ? 'Test' : monthName.split(' ')[0],
       tag,
       isCurrent,
-      isSubmittable
+      isSubmittable,
+      windowLabel: isTestSlot ? undefined : spendingWindowLabel(value)
     })
   }
 

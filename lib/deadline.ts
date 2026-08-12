@@ -57,3 +57,30 @@ export function isPastDeadline(now: Date = new Date()): boolean {
   if (day === DEADLINE_DAY + 1) return now.getUTCHours() >= DEADLINE_CUTOFF_UTC_HOUR
   return true
 }
+
+/**
+ * The spending window a period actually covers, in plain words.
+ *
+ * Confirmed with Mirae on 2026-08-12: because receipts close on the 15th and there is
+ * NO rollover, a month's $150 covers purchases from the 16th of the previous month
+ * through the 15th of this one. Every label in the product says "September", which a
+ * student reads as September 1-30, so the window has to be spelled out next to it or
+ * they will buy on the 20th expecting it to count.
+ *
+ * `period` is "YYYY-MM" or "YYYY-MM-01".
+ */
+export function spendingWindowLabel(period: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(period)
+  if (!m) return ''
+  const year = Number(m[1])
+  const month0 = Number(m[2]) - 1
+
+  const end = new Date(Date.UTC(year, month0, DEADLINE_DAY))
+  // Day 0 of this month is the last day of the previous one; +16 lands on the 16th.
+  const start = new Date(Date.UTC(year, month0 - 1, DEADLINE_DAY + 1))
+
+  const fmt = (d: Date) =>
+    d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+
+  return `${fmt(start)} to ${fmt(end)}`
+}

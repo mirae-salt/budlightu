@@ -16,7 +16,7 @@
  */
 import { createTransport } from 'nodemailer'
 import { Resend } from 'resend'
-import { cleanEnvValue, cleanText, isEmailAddress, envToken, tokenProblem } from './sanitize'
+import { cleanEnvValue, cleanText, isEmailAddress, envToken, tokenProblem, envAddressListOr } from './sanitize'
 
 export interface SendEmailOpts {
   to: string | string[]
@@ -58,8 +58,16 @@ export interface SendEmailResult {
  * gets a bounce instead of their mail client showing them there is nowhere to reply.
  */
 function replyToHeader(explicit?: string): string | undefined {
-  const addr = cleanEnvValue(explicit ?? process.env.REPLY_TO_EMAIL ?? '')
-  return addr ? addr : undefined
+  const direct = cleanEnvValue(explicit ?? process.env.REPLY_TO_EMAIL ?? '')
+  if (direct) return direct
+
+  // Fall back to the first AP CC address, resolved through the same helper the AP send
+  // uses, so it picks up that route's code-level default (robin.graham@) even where the
+  // env var is unset. Without a fallback, shipping this would have depended on someone
+  // remembering to add a new environment variable, and until they did every reply would
+  // keep bouncing off a domain with no MX record. Set REPLY_TO_EMAIL to override.
+  const firstCc = envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com')[0]
+  return firstCc && firstCc.includes('@') ? firstCc : undefined
 }
 
 function fromHeader(addressEnv: string, nameEnv: string | null, defaultName: string | null): string | null {

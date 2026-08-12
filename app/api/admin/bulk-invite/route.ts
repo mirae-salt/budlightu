@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
       created: 0,
       skipped: cleaned.length,
       errors: errors.length > 0 ? errors : undefined,
-      message: 'All emails already exist in roster — 0 new BAMs imported'
+      message: 'All emails already exist in roster, so 0 new BAMs were imported'
     })
   }
 
@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
     const inviteUrl = `${appUrl}/portal/onboarding/${rawToken}`
     const result = await sendEmail({
       to: bam.email,
-      subject: `You're invited to Bud Light U — set up your account`,
+      subject: `You're invited to Bud Light U: set up your account`,
       html: inviteEmailHtml(bam.first_name, inviteUrl)
     })
     emailResults.push({ email: bam.email, sent: result.sent, error: result.error })

@@ -130,7 +130,7 @@ async function sendOneBamCopy(admin: ReturnType<typeof serviceClient>, invoiceId
   if (!pdf.ok) return blocked(pdf.error)
   const attachments = [{ filename, content: Buffer.from(pdf.bytes) }]
 
-  const subject = `Your ${monthLong} invoice is ready — Bud Light U`
+  const subject = `Your ${monthLong} invoice is ready: Bud Light U`
   const html = bamCopyEmailHtml(bam.first_name, monthLong, inv.invoice_number, portalUrl, Boolean(attachments))
 
   // Claim BEFORE sending (P0-B). A failed attempt stays retryable (P0-C).

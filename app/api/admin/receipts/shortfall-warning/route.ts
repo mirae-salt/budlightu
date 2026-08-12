@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
   const result = await sendEmail({
     to: bam.email,
-    subject: `Bud Light U — Receipt shortfall notice for ${monthLabel}`,
+    subject: `Bud Light U: receipt shortfall notice for ${monthLabel}`,
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
         <p style="font-size: 16px; color: #1a1a2e;">Hi ${bam.first_name},</p>
@@ -92,11 +92,11 @@ export async function POST(req: NextRequest) {
           before the review deadline. If you have questions, reach out to your program manager.
         </p>
         <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">
-          — Bud Light U Automation
+          - Bud Light U Automation
         </p>
       </div>
     `,
-    text: `Hi ${bam.first_name},\n\nYour Bud Light receipt for ${monthLabel} shows $${total.toFixed(2)}, below the $${SOFT_FLOOR} soft floor. Your reimbursement will be $${total.toFixed(2)} instead of the full $150. Upload additional receipts before the deadline if you have them.\n\n— Bud Light U`
+    text: `Hi ${bam.first_name},\n\nYour Bud Light receipt for ${monthLabel} shows $${total.toFixed(2)}, below the $${SOFT_FLOOR} soft floor. Your reimbursement will be $${total.toFixed(2)} instead of the full $150. Upload additional receipts before the deadline if you have them.\n\n- Bud Light U`
   })
 
   return NextResponse.json({ ok: result.sent, provider: result.provider, error: result.error })

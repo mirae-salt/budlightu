@@ -92,7 +92,7 @@ export function validatePeriod(
     if (idx < cur) {
       return {
         ok: false,
-        message: `${monthName} is closed — its receipts were due on the ${DEADLINE_DAY}th. ` +
+        message: `${monthName} is closed. Its receipts were due on the ${DEADLINE_DAY}th. ` +
           'Contact your program manager if you still need this one counted.'
       }
     }

@@ -34,7 +34,25 @@
  * Bump this whenever the text below changes in a way that affects what someone is
  * agreeing to. Fixing a typo does not need a bump; changing a rule does.
  */
-export const TERMS_VERSION = '2026-09-01'
+export const TERMS_VERSION = '2026-08-12'
+
+/**
+ * Why this looks like it went backwards.
+ *
+ * The previous value was '2026-09-01', named after the program start rather than the
+ * day the wording landed. This one follows the convention stated above: the date the
+ * text became live, so an acceptance can be read against what was on screen at the
+ * time. The labels are identifiers, not an ordering.
+ *
+ * Bumped on 2026-08-12 because the Receipts and Reimbursement sections changed what a
+ * student is agreeing to, not just how it is phrased:
+ *   - a month now runs the 16th to the 15th, so a purchase on the 20th falls in the
+ *     next month rather than the one it was made in
+ *   - a closed month is refused outright, where the old text said a late receipt "may
+ *     not be reimbursed for that month"
+ *
+ * Per rule 3 above, the one row holding '2026-09-01' keeps it. It is a test account.
+ */
 
 export type TermsSection = {
   heading: string
@@ -62,6 +80,7 @@ export const TERMS_SECTIONS: readonly TermsSection[] = [
     heading: 'Reimbursement for Bud Light purchases',
     body: [
       'Each month you can be reimbursed for what you spend on Bud Light products, up to a monthly maximum set for your cohort. You are reimbursed for what you actually spent, not the maximum.',
+      'A month runs from the 16th of the previous month to the 15th of that month, because that is when receipts are due. So a purchase made on the 20th falls in the next month, not the one it was made in.',
       'Only Bud Light products count. If a receipt includes other items, only the Bud Light lines are reimbursed.',
       'The monthly maximum does not carry over. Anything unspent in a month does not increase the next month.'
     ],
@@ -70,7 +89,8 @@ export const TERMS_SECTIONS: readonly TermsSection[] = [
   {
     heading: 'Receipts',
     body: [
-      'Submit your receipts through the portal by the 15th of the month. Receipts submitted after a month has been processed may not be reimbursed for that month.',
+      'Submit your receipts through the portal by the 15th of the month. The 15th is counted generously: you have until the end of the 15th wherever you are in Canada.',
+      'After that the month is closed and the portal will not accept receipts for it. If you miss the deadline, contact your program manager rather than submitting it against another month.',
       'You may submit more than one receipt per month.',
       'Receipts are reviewed. Where a receipt is unclear, your program manager decides.',
       'Keep your original receipts for at least six months. You may be asked for them.',

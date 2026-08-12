@@ -249,7 +249,7 @@ export async function PATCH(req: NextRequest) {
         console.error('[roster PATCH] institution number not updated for', id, encErr.message)
         warnings.push(
           `The bank name was changed to ${bank.displayName}, but its institution number could not be updated ` +
-          `(${encErr.message}). Do not invoice this BAM until that is fixed — the deposit would route to the previous bank.`
+          `(${encErr.message}). Do not invoice this BAM until that is fixed. The deposit would route to the previous bank.`
         )
       } else {
         // Read it back. A silent no-op here is exactly the mismatch this block exists

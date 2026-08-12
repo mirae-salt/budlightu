@@ -76,7 +76,7 @@ export default function MaintenancePage() {
           : (j.maintenance.on
               ? (j.maintenance.mode === 'block'
                   ? 'Blocking is ON. BAMs see the notice instead of the portal; you and other admins are unaffected.'
-                  : 'Banner is ON. Everything keeps working -- BAMs just see a strip at the top.')
+                  : 'Banner is ON. Everything keeps working; BAMs just see a strip at the top.')
               : 'Maintenance is OFF. No notice is showing.')
       })
     } catch (e) {
@@ -122,10 +122,10 @@ export default function MaintenancePage() {
               />
               <strong style={{ fontSize: 14, color: isOn ? '#92400e' : '#065f46' }}>
                 {degraded
-                  ? 'Unknown — the switch could not be read'
+                  ? 'Unknown: the switch could not be read'
                   : isOn
-                    ? (state?.mode === 'block' ? 'BLOCKING — the portal is closed to BAMs' : 'BANNER — a notice is showing, everything works')
-                    : 'Off — no notice is showing'}
+                    ? (state?.mode === 'block' ? 'BLOCKING: the portal is closed to BAMs' : 'BANNER: a notice is showing, everything works')
+                    : 'Off: no notice is showing'}
               </strong>
               {isOn && state?.until && (
                 <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
@@ -151,7 +151,7 @@ export default function MaintenancePage() {
                 <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontWeight: 400 }}>
                   <input type="radio" name="mode" checked={mode === 'banner'} onChange={() => setMode('banner')} style={{ width: 'auto', marginTop: 3 }} />
                   <span style={{ fontSize: 13 }}>
-                    <strong>Banner</strong> — a strip at the top. Everything keeps working.
+                    <strong>Banner</strong>: a strip at the top. Everything keeps working.
                     <span className="muted" style={{ display: 'block', fontSize: 11 }}>
                       For &ldquo;maintenance tonight at 8pm&rdquo;. This is the one you will use most.
                     </span>
@@ -160,7 +160,7 @@ export default function MaintenancePage() {
                 <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontWeight: 400 }}>
                   <input type="radio" name="mode" checked={mode === 'block'} onChange={() => setMode('block')} style={{ width: 'auto', marginTop: 3 }} />
                   <span style={{ fontSize: 13 }}>
-                    <strong>Block</strong> — replaces the portal for BAMs.
+                    <strong>Block</strong>: replaces the portal for BAMs.
                     <span className="muted" style={{ display: 'block', fontSize: 11 }}>
                       Only when letting someone submit into a half-working app is worse than turning them away.
                     </span>
@@ -225,7 +225,7 @@ export default function MaintenancePage() {
             )}
 
             <p className="muted" style={{ fontSize: 12, marginTop: 24, lineHeight: 1.6 }}>
-              Takes effect immediately — no deploy. An open tab picks it up within a
+              Takes effect immediately, no deploy needed. An open tab picks it up within a
               minute without reloading.
               <br />
               Never blocked, so you cannot lock yourself out: the sign-in page, every

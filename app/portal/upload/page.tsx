@@ -193,6 +193,14 @@ export default function UploadPage() {
                   {monthOptions.find(o => o.value === selectedPeriod)?.label}
                   {isLate && <span style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 500, marginLeft: 8 }}>late</span>}
                 </div>
+                {/* The month name alone is misread: "September" looks like Sept 1-30,
+                    but with receipts closing on the 15th and no rollover the real
+                    window is the 16th to the 15th. */}
+                {monthOptions.find(o => o.value === selectedPeriod)?.windowLabel && (
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    covers purchases {monthOptions.find(o => o.value === selectedPeriod)?.windowLabel}
+                  </div>
+                )}
               </div>
               {!showPastMonths ? (
                 <button
@@ -227,7 +235,11 @@ export default function UploadPage() {
                     key={o.value}
                     type="button"
                     disabled={!o.isSubmittable}
-                    title={o.isSubmittable ? undefined : (o.tag === 'not open yet' ? 'This month has not opened yet' : 'This month is closed')}
+                    title={
+                      o.isSubmittable
+                        ? (o.windowLabel ? `Covers purchases ${o.windowLabel}` : undefined)
+                        : (o.tag ? `Not available: ${o.tag}` : 'This month is closed')
+                    }
                     className={selectedPeriod === o.value ? 'btn-navy' : 'btn-ghost'}
                     style={{
                       fontSize: 12, padding: '6px 14px',
@@ -242,8 +254,13 @@ export default function UploadPage() {
               </div>
             )}
             {isLate && (
-              <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                Late submissions are accepted but may delay your reimbursement.
+              <p className="muted" style={{ fontSize: 12, marginTop: 6, color: 'var(--amber)' }}>
+                {/* This used to read "Late submissions are accepted but may delay your
+                    reimbursement", which stopped being true: a closed month is refused
+                    now, because accepting it meant storing a receipt that nothing would
+                    ever look at. */}
+                Receipts close on the 15th. After that the month is closed and this one
+                will not be counted, so send it in before the deadline.
               </p>
             )}
           </div>
