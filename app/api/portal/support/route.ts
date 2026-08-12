@@ -94,14 +94,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Insert question into DB
-  const { error: insErr } = await admin.from('portal_questions').insert({
+  const { data: inserted, error: insErr } = await admin.from('portal_questions').insert({
     bam_id: bamId,
     question: question.trim(),
-  })
+  }).select('id')
 
   if (insErr) {
     return NextResponse.json({ ok: false, message: insErr.message }, { status: 500 })
   }
+  const questionId = ((inserted ?? [])[0] as { id?: string } | undefined)?.id ?? null
 
   // How often Robin wants these is HER setting, not ours (lib/question-notify.ts).
   // This used to email on every question, which is right at three a month and wrong
@@ -146,6 +147,21 @@ export async function POST(req: NextRequest) {
       return (e as Error).message
     }
   )
+
+  // Stamp notified_at when the mail actually went out, so the daily digest does not
+  // send it a second time. Only on success: stamping a failed send would lose the
+  // question from both paths at once, which is the one outcome worth avoiding here.
+  if (emailNow && !emailError && questionId) {
+    const { error: stampErr } = await admin
+      .from('portal_questions')
+      .update({ notified_at: new Date().toISOString() })
+      .eq('id', questionId)
+    if (stampErr) {
+      // Not fatal: the question is saved and Robin already has the email. The cost is
+      // that tomorrow's digest may repeat it, which is the harmless direction.
+      console.error('[portal/support] could not stamp notified_at:', stampErr.message)
+    }
+  }
 
   // Admin notification. P1-17: the result is now checked, so a dropped
   // notification is visible in logs instead of vanishing.

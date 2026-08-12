@@ -20,6 +20,7 @@
  * downstream. An admin session is also accepted so Robin can run a cycle by hand.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { runDailyDigest } from '../../../lib/run-daily-digest'
 import { handler as runAudit } from '../../../supabase/functions/scheduler-audit/index'
 import { handler as runGenerate } from '../../../supabase/functions/scheduler-generate/index'
 import { requireAdmin } from '../../../lib/admin-auth'
@@ -70,6 +71,18 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   const day = now.getUTCDate()
 
+  // The digest runs on EVERY invocation, before the day gate, because what it reports
+  // does not follow the invoice cycle: a student asks a question or files a banking
+  // change whenever they like. It never throws and never blocks the money jobs, so a
+  // digest failure cannot take the cycle down with it.
+  let digest: Awaited<ReturnType<typeof runDailyDigest>> | { sent: false; reason: string; questions: 0; pendingBanking: 0; error?: string }
+  try {
+    digest = await runDailyDigest(now)
+  } catch (e) {
+    console.error('[cron] daily digest threw:', e)
+    digest = { sent: false, reason: 'threw', questions: 0, pendingBanking: 0, error: e instanceof Error ? e.message : String(e) }
+  }
+
   let jobs: JobName[]
   if (forced === 'audit' || forced === 'generate') {
     jobs = [forced]
@@ -87,6 +100,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       ran: [],
+      digest,
       note: `nothing due on day ${day} (audit runs on the ${AUDIT_DAY}th, generate on the ${GENERATE_DAY}th, UTC)`,
       authorized_via: auth.via
     })
@@ -109,6 +123,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: allOk,
     ran: jobs,
+    // Reported on both paths so a green cron log can never hide whether the digest ran.
+    digest,
     authorized_via: auth.via,
     results,
     ...(allOk ? {} : { message: 'One or more jobs reported errors. See results.' })
