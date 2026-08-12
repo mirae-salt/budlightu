@@ -18,6 +18,9 @@ export default function OnboardingPage() {
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The server refuses the write when the institution number disagrees with our bank
+  // table, and asks instead of overruling. See lib/institution-confirm.ts.
+  const [institutionAsk, setInstitutionAsk] = useState<{ message: string; submitted: string; ours: string } | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [done, setDone] = useState(false)
 
@@ -74,14 +77,28 @@ export default function OnboardingPage() {
     setFieldErrors(errs)
     if (Object.keys(errs).length > 0) return
 
+    void submitOnboarding(false)
+  }
+
+  async function submitOnboarding(institutionConfirmed: boolean) {
     setBusy(true); setError(null)
+    if (institutionConfirmed) setInstitutionAsk(null)
     try {
       const resp = await fetch('/api/onboarding/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ form: { ...form, email: userEmail } })
+        body: JSON.stringify({
+          form: { ...form, email: userEmail, institution_confirmed: institutionConfirmed }
+        })
       })
       const j = await resp.json()
+      if (j.needsInstitutionConfirm) {
+        // A question, not an error. Nothing was saved; re-submitting with the flag stores
+        // exactly what they typed.
+        setInstitutionAsk({ message: j.message, submitted: j.submittedInstitution, ours: j.ourInstitution })
+        setBusy(false)
+        return
+      }
       if (!resp.ok || !j.ok) { setError(j.message ?? 'Something went wrong'); setBusy(false); return }
       setDone(true)
     } catch (e) {
@@ -223,6 +240,23 @@ export default function OnboardingPage() {
           <button onClick={submitForm} disabled={busy || !form.consent_ap_cc || !form.consent_terms}>
             {busy ? 'Submitting...' : 'Finish onboarding'}
           </button>
+          {institutionAsk && (
+            <div style={{
+              padding: '14px 16px', borderRadius: 10, marginBottom: 12,
+              background: '#fffbeb', border: '1px solid #fcd34d', color: '#78350f'
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Is this right?</div>
+              <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.6 }}>{institutionAsk.message}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => submitOnboarding(true)} disabled={busy}>
+                  {busy ? 'Saving...' : `Yes, use ${institutionAsk.submitted}`}
+                </button>
+                <button type="button" className="btn-ghost" disabled={busy} onClick={() => setInstitutionAsk(null)}>
+                  Let me fix it
+                </button>
+              </div>
+            </div>
+          )}
           {error && <p style={{ color: '#A31212', fontSize: 14 }}>{error}</p>}
         </div>
       </div>

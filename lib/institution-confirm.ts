@@ -65,10 +65,8 @@ export function decideInstitution(input: {
     submitted,
     ours: bank.institutionNo,
     bankName: bank.displayName,
-    message:
-      `You entered institution number ${submitted} for ${bank.displayName}, and we have ` +
-      `${bank.institutionNo} on file for that bank. Please check the number on your void ` +
-      `cheque or in your banking app. If ${submitted} is what it says, confirm and we will ` +
-      'use it.'
+    // Short on purpose. A long explanation invites a student to argue with it; a plain
+    // "is this right?" makes them look at the number, which is the only thing that helps.
+    message: `You entered ${submitted} as the institution number for ${bank.displayName}. Please double-check it against your void cheque or banking app.`
   }
 }

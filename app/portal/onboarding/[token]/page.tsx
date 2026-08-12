@@ -319,6 +319,32 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
           <button onClick={submitAll} disabled={busy || !form.consent_ap_cc || !form.consent_terms}>
             {busy ? 'Submitting…' : 'Finish onboarding'}
           </button>
+          {/* The server refused the write because the institution number disagrees with our
+              bank table, and is asking rather than overruling. Their number wins if they
+              confirm: they are reading their own void cheque, and our 32-row table has
+              been wrong twice. See lib/institution-confirm.ts. */}
+          {institutionAsk && (
+            <div style={{
+              padding: '14px 16px', borderRadius: 10, marginBottom: 12,
+              background: '#fffbeb', border: '1px solid #fcd34d', color: '#78350f'
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>Is this right?</div>
+              <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.6 }}>{institutionAsk.message}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => submitOnboarding(true)} disabled={busy}>
+                  {busy ? 'Saving...' : `Yes, use ${institutionAsk.submitted}`}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={busy}
+                  onClick={() => setInstitutionAsk(null)}
+                >
+                  Let me fix it
+                </button>
+              </div>
+            </div>
+          )}
           {error && <p style={{ color: '#A31212' }}>{error}</p>}
         </div>
       )}
