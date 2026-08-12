@@ -45,6 +45,7 @@ const authGroups: NavGroup[] = [
     title: 'Help',
     items: [
       { href: '/portal/faq',     label: 'FAQ',     icon: <IcoHelp /> },
+      { href: '/portal/terms',   label: 'Program terms', icon: <IcoBook /> },
       { href: '/portal/support', label: 'Support',  icon: <IcoMsg /> },
     ]
   }
@@ -56,6 +57,9 @@ const publicGroups: NavGroup[] = [
     items: [
       { href: '/portal/login', label: 'Sign in', icon: <IcoGrid /> },
       { href: '/portal/faq',   label: 'FAQ',     icon: <IcoHelp /> },
+      // Readable before signing in: the onboarding form links here, and that form is
+      // filled in before the student has a session.
+      { href: '/portal/terms', label: 'Program terms', icon: <IcoBook /> },
     ]
   }
 ]

@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { getRole, isAdminRole, detectRoleTampering } from './lib/auth-claims'
+import { needsPortalAuth, needsAdminAuth } from './lib/route-gate'
 
 type Bucket = { count: number; resetAt: number }
 const buckets = new Map<string, Bucket>()
@@ -93,21 +94,14 @@ export async function middleware(req: NextRequest) {
   // so a misconfigured Vercel deploy (e.g. wrong NODE_ENV) can never skip auth.
   const isDevBypass = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH_BYPASS === 'true'
 
-  // Auth protection for portal and admin routes.
-  //
-  // NOTE: `/api/admin/*` is included deliberately. The matcher below has always
-  // listed it, but this condition only tested `/admin`, so `/api/admin/data`
-  // (which holds the service role key and returns every BAM's roster row) was
-  // never gated here at all. Every admin route also checks for itself now, but
-  // this is the outer fence.
-  //
-  // `/api/portal/*` is intentionally NOT blanket-gated: /api/portal/onboarding/
-  // check-token runs before sign-in and is gated by the invite token instead.
-  // Those handlers verify their own session.
-  const needsPortalAuth = path.startsWith('/portal') && path !== '/portal/login' && path !== '/portal/onboarding' && path !== '/portal/faq' && path !== '/portal/program' && !path.startsWith('/portal/verify-account')
-  const needsAdminAuth = path.startsWith('/admin') || path.startsWith('/api/admin')
+  // Which paths require a session lives in lib/route-gate.ts, as a pure function with
+  // tests. It used to be one long boolean here, and that is where the invite link got
+  // broken: the onboarding exemption was an exact match, so /portal/onboarding/<token>
+  // counted as protected and every new BAM hit a login wall.
+  const portalAuth = needsPortalAuth(path)
+  const adminAuth = needsAdminAuth(path)
 
-  if (!needsPortalAuth && !needsAdminAuth) return NextResponse.next()
+  if (!portalAuth && !adminAuth) return NextResponse.next()
   if (isDevBypass) return NextResponse.next()
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -148,12 +142,12 @@ export async function middleware(req: NextRequest) {
     if (isApiRoute) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
-    if (needsPortalAuth || needsAdminAuth) {
+    if (portalAuth || adminAuth) {
       return NextResponse.redirect(new URL('/portal/login', req.url))
     }
   }
 
-  if (needsAdminAuth && user) {
+  if (adminAuth && user) {
     // P0-A: `app_metadata` only. `user_metadata` is writable by the user's own
     // session, so reading a role from it let any BAM self-promote to super_admin.
     // There is no fallback: an absent claim denies.

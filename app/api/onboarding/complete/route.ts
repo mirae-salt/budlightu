@@ -10,6 +10,7 @@ import { cookies } from 'next/headers'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { validateInstitution, validateTransit, validateAccount, isValidHst } from '../../../../lib/validation'
 import { lookupBank } from '../../../../lib/banks'
+import { TERMS_VERSION } from '../../../../lib/terms'
 
 export async function POST(req: NextRequest) {
   // Get the authenticated user from session
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
     // T&C acceptance was collected by the form and thrown away. Stamped
     // server-side, never taken from the client, and versioned (see 0020).
     consent_terms_at: form.consent_terms ? new Date().toISOString() : null,
-    consent_terms_version: form.consent_terms ? '2026-09-01' : null
+    consent_terms_version: form.consent_terms ? TERMS_VERSION : null
     // status and email_verified_at are set AFTER banking succeeds, below.
   }).eq('id', bam.id)
 

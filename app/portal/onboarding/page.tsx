@@ -204,7 +204,9 @@ export default function OnboardingPage() {
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.consent_terms} onChange={e => setForm({...form, consent_terms: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5 }}>
-                I agree to the Bud Light U program terms. Submitting fraudulent, reused, or AI-generated receipts may result in forfeiture of reimbursement and removal from the program. I will retain original receipts for at least 6 months.
+                I agree to the{' '}
+                <a href="/portal/terms" target="_blank" rel="noopener noreferrer">Bud Light U program terms</a>
+                {' '}(opens in a new tab). Submitting fraudulent, reused, or AI-generated receipts may result in forfeiture of reimbursement and removal from the program. I will retain original receipts for at least 6 months.
               </span>
             </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>

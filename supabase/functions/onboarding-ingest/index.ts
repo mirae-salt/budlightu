@@ -26,9 +26,11 @@ import { serviceClient } from '../_shared/supabase-admin'
 import { validateInstitution, validateTransit, validateAccount, isValidHst } from '../../../lib/validation'
 import { normalizeBankName, lookupBank } from '../../../lib/banks'
 import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
-
-/** Bump when the program terms text changes. Stored with each acceptance. */
-const TERMS_VERSION = '2026-09-01'
+// One source for the version. This file and app/api/onboarding/complete both stamp
+// consent_terms_version, and they held separate copies of the string. They agreed --
+// until someone edited one, at which point acceptances of the same wording would carry
+// different versions and there would be no way to tell which text was accepted.
+import { TERMS_VERSION } from '../../../lib/terms'
 
 type FormPayload = {
   email: string
