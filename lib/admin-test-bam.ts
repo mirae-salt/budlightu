@@ -36,11 +36,13 @@ export type CohortChoice = { id: string; name: string | null }
  * Fail closed: returns null unless a cohort is unambiguously named as a test
  * cohort. Never "just use the first one" — see the header.
  */
+export function isTestCohortName(name: string | null): boolean {
+  const s = (name ?? '').trim().toLowerCase()
+  return s === 'test' || s.startsWith('test ') || s.endsWith(' test')
+}
+
 export function chooseTestCohort(cohorts: CohortChoice[]): CohortChoice | null {
-  const isTestName = (n: string | null) => {
-    const s = (n ?? '').trim().toLowerCase()
-    return s === 'test' || s.startsWith('test ') || s.endsWith(' test')
-  }
+  const isTestName = (n: string | null) => isTestCohortName(n)
   const matches = cohorts.filter(c => isTestName(c.name))
   // More than one test cohort is ambiguous. Deny rather than guess which one an
   // admin's test data should land in.

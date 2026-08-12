@@ -30,6 +30,7 @@ import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
 import { parseBankName, parseSchoolId, parseCohortId } from '../../../../lib/admin-input'
 import { lookupBank } from '../../../../lib/banks'
+import { isTestCohortName } from '../../../../lib/admin-test-bam'
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
 import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
@@ -160,6 +161,10 @@ export async function PATCH(req: NextRequest) {
       continue
     }
 
+    // `is_test` and `cohort_id` are validated above; the pair of them is checked after
+    // the loop, because whether a move is allowed depends on BOTH the target cohort and
+    // the row's test flag.
+
     if (TEXT_FIELDS.has(k)) {
       if (raw === null || raw === undefined) { update[k] = null; continue }
       if (typeof raw !== 'string') {
@@ -185,6 +190,58 @@ export async function PATCH(req: NextRequest) {
     db = serviceClient()
   } catch {
     return NextResponse.json({ ok: false, message: 'Server is not configured.' }, { status: 503 })
+  }
+
+  // A TEST ROW MUST NOT BE MOVED INTO A LIVE COHORT.
+  //
+  // `is_test` does NOT exclude a BAM from invoice generation -- it only relaxes the
+  // upload-month rule (lib/period.ts). So a test row sitting in a live cohort is picked
+  // up by the monthly run like anybody else: an invoice for a test account, addressed to
+  // AP. lib/admin-test-bam.ts refuses to CREATE one outside a TEST cohort for exactly
+  // that reason, and this is the other half -- nothing stopped an admin dragging one
+  // there afterwards from the roster's cohort dropdown.
+  //
+  // Today only `send_mode='dryrun'` stands between that and a real AP email, and
+  // send_mode is a switch someone will flip on purpose before the first live cycle.
+  if ('cohort_id' in update || 'is_test' in update) {
+    const { data: cur, error: curErr } = await db
+      .from('bams').select('is_test, cohort_id').eq('id', id).limit(1)
+    if (curErr) {
+      return NextResponse.json(
+        { ok: false, message: `Could not check the current cohort: ${curErr.message}` },
+        { status: 500 }
+      )
+    }
+    const row = (cur ?? [])[0] as { is_test: boolean | null; cohort_id: string | null } | undefined
+
+    // The state AFTER this edit, since both fields can move in one request.
+    const willBeTest = 'is_test' in update ? update.is_test === true : row?.is_test === true
+    const targetCohortId = 'cohort_id' in update ? (update.cohort_id as string | null) : (row?.cohort_id ?? null)
+
+    if (willBeTest && targetCohortId) {
+      const { data: cRows, error: cErr } = await db
+        .from('cohorts').select('id, name').eq('id', targetCohortId).limit(1)
+      if (cErr) {
+        return NextResponse.json(
+          { ok: false, message: `Could not check that cohort: ${cErr.message}` },
+          { status: 500 }
+        )
+      }
+      const target = (cRows ?? [])[0] as { name: string | null } | undefined
+      if (target && !isTestCohortName(target.name)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message:
+              `A test account cannot sit in "${target.name}", which is a live cohort. ` +
+              'Test rows are still picked up by the monthly invoice run, so this one would ' +
+              'get a real invoice addressed to AP. Move it to a cohort named TEST, or ' +
+              'untick "Test account" first if this is a real BAM.'
+          },
+          { status: 409 }
+        )
+      }
+    }
   }
 
   // A BANK CHANGE IS NOT AN ADMIN EDIT ONCE THE STUDENT HAS ONBOARDED.

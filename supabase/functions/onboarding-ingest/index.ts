@@ -232,15 +232,51 @@ export async function handler(req: {
     p_hst_number: req.form.hst_number ?? null
   })
   if (encErr) {
-    // Rollback: delete the auth user we just created to avoid orphaned account
-    await db.auth.admin.deleteUser(authUser.user.id).catch(() => {})
-    // Revert BAM row to pending
-    await db.from('bams').update({
+    console.error('[onboarding-ingest] encrypt_bam_banking failed for bam', pendingBam.id, encErr.message)
+
+    // ROLLBACK, AND THIS TIME WE CHECK IT.
+    //
+    // Both of these used to be fire-and-forget: the deleteUser had `.catch(() => {})`
+    // and the update had no error binding at all. If the revert failed, the row was left
+    // status='active' with NULL banking and a burned invite token -- and the student was
+    // told only "Encrypt failed". They could not re-onboard (the token is spent, and the
+    // route refuses a non-pending row) and their invoice would HARD BLOCK on missing
+    // banking. Nobody would know until the 17th.
+    const { error: delErr } = await db.auth.admin.deleteUser(authUser.user.id)
+    if (delErr) console.error('[onboarding-ingest] could not delete the new auth user:', delErr.message)
+
+    const { data: reverted, error: revErr } = await db.from('bams').update({
       status: 'pending',
       auth_user_id: null,
       invite_token_hash: tokenHash
-    }).eq('id', pendingBam.id)
-    return { ok: false, message: `Encrypt failed: ${encErr.message}` }
+    }).eq('id', pendingBam.id).select('id, status, invite_token_hash')
+
+    // Read back: an update that matches zero rows reports success, and the whole point
+    // of this branch is putting the student back where they can try again.
+    const row = (reverted ?? [])[0] as { status?: string; invite_token_hash?: string | null } | undefined
+    const restored = !revErr && row?.status === 'pending' && Boolean(row?.invite_token_hash)
+
+    if (!restored) {
+      console.error(
+        '[onboarding-ingest] ROLLBACK FAILED for bam', pendingBam.id,
+        revErr?.message ?? `status=${row?.status ?? 'unknown'} token=${row?.invite_token_hash ? 'set' : 'missing'}`
+      )
+      return {
+        ok: false,
+        message:
+          'We could not save your banking information securely, and we could not undo the ' +
+          'partial setup either. Please contact your program manager before trying again ' +
+          'so they can reset your invite.'
+      }
+    }
+
+    return {
+      ok: false,
+      message:
+        'We could not save your banking information securely. Nothing was saved, so please ' +
+        'open your invite link again and resubmit. If it keeps failing, contact your ' +
+        'program manager.'
+    }
   }
 
   // Note: no email is sent here. `admin.generateLink()` only returns a link/
