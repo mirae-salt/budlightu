@@ -17,6 +17,11 @@
  */
 import { useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import {
+  QUESTION_NOTIFY_OPTIONS,
+  type QuestionNotifyMode,
+  type QuestionNotifySetting
+} from '@/lib/question-notify'
 
 type DbQuestion = {
   id: string
@@ -28,6 +33,13 @@ type DbQuestion = {
 
 export default function QuestionsPage() {
   const [rows, setRows] = useState<DbQuestion[]>([])
+  // Robin's own setting, changed from here. See lib/question-notify.ts: the volume of
+  // these is unpredictable, so the person receiving the mail controls it rather than
+  // asking for a code change.
+  const [notify, setNotify] = useState<QuestionNotifySetting | null>(null)
+  const [notifyDegraded, setNotifyDegraded] = useState(false)
+  const [notifyBusy, setNotifyBusy] = useState(false)
+  const [notifyNote, setNotifyNote] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,8 +60,45 @@ export default function QuestionsPage() {
         if (!cancelled) setLoading(false)
       }
     })()
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/question-notify')
+        const j = await res.json()
+        if (cancelled) return
+        setNotify(j?.setting ?? null)
+        setNotifyDegraded(Boolean(j?.degraded))
+      } catch {
+        if (!cancelled) setNotifyDegraded(true)
+      }
+    })()
     return () => { cancelled = true }
   }, [])
+
+  async function saveNotify(mode: QuestionNotifyMode) {
+    setNotifyBusy(true)
+    setNotifyNote(null)
+    try {
+      const res = await fetch('/api/admin/question-notify', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      })
+      const j = await res.json()
+      if (!res.ok || !j.ok) {
+        setNotifyNote(j.message || `Failed (${res.status})`)
+        return
+      }
+      // Show what the server read back, not what was clicked.
+      setNotify(j.setting)
+      setNotifyDegraded(false)
+      const chosen = QUESTION_NOTIFY_OPTIONS.find(o => o.mode === j.setting.mode)
+      setNotifyNote(j.warning ? `Saved, but: ${j.warning}` : `Saved: ${chosen?.label ?? j.setting.mode}`)
+    } catch (e) {
+      setNotifyNote(`Failed: ${(e as Error).message}`)
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
 
   const who = (r: DbQuestion) => {
     const b = r.bams
@@ -70,6 +119,58 @@ export default function QuestionsPage() {
             Everything BAMs have sent from the portal Support page. Reply by email to the
             address shown.
           </p>
+        </div>
+
+        {/* Robin sets this herself. It is the setting most likely to need changing once
+            real volume arrives, so it lives on the page where she reads the questions
+            rather than somewhere she has to be told about. */}
+        <div style={{
+          marginBottom: 20, padding: '14px 16px', borderRadius: 10,
+          border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(0,163,224,0.04)'
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 2 }}>
+            Email me about new questions
+          </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
+            Change this whenever you like. Questions are always saved here regardless.
+          </p>
+
+          {notifyDegraded && (
+            <p style={{ fontSize: 12, color: '#b45309', margin: '0 0 8px' }}>
+              We could not read your current setting, so this shows the default. Saving will fix it.
+            </p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {QUESTION_NOTIFY_OPTIONS.map(o => (
+              <label
+                key={o.mode}
+                style={{
+                  display: 'flex', gap: 8, alignItems: 'flex-start',
+                  cursor: notifyBusy ? 'wait' : 'pointer', fontWeight: 400
+                }}
+              >
+                <input
+                  type="radio"
+                  name="question-notify"
+                  checked={notify?.mode === o.mode}
+                  disabled={notifyBusy}
+                  onChange={() => saveNotify(o.mode)}
+                  style={{ width: 'auto', marginTop: 3 }}
+                />
+                <span style={{ fontSize: 13 }}>
+                  <strong>{o.label}</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: 11 }}>{o.detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {notifyNote && (
+            <p style={{ fontSize: 12, margin: '10px 0 0', color: notifyNote.startsWith('Saved') ? '#065f46' : '#991b1b' }}>
+              {notifyNote}
+            </p>
+          )}
         </div>
 
         {loading && <p className="muted">Loading…</p>}

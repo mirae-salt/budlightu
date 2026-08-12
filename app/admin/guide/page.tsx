@@ -856,7 +856,7 @@ function EmailsPanel() {
     { trigger: 'Receipt approved but below $140 (shortfall)', to: 'BAM', subject: 'Receipt shortfall notice for [month]', auto: true, note: 'Encourages uploading additional receipts before deadline.' },
     { trigger: 'Admin clicks "Flag & notify Robin" on dashboard', to: 'Robin', cc: 'Nathan', subject: 'Low-spend alert: [BAM] — [month]', auto: false, note: 'Warning #2+ triggers reevaluation notice.' },
     { trigger: 'Admin sends warning to BAM (from dashboard)', to: 'BAM', cc: 'Robin', subject: 'Spending reminder for [month]', auto: false, note: 'Friendly nudge about using the full $150 allowance.' },
-    { trigger: 'BAM submits a support question', to: 'Robin', subject: 'BLU Portal — Support question from [BAM]', auto: true },
+    { trigger: 'BAM submits a support question', to: 'Robin', subject: 'BLU Portal: support question from [BAM]', auto: true, note: 'YOU control how often: every question, once a day, or not at all. Set it on the Questions page.' },
     { trigger: 'Invoice sent to AP', to: 'AP', cc: 'Robin, Nathan, BAM', subject: 'Invoice [INV-XX#] for [BAM]', auto: false, note: 'Triggered by admin batch-approve. 1 PDF per email.' },
     { trigger: 'BAM requests invoice copy', to: 'BAM', subject: 'Your BLU invoice copy', auto: true, note: 'Self-service from portal. Only works after email is verified.' },
     { trigger: 'BAM invited to cohort', to: 'BAM', subject: 'Welcome to Bud Light U', auto: false, note: 'Contains one-time onboarding link. Triggered by admin import.' },
@@ -867,6 +867,24 @@ function EmailsPanel() {
       <p style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 20, color: 'var(--text)' }}>
         Every email the system can send, who receives it, and what triggers it.
       </p>
+
+      {/* Written here because a setting nobody knows about is the same as no setting.
+          The point is that Robin can change this without asking anyone. */}
+      <div className="info-box info-auto" style={{ marginBottom: 20 }}>
+        <strong>You can change these yourself</strong>
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+          <li>
+            <strong>Support question emails.</strong> On the <strong>Questions</strong> page,
+            pick every question, once a day, or none. Questions are always saved on that
+            page whatever you choose, so nothing is lost by turning the emails down.
+          </li>
+          <li>
+            <strong>Maintenance notice.</strong> On the <strong>Maintenance</strong> page,
+            show BAMs a banner or close the portal. Takes effect immediately, and an
+            open tab picks it up within a minute.
+          </li>
+        </ul>
+      </div>
 
       <div className="table-scroll" style={{ marginBottom: 24 }}>
         <table className="admin-table" style={{ fontSize: 13 }}>

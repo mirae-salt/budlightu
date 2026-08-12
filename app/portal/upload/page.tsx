@@ -3,6 +3,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 import { resolveBamId } from '@/lib/portal-bam'
 import { buildMonthOptions, type CohortWindow } from '@/lib/upload-months'
+import Link from 'next/link'
 
 const MAX_MB = 10
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
@@ -328,7 +329,21 @@ export default function UploadPage() {
           </button>
         </div>
 
-        {err && <p style={{ color: '#A31212', marginTop: 16 }}>{err}</p>}
+        {err && (
+          <div style={{ color: '#A31212', marginTop: 16 }}>
+            <p style={{ margin: 0 }}>{err}</p>
+            {/* The server tells a student to ask on the Support page when a month is
+                closed. Telling them where to go without taking them there just moves
+                the dead end one step along, so the link is rendered here. */}
+            {err.includes('Support page') && (
+              <p style={{ margin: '6px 0 0', fontSize: 13 }}>
+                <Link href="/portal/support" style={{ color: 'var(--bl-blue)', fontWeight: 600 }}>
+                  Ask about this on the Support page
+                </Link>
+              </p>
+            )}
+          </div>
+        )}
         {msg && <p style={{ color: 'var(--green)', marginTop: 16 }}>{msg}</p>}
 
         {/* Submitted receipts for this month */}

@@ -187,6 +187,52 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'Server is not configured.' }, { status: 503 })
   }
 
+  // A BANK CHANGE IS NOT AN ADMIN EDIT ONCE THE STUDENT HAS ONBOARDED.
+  //
+  // A deposit needs four things that have to agree: bank name, institution number,
+  // transit (branch) number and account number. The institution number is a property of
+  // the bank, so it can be derived. The TRANSIT and ACCOUNT cannot -- they are the
+  // student's branch and their account at it, and nobody else knows them.
+  //
+  // So changing bank_name here can only ever produce an impossible combination: RBC's
+  // institution 003 beside a TD branch and a TD account. An earlier version of this
+  // handler derived the institution number on a bank change, which made the PDF read
+  // consistently while leaving the money pointed somewhere that does not exist. That was
+  // worse than the mismatch it replaced, because it looked right.
+  //
+  // The correct path already exists and has the student supply all four with Robin
+  // confirming: /portal/account -> banking change request -> /admin/banking-requests.
+  // This refuses and says so, rather than half-doing it.
+  if ('bank_name' in update) {
+    const { data: existing, error: exErr } = await db
+      .from('bams').select('institution_no, transit_no, account_no, bank_name').eq('id', id).limit(1)
+    if (exErr) {
+      return NextResponse.json(
+        { ok: false, message: `Could not check the current banking details: ${exErr.message}` },
+        { status: 500 }
+      )
+    }
+    const row = (existing ?? [])[0] as
+      { institution_no: string | null; transit_no: string | null; account_no: string | null; bank_name: string | null } | undefined
+    const hasBanking = Boolean(row?.transit_no || row?.account_no)
+    const changing = (row?.bank_name ?? null) !== (update.bank_name ?? null)
+
+    if (hasBanking && changing) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message:
+            'A bank change cannot be made here. The transit (branch) and account numbers ' +
+            'belong to the old bank and only the BAM knows the new ones, so changing just ' +
+            'the bank name would point the deposit somewhere that does not exist. Ask them ' +
+            'to submit a banking change from their portal account, then approve it under ' +
+            'Banking changes.'
+        },
+        { status: 409 }
+      )
+    }
+  }
+
   // Read back the row so "saved" means the value is actually in the database
   // (ENGINEERING-RULES section 1). `.select()` also tells us whether any row
   // matched: an update that hits 0 rows is not a success.
@@ -220,17 +266,10 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
-  // Changing the bank has to move the institution number with it.
-  //
-  // The institution number is a property of the BANK, and it lives in an encrypted
-  // column that this UPDATE cannot touch. So changing bank_name here left the old
-  // bank's number in place: the invoice PDF would print "RBC Royal Bank" next to TD's
-  // 004, naming one bank and routing the deposit to another. Onboarding was fixed for
-  // the same defect; this was the remaining path.
-  //
-  // Transit and account are passed as null, which encrypt_bam_banking treats as "leave
-  // this column alone" -- so this cannot disturb the parts of the deposit that identify
-  // the student's actual account.
+  // Changing the bank keeps the institution number in step, but ONLY where there is no
+  // banking on file yet. See the guard earlier in this handler for why a bank change on
+  // an onboarded BAM is refused instead: the transit number is a branch only the student
+  // knows, so bank_name alone can never produce a deposit that works.
   const warnings: string[] = []
   if ('bank_name' in update) {
     const bank = update.bank_name ? lookupBank(String(update.bank_name)) : null

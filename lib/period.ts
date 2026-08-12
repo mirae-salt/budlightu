@@ -93,14 +93,14 @@ export function validatePeriod(
       return {
         ok: false,
         message: `${monthName} is closed. Its receipts were due on the ${DEADLINE_DAY}th. ` +
-          'Contact your program manager if you still need this one counted.'
+          'If there is a reason this one should still count, ask on the Support page.'
       }
     }
     if (idx === cur && isPastDeadline(now)) {
       return {
         ok: false,
         message: `${monthName}'s receipts closed on the ${DEADLINE_DAY}th. ` +
-          'Contact your program manager if you still need this one counted.'
+          'If there is a reason this one should still count, ask on the Support page.'
       }
     }
   }

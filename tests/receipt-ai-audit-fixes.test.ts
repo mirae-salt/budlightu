@@ -291,7 +291,10 @@ describe('P1-24: period validation', () => {
       // receipt would be charged to next month's $150 -- costing them the cap they were
       // trying to use, and reading as a rollover that does not exist.
       expect(r.message).not.toMatch(/next month/i)
-      expect(r.message).toMatch(/program manager/i)
+      // Points at the Support page, which the upload screen turns into a real link.
+      // "Contact your program manager" was a dead end: it named a person without giving
+      // the student anywhere to go.
+      expect(r.message).toMatch(/Support page/i)
     }
   })
 
