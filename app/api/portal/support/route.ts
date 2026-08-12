@@ -6,8 +6,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   QUESTION_NOTIFY_KEY,
   parseQuestionNotify,
-  shouldEmailOnArrival
+  recipientsForArrival
 } from '../../../../lib/question-notify'
+import { getRole, isAdminRole } from '../../../../lib/auth-claims'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
 import { sendEmail } from '../../../../lib/send-email'
@@ -118,12 +119,31 @@ export async function POST(req: NextRequest) {
   const notify = notifyErr
     ? null
     : parseQuestionNotify(((notifyRow ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
-  const emailNow = shouldEmailOnArrival(notify)
+
+  // EVERY admin who wants each question, not one hardcoded address.
+  //
+  // This used to mail `supportRecipient()`, a single address falling back to Robin, so
+  // Robin got every question and no other admin got any -- which is why Mirae never saw
+  // one. And the frequency setting was global, so one admin turning it down turned it
+  // down for everybody. Both are per-admin now.
+  const { data: adminList, error: adminErr } = await admin.auth.admin.listUsers({ perPage: 1000 })
+  if (adminErr) console.error('[portal/support] admin list unreadable:', adminErr.message)
+  const adminEmails = (adminList?.users ?? [])
+    .filter(u => isAdminRole(getRole(u)))
+    .map(u => (u.email ?? '').trim())
+    .filter(Boolean)
+
+  // Falling back to the old single recipient rather than to nobody: if the admin list
+  // cannot be read, a question still reaches a human.
+  const recipients = adminEmails.length > 0
+    ? recipientsForArrival(notify, adminEmails)
+    : [supportRecipient()]
+  const emailNow = recipients.length > 0
 
   // Email Robin. P1-12: the outcome is captured instead of swallowed by
   // `.catch(() => {})`, so a silent delivery failure is at least visible.
   const emailError: string | null = !emailNow ? null : await sendEmail({
-    to: supportRecipient(),
+    to: recipients,
     subject: `BLU support question from ${bamName}`,
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">

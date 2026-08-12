@@ -15,8 +15,9 @@ import { envAddressListOr } from './sanitize'
 import {
   QUESTION_NOTIFY_KEY,
   parseQuestionNotify,
-  shouldSendDigest
+  recipientsForDigest
 } from './question-notify'
+import { getRole, isAdminRole } from './auth-claims'
 import {
   hasAnythingToSend,
   digestSubject,
@@ -70,8 +71,9 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestResu
     })
   )
 
-  // Questions are only included when Robin asked for a daily summary. On 'each' the
-  // support route already mailed them; on 'off' she does not want them.
+  // Who gets this at all, and whether it carries questions, is per admin now: the
+  // setting used to be one shared value, so one person turning it down turned it down
+  // for everybody.
   const { data: notifyRow, error: notifyErr } = await db
     .from('policy').select('value_json').eq('key', QUESTION_NOTIFY_KEY).limit(1)
   if (notifyErr) console.error('[daily-digest] notify setting read failed:', notifyErr.message)
@@ -79,8 +81,17 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestResu
     ? null
     : parseQuestionNotify(((notifyRow ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
 
+  const { data: adminList, error: adminErr } = await db.auth.admin.listUsers({ perPage: 1000 })
+  if (adminErr) console.error('[daily-digest] admin list unreadable:', adminErr.message)
+  const adminEmails = (adminList?.users ?? [])
+    .filter((u: { app_metadata?: unknown }) => isAdminRole(getRole(u as never)))
+    .map((u: { email?: string | null }) => (u.email ?? '').trim())
+    .filter(Boolean)
+
+  const digestRecipients = recipientsForDigest(setting, adminEmails)
+
   let questions: DigestQuestion[] = []
-  if (shouldSendDigest(setting)) {
+  if (digestRecipients.length > 0) {
     // notified_at IS NULL is the marker, so this is idempotent without a cursor: a
     // second run today finds nothing, and a failed send leaves rows for tomorrow.
     const { data: qRows, error: qErr } = await db
@@ -111,7 +122,11 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestResu
     return { sent: false, reason: 'nothing waiting', questions: 0, pendingBanking: 0 }
   }
 
-  const to = envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com')
+  // Banking reminders still need a recipient even when nobody chose the daily digest for
+  // questions, so fall back to the AP CC list rather than dropping them.
+  const to = digestRecipients.length > 0
+    ? digestRecipients
+    : envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com')
   const result = await sendEmail({
     to,
     subject: digestSubject(input),

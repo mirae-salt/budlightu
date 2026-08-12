@@ -30,6 +30,11 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The server refuses the write when the institution number the BAM typed disagrees
+  // with our bank table, and asks instead. Their number wins if they confirm it: they are
+  // reading their own void cheque, and our table has been wrong before.
+  // See lib/institution-confirm.ts.
+  const [institutionAsk, setInstitutionAsk] = useState<{ message: string; submitted: string; ours: string } | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [done, setDone] = useState<string | null>(null)
 
@@ -123,14 +128,29 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
     setFieldErrors(errs)
     if (Object.keys(errs).length > 0) return
 
+    void submitOnboarding(false)
+  }
+
+  async function submitOnboarding(institutionConfirmed: boolean) {
     setBusy(true); setError(null)
+    if (institutionConfirmed) setInstitutionAsk(null)
     try {
       const resp = await fetch('/api/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invite_token: token, form: { ...form, email } })
+        body: JSON.stringify({
+          invite_token: token,
+          form: { ...form, email, institution_confirmed: institutionConfirmed }
+        })
       })
       const j = await resp.json()
+      if (j.needsInstitutionConfirm) {
+        // Not an error: a question. Nothing was saved, and re-submitting with the flag
+        // stores exactly what they typed.
+        setInstitutionAsk({ message: j.message, submitted: j.submittedInstitution, ours: j.ourInstitution })
+        setBusy(false)
+        return
+      }
       if (!resp.ok || !j.ok) { setError(j.message ?? 'Failed'); setBusy(false); return }
       setDone(j.message)
       setStep('done')

@@ -11,6 +11,7 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { validateInstitution, validateTransit, validateAccount, isValidHst } from '../../../../lib/validation'
 import { lookupBank } from '../../../../lib/banks'
 import { TERMS_VERSION } from '../../../../lib/terms'
+import { decideInstitution } from '../../../../lib/institution-confirm'
 
 export async function POST(req: NextRequest) {
   // Get the authenticated user from session
@@ -112,24 +113,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: `Update failed: ${updErr.message}` }, { status: 500 })
   }
 
-  // An institution number is a property of the BANK, not something a student knows,
-  // and validateInstitution only checks the SHAPE (three digits). A form saying
-  // "TD Canada Trust" with institution 703 used to be stored exactly as submitted,
-  // so the invoice PDF would name one bank and route the deposit to another. The
-  // lookup table is the authority (lib/banks.ts). The banking-CHANGE path handles
-  // this differently on purpose: there an admin reviews the mismatch before it
-  // takes effect, and here nobody does.
-  if (form.institution_no !== bank.institutionNo) {
+  // WHOSE NUMBER WINS: theirs. See lib/institution-confirm.ts.
+  //
+  // An earlier version today stored our table's value and discarded what the student
+  // typed. That routes their money by our mistake whenever the table is wrong, and hides
+  // it. A disagreement now stops the write and asks them once; if they confirm, we store
+  // exactly what they typed.
+  const decision = decideInstitution({
+    bankName: bank.displayName,
+    submitted: form.institution_no,
+    // Same place as onboarding-ingest expects it, so the form sends one shape to both.
+    confirmed: form?.institution_confirmed === true
+  })
+  if (decision.kind === 'confirm') {
     console.warn(
-      `[onboarding/complete] institution number for "${bank.displayName}" was submitted as ` +
-      `${JSON.stringify(form.institution_no)}; storing ${bank.institutionNo} from the bank lookup instead.`
+      `[onboarding/complete] institution mismatch for "${decision.bankName}": ` +
+      `submitted ${decision.submitted}, table has ${decision.ours}. Asking the student.`
+    )
+    // Nothing has been written yet: the profile update is below.
+    return NextResponse.json(
+      {
+        ok: false,
+        needsInstitutionConfirm: true,
+        submittedInstitution: decision.submitted,
+        ourInstitution: decision.ours,
+        message: decision.message
+      },
+      { status: 409 }
     )
   }
 
   // Encrypt banking fields
   const { error: encErr } = await db.rpc('encrypt_bam_banking', {
     p_bam_id: bam.id,
-    p_institution_no: bank.institutionNo,
+    p_institution_no: decision.institutionNo,
     p_transit_no:     form.transit_no,
     p_account_no:     form.account_no,
     p_hst_number:     form.hst_number ?? null

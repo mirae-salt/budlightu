@@ -18,9 +18,11 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import {
   QUESTION_NOTIFY_KEY,
-  QUESTION_NOTIFY_DEFAULT,
   parseQuestionNotify,
-  validateQuestionNotify
+  validateQuestionNotify,
+  modeFor,
+  hasOwnSetting,
+  withModeFor
 } from '../../../../lib/question-notify'
 
 export async function GET() {
@@ -39,20 +41,26 @@ export async function GET() {
 
   if (error) {
     console.error('[question-notify GET] read failed:', error.message)
-    // Report the default AND that it could not be read, so the page does not show a
-    // confident setting it never loaded.
+    // Report a value AND that it could not be read, so the page does not show a confident
+    // setting it never loaded.
     return NextResponse.json({
       ok: true,
-      setting: QUESTION_NOTIFY_DEFAULT,
+      setting: { mode: 'each' },
+      isOwn: false,
       degraded: true,
       message: error.message
     })
   }
 
   const row = (data ?? [])[0] as { value_json?: unknown } | undefined
+  const settings = parseQuestionNotify(row?.value_json)
+
+  // THIS ADMIN's mode, not a shared one. The page used to show and write a single global
+  // value, so one admin changing it silently changed everyone's.
   return NextResponse.json({
     ok: true,
-    setting: parseQuestionNotify(row?.value_json),
+    setting: { mode: modeFor(settings, auth.email) },
+    isOwn: hasOwnSetting(settings, auth.email),
     degraded: false
   })
 }
@@ -80,12 +88,27 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'Server is not configured.' }, { status: 503 })
   }
 
+  // Read first, then apply this admin's choice on top. Writing the whole object without
+  // reading it would wipe the other admins' entries, which is the bug this replaced in a
+  // different form.
+  const { data: current, error: readErr } = await db
+    .from('policy').select('value_json').eq('key', QUESTION_NOTIFY_KEY).limit(1)
+  if (readErr) {
+    console.error('[question-notify PUT] read-before-write failed:', readErr.message)
+    return NextResponse.json(
+      { ok: false, message: `Could not read the current settings, so nothing was changed: ${readErr.message}` },
+      { status: 500 }
+    )
+  }
+  const existing = parseQuestionNotify(((current ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
+  const next = withModeFor(existing, auth.email, parsed.mode)
+
   const { data: saved, error } = await db
     .from('policy')
     .upsert(
       {
         key: QUESTION_NOTIFY_KEY,
-        value_json: parsed.value,
+        value_json: next,
         updated_at: new Date().toISOString(),
         updated_by: auth.devBypass ? null : auth.userId
       },
@@ -104,14 +127,27 @@ export async function PUT(req: NextRequest) {
   // Read back. Telling Robin she turned emails off when she did not means she stops
   // watching her inbox for questions that are still only arriving there.
   const stored = parseQuestionNotify(((saved ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
-  if (stored.mode !== parsed.value.mode) {
+  const storedMine = modeFor(stored, auth.email)
+  if (storedMine !== parsed.mode) {
     console.error(
-      `[question-notify PUT] read-back mismatch: wanted ${parsed.value.mode}, stored ${stored.mode}`
+      `[question-notify PUT] read-back mismatch for ${auth.email}: wanted ${parsed.mode}, stored ${storedMine}`
     )
     return NextResponse.json(
       { ok: false, message: 'The setting did not save. Reload the page to see what is actually stored.' },
       { status: 500 }
     )
+  }
+  // Nobody else's entry may have moved. Checked rather than assumed, because this is the
+  // exact failure being fixed.
+  for (const [email, mode] of Object.entries(existing.byEmail)) {
+    if (email === (auth.email ?? '').trim().toLowerCase()) continue
+    if (stored.byEmail[email] !== mode) {
+      console.error(`[question-notify PUT] would have changed ${email} from ${mode} to ${stored.byEmail[email]}`)
+      return NextResponse.json(
+        { ok: false, message: 'That change would have altered another admin setting, so it was rejected. Tell Mirae.' },
+        { status: 500 }
+      )
+    }
   }
 
   const { error: auditErr } = await db.from('audit_log').insert({
@@ -120,16 +156,16 @@ export async function PUT(req: NextRequest) {
     entity: 'policy',
     entity_id: null,
     action: 'question_notify_changed',
-    after_json: { key: QUESTION_NOTIFY_KEY, mode: stored.mode }
+    after_json: { key: QUESTION_NOTIFY_KEY, admin: auth.email, mode: storedMine }
   })
   if (auditErr) {
     console.error('[question-notify PUT] audit_log insert failed:', auditErr.message)
     return NextResponse.json({
       ok: true,
-      setting: stored,
+      setting: { mode: storedMine },
       warning: 'The setting was saved, but the audit log entry could not be written.'
     })
   }
 
-  return NextResponse.json({ ok: true, setting: stored })
+  return NextResponse.json({ ok: true, setting: { mode: storedMine } })
 }

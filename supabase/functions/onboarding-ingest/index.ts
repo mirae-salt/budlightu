@@ -31,6 +31,7 @@ import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 // until someone edited one, at which point acceptances of the same wording would carry
 // different versions and there would be no way to tell which text was accepted.
 import { TERMS_VERSION } from '../../../lib/terms'
+import { decideInstitution } from '../../../lib/institution-confirm'
 
 type FormPayload = {
   email: string
@@ -49,13 +50,26 @@ type FormPayload = {
   hst_number?: string
   consent_ap_cc: boolean
   consent_terms?: boolean
+  /**
+   * Set by the form after the student has been shown that their institution number
+   * disagrees with our table and has said to use theirs. See lib/institution-confirm.ts.
+   */
+  institution_confirmed?: boolean
 }
 
 export async function handler(req: {
   invite_token: string
   form: FormPayload
   ip: string
-}): Promise<{ ok: boolean; message: string; bam_id?: string }> {
+}): Promise<{
+  ok: boolean
+  message: string
+  bam_id?: string
+  /** Set when the institution number disagrees with our table and we are asking. */
+  needsInstitutionConfirm?: boolean
+  submittedInstitution?: string
+  ourInstitution?: string
+}> {
   const db = serviceClient()
 
   // ── 1. Rate limit (3 per IP per day, P0-3) ────────────────────
@@ -157,20 +171,32 @@ export async function handler(req: {
 
   // An institution number is a property of the BANK, not something a student knows.
   // validateInstitution above only checks the SHAPE (three digits), so a form that
-  // said "TD Canada Trust" with institution 703 was stored exactly as submitted: the
-  // invoice PDF would then name one bank and route the deposit to another. The
-  // lookup table is the authority (lib/banks.ts), so the stored value comes from it.
+  // WHOSE NUMBER WINS: theirs. See lib/institution-confirm.ts for why.
   //
-  // The submitted value is not silently discarded — a disagreement is logged, since
-  // a student consistently typing the same "wrong" number is more likely to mean the
-  // lookup is wrong for their bank than that they mistyped it.
-  const institutionNo = bank.institutionNo
-  if (req.form.institution_no !== institutionNo) {
+  // An earlier version today discarded what the student typed and stored our table's
+  // value instead, warning only to a console log. That routes a student's money by our
+  // mistake whenever our table is wrong -- which it has been twice -- and hides the
+  // mistake at the same time. Now a disagreement stops the write and asks them, once.
+  const decision = decideInstitution({
+    bankName: bank.displayName,
+    submitted: req.form.institution_no,
+    confirmed: req.form.institution_confirmed === true
+  })
+  if (decision.kind === 'confirm') {
     console.warn(
-      `[onboarding-ingest] institution number for "${bank.displayName}" was submitted as ` +
-      `${JSON.stringify(req.form.institution_no)}; storing ${institutionNo} from the bank lookup instead.`
+      `[onboarding-ingest] institution mismatch for "${decision.bankName}": ` +
+      `submitted ${decision.submitted}, table has ${decision.ours}. Asking the student.`
     )
+    // NOTHING has been written at this point: the auth user is created below.
+    return {
+      ok: false,
+      needsInstitutionConfirm: true,
+      submittedInstitution: decision.submitted,
+      ourInstitution: decision.ours,
+      message: decision.message
+    }
   }
+  const institutionNo = decision.institutionNo
 
   // ── 5. Create Supabase Auth user ──────────────────────────────
   // email_confirm: true — we already verified the email matches the roster

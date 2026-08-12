@@ -19,8 +19,7 @@ import { useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import {
   QUESTION_NOTIFY_OPTIONS,
-  type QuestionNotifyMode,
-  type QuestionNotifySetting
+  type QuestionNotifyMode
 } from '@/lib/question-notify'
 
 type DbQuestion = {
@@ -36,7 +35,7 @@ export default function QuestionsPage() {
   // Robin's own setting, changed from here. See lib/question-notify.ts: the volume of
   // these is unpredictable, so the person receiving the mail controls it rather than
   // asking for a code change.
-  const [notify, setNotify] = useState<QuestionNotifySetting | null>(null)
+  const [notify, setNotify] = useState<{ mode: QuestionNotifyMode } | null>(null)
   const [notifyDegraded, setNotifyDegraded] = useState(false)
   const [notifyBusy, setNotifyBusy] = useState(false)
   const [notifyNote, setNotifyNote] = useState<string | null>(null)

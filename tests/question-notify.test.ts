@@ -1,74 +1,126 @@
 /**
- * How often Robin hears about support questions is HER setting.
+ * How often each admin hears about support questions.
  *
- * The support route emailed on every question, which is right at three a month and wrong
- * during onboarding week with 58 BAMs. The number nobody can predict is exactly the one
- * the recipient should control without asking for a code change.
+ * PER ADMIN. It started as one shared setting, which meant Mirae choosing "once a day"
+ * silently changed Robin's and Nathan's too: one person turning off another person's
+ * alerts about a student waiting for an answer. Caught 2026-08-12 while it was live.
  *
- * The load-bearing case here is the failure direction. This fails LOUD where maintenance
- * mode fails quiet: an unreadable setting still sends the email, because an extra email
- * is cheap and a student's question sitting unanswered is not.
+ * The other load-bearing case is the failure direction. This fails LOUD where maintenance
+ * mode fails quiet: an unreadable setting still sends, because an extra email is cheap and
+ * a student's question sitting unanswered is not.
  */
 import { describe, it, expect } from 'vitest'
 import {
   parseQuestionNotify,
   validateQuestionNotify,
-  shouldEmailOnArrival,
-  shouldSendDigest,
+  modeFor,
+  hasOwnSetting,
+  withModeFor,
+  recipientsForArrival,
+  recipientsForDigest,
   QUESTION_NOTIFY_DEFAULT,
   QUESTION_NOTIFY_OPTIONS
 } from '../lib/question-notify'
 
-describe('shouldEmailOnArrival', () => {
-  it('sends when the setting cannot be read', () => {
-    // The opposite of how maintenance mode fails, on purpose.
-    expect(shouldEmailOnArrival(null)).toBe(true)
+const ADMINS = ['robin.graham@ilovesalt.com', 'nb@ilovesalt.com', 'mirae.lee@ilovesalt.com']
+
+describe('one admin changing their setting leaves the others alone', () => {
+  it('withModeFor touches only that email', () => {
+    // The actual bug: a global value meant one radio button changed everyone.
+    const before = { default: 'each' as const, byEmail: { 'robin.graham@ilovesalt.com': 'daily' as const } }
+    const after = withModeFor(before, 'mirae.lee@ilovesalt.com', 'off')
+
+    expect(modeFor(after, 'mirae.lee@ilovesalt.com')).toBe('off')
+    expect(modeFor(after, 'robin.graham@ilovesalt.com')).toBe('daily')
+    expect(modeFor(after, 'nb@ilovesalt.com')).toBe('each')
   })
 
-  it('sends on every question when set to each', () => {
-    expect(shouldEmailOnArrival({ mode: 'each' })).toBe(true)
+  it('does not mutate the object it was given', () => {
+    const before = { default: 'each' as const, byEmail: { 'a@x.com': 'daily' as const } }
+    withModeFor(before, 'b@x.com', 'off')
+    expect(before.byEmail).toEqual({ 'a@x.com': 'daily' })
   })
 
-  it('does NOT send on arrival when set to daily', () => {
-    expect(shouldEmailOnArrival({ mode: 'daily' })).toBe(false)
-  })
-
-  it('does not send when set to off', () => {
-    expect(shouldEmailOnArrival({ mode: 'off' })).toBe(false)
+  it('is case-insensitive about the email, so one person cannot get two entries', () => {
+    const s = withModeFor(QUESTION_NOTIFY_DEFAULT, 'Robin.Graham@ILoveSalt.com', 'off')
+    expect(modeFor(s, 'robin.graham@ilovesalt.com')).toBe('off')
+    expect(Object.keys(s.byEmail)).toHaveLength(1)
   })
 })
 
-describe('shouldSendDigest', () => {
-  it('only for daily', () => {
-    expect(shouldSendDigest({ mode: 'daily' })).toBe(true)
-    expect(shouldSendDigest({ mode: 'each' })).toBe(false)
-    expect(shouldSendDigest({ mode: 'off' })).toBe(false)
-    expect(shouldSendDigest(null)).toBe(false)
+describe('modeFor', () => {
+  it('falls back to the default when the admin has no entry', () => {
+    expect(modeFor({ default: 'daily', byEmail: {} }, 'anyone@x.com')).toBe('daily')
   })
 
-  it('daily is the only mode that both defers arrival mail AND digests', () => {
-    // If these two ever disagree, a question is either double-sent or silently dropped.
-    for (const o of QUESTION_NOTIFY_OPTIONS) {
-      const arrival = shouldEmailOnArrival({ mode: o.mode })
-      const digest = shouldSendDigest({ mode: o.mode })
-      expect(arrival && digest).toBe(false)
+  it('treats unreadable settings as each', () => {
+    expect(modeFor(null, 'anyone@x.com')).toBe('each')
+  })
+
+  it('hasOwnSetting distinguishes a choice from an inherited default', () => {
+    const s = { default: 'each' as const, byEmail: { 'a@x.com': 'each' as const } }
+    expect(hasOwnSetting(s, 'a@x.com')).toBe(true)
+    expect(hasOwnSetting(s, 'b@x.com')).toBe(false)
+  })
+})
+
+describe('recipients', () => {
+  const settings = {
+    default: 'each' as const,
+    byEmail: {
+      'robin.graham@ilovesalt.com': 'daily' as const,
+      'nb@ilovesalt.com': 'off' as const
     }
+  }
+
+  it('arrival mail goes only to those on each', () => {
+    expect(recipientsForArrival(settings, ADMINS)).toEqual(['mirae.lee@ilovesalt.com'])
+  })
+
+  it('the digest goes only to those on daily', () => {
+    expect(recipientsForDigest(settings, ADMINS)).toEqual(['robin.graham@ilovesalt.com'])
+  })
+
+  it('nobody is on both lists, so a question is never double-sent or dropped', () => {
+    for (const mode of ['each', 'daily', 'off'] as const) {
+      const s = { default: mode, byEmail: {} }
+      const a = recipientsForArrival(s, ADMINS)
+      const d = recipientsForDigest(s, ADMINS)
+      expect(a.filter(x => d.includes(x))).toEqual([])
+    }
+  })
+
+  it('unreadable settings mail EVERY admin rather than nobody', () => {
+    // Fail loud. The opposite of maintenance mode, on purpose.
+    expect(recipientsForArrival(null, ADMINS)).toEqual(ADMINS)
+    expect(recipientsForDigest(null, ADMINS)).toEqual([])
   })
 })
 
 describe('parseQuestionNotify', () => {
-  it('reads the three real modes', () => {
-    expect(parseQuestionNotify({ mode: 'each' }).mode).toBe('each')
-    expect(parseQuestionNotify({ mode: 'daily' }).mode).toBe('daily')
-    expect(parseQuestionNotify({ mode: 'off' }).mode).toBe('off')
+  it('reads the per-admin shape and lowercases the keys', () => {
+    const s = parseQuestionNotify({ default: 'off', byEmail: { 'A@x.com': 'daily' } })
+    expect(s.default).toBe('off')
+    expect(s.byEmail).toEqual({ 'a@x.com': 'daily' })
   })
 
-  it('falls back to each, not off, on anything unrecognised', () => {
-    // A malformed row must not quietly stop questions from reaching anyone.
-    for (const junk of [null, undefined, 'each', { mode: 'hourly' }, { mode: true }, [{ mode: 'off' }], {}]) {
-      expect(parseQuestionNotify(junk)).toEqual(QUESTION_NOTIFY_DEFAULT)
+  it('reads the OLD single-mode shape as the default', () => {
+    // The row written before this was per-admin. Reading it as 'each' instead would have
+    // silently turned everyone's emails back on.
+    const s = parseQuestionNotify({ mode: 'daily' })
+    expect(s.default).toBe('daily')
+    expect(s.byEmail).toEqual({})
+  })
+
+  it('drops a junk entry instead of failing the whole row', () => {
+    const s = parseQuestionNotify({ default: 'each', byEmail: { 'a@x.com': 'hourly', 'b@x.com': 'off' } })
+    expect(s.byEmail).toEqual({ 'b@x.com': 'off' })
+  })
+
+  it('falls back to each, never off, on anything unrecognised', () => {
+    for (const junk of [null, undefined, 'each', [{ mode: 'off' }], { default: 'weekly' }]) {
+      expect(parseQuestionNotify(junk).default).toBe('each')
     }
-    expect(QUESTION_NOTIFY_DEFAULT.mode).toBe('each')
   })
 })
 
@@ -77,13 +129,11 @@ describe('validateQuestionNotify', () => {
     for (const mode of ['each', 'daily', 'off'] as const) {
       const r = validateQuestionNotify({ mode })
       expect(r.ok).toBe(true)
-      if (r.ok) expect(r.value.mode).toBe(mode)
+      if (r.ok) expect(r.mode).toBe(mode)
     }
   })
 
   it('refuses anything else rather than defaulting', () => {
-    // On the write path an unknown value is the admin's mistake, so say so. The read
-    // path falls back instead, because a stored bad value must not break the page.
     for (const junk of [{}, { mode: 'weekly' }, { mode: null }, null, 'off']) {
       expect(validateQuestionNotify(junk).ok).toBe(false)
     }
@@ -91,13 +141,12 @@ describe('validateQuestionNotify', () => {
 })
 
 describe('the options offered match the modes handled', () => {
-  it('every option is a mode the logic knows', () => {
+  it('every option validates, and each says what it costs', () => {
     expect(QUESTION_NOTIFY_OPTIONS.map(o => o.mode).sort()).toEqual(['daily', 'each', 'off'])
     for (const o of QUESTION_NOTIFY_OPTIONS) {
       expect(validateQuestionNotify({ mode: o.mode }).ok).toBe(true)
-      expect(o.label.length).toBeGreaterThan(0)
-      // Each option says what it costs. "No emails" without "nothing will prompt you to
-      // look" is a setting someone turns on and then forgets.
+      // "No emails" without "nothing will prompt you to look" is a setting someone turns
+      // on and then forgets.
       expect(o.detail.length).toBeGreaterThan(0)
     }
   })
