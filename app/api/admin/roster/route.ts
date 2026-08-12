@@ -30,6 +30,7 @@ import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
 import { parseBankName, parseSchoolId, parseCohortId } from '../../../../lib/admin-input'
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
+import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
 
 const ALLOWED_FIELDS = [
@@ -271,6 +272,10 @@ export async function POST(req: NextRequest) {
   if (!bank.ok) return NextResponse.json({ ok: false, message: bank.error }, { status: 400 })
 
   const isTest = fields.is_test === true
+  // Defaults to TRUE when the caller says nothing: the expectation for adding a BAM
+  // is that they get invited, and the CSV import already behaves that way. An
+  // explicit `false` opts out.
+  const sendInvite = fields.send_invite !== false
 
   let db
   try {
@@ -357,6 +362,56 @@ export async function POST(req: NextRequest) {
     warnings.push('The BAM was added but their invoice initials could not be assigned yet.')
   }
 
+  // Send the invite, if asked. LAST, and only after the row exists and its stored
+  // email has been read back and matched -- emailing an address we have not confirmed
+  // we stored is how an invite goes to a typo.
+  //
+  // Adding a BAM used to send nothing while the CSV import sent automatically, with
+  // no hint of the difference on screen, so an admin who added one person by hand
+  // waited for an email that was never coming. It defaults to on in the UI because
+  // that is what the workflow expects, and it is a checkbox because sending mail is
+  // an outward action an admin should be able to decline.
+  //
+  // An email failure never undoes the row: the row is correct and already verified.
+  // It is reported instead, with the link, so the admin can pass it on by hand.
+  let inviteInfo: Record<string, unknown> = { invite_requested: sendInvite }
+  if (sendInvite) {
+    const invite = await sendBamInvite(db, {
+      id: bam.id,
+      email: parsedEmail.email,
+      first_name: firstName,
+      status: 'pending'
+    })
+    if (!invite.ok) {
+      console.error('[roster POST] invite failed for', bam.id, invite.message)
+      warnings.push(invite.message)
+      inviteInfo = { ...inviteInfo, email_sent: false, email_error: invite.message }
+    } else {
+      inviteInfo = {
+        ...inviteInfo,
+        invite_url: invite.inviteUrl,
+        email_sent: invite.emailSent,
+        email_provider: invite.emailProvider,
+        email_error: invite.emailError
+      }
+      if (!invite.emailSent) {
+        warnings.push(
+          `The BAM was added but the invite email did not send (${invite.emailError ?? 'no reason given'}). ` +
+          'Copy the invite link and send it to them yourself.'
+        )
+      }
+      const { error: invAuditErr } = await db.from('audit_log').insert({
+        actor_id: auth.devBypass ? null : auth.userId,
+        actor_role: auth.role,
+        entity: 'bams',
+        entity_id: bam.id,
+        action: 'invite_sent',
+        after_json: { email: parsedEmail.email, provider: invite.emailProvider, sent: invite.emailSent }
+      })
+      if (invAuditErr) console.error('[roster POST] invite audit insert failed:', invAuditErr.message)
+    }
+  }
+
   const { error: auditErr } = await db.from('audit_log').insert({
     actor_id: auth.devBypass ? null : auth.userId,
     actor_role: auth.role,
@@ -368,7 +423,8 @@ export async function POST(req: NextRequest) {
       cohort_id: cohort.value,
       status: 'pending',
       is_test: isTest,
-      initials_resolved: initials.ok ? initials.initials : null
+      initials_resolved: initials.ok ? initials.initials : null,
+      ...inviteInfo
     }
   })
   if (auditErr) {
@@ -380,6 +436,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     bam,
     cohort_name: (cohortRows[0] as { name: string }).name,
+    ...inviteInfo,
     ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {})
   })
 }

@@ -177,7 +177,7 @@ export default function Roster() {
   const [inviting, setInviting] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
-  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false })
+  const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false, sendInvite: true })
   // Cohorts are held as {id, name}: the API writes cohort_id, so a name-only
   // list cannot be saved. Empty means "no cohorts in the database", and the
   // selects say so rather than offering an option that cannot be stored.
@@ -327,7 +327,8 @@ export default function Roster() {
           email: addForm.email,
           cohort_id: addForm.cohortId,
           school_id: addForm.school.trim() || null,
-          is_test: addForm.isTest
+          is_test: addForm.isTest,
+          send_invite: addForm.sendInvite
         })
       })
       const j = await resp.json()
@@ -351,11 +352,20 @@ export default function Roster() {
           setUseDb(true)
         }
       }
-      setAddForm({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false })
+      setAddForm({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false, sendInvite: true })
       setAdding(false)
-      report(j.warning ? 'error' : 'ok', j.warning
-        ? `Added ${saved.email}, with a problem: ${j.warning}`
-        : `Added ${saved.email}. Send them an invite from Edit when you are ready.`)
+      // Say what happened to the EMAIL, not just to the row. The old message told the
+      // admin to send an invite from Edit even when one had just gone out, and the
+      // route's warning about a failed send was the only clue either way.
+      if (j.warning) {
+        report('error', `Added ${saved.email}, but: ${j.warning}`)
+      } else if (j.invite_requested && j.email_sent) {
+        report('ok', `Added ${saved.email} and emailed their invite (${j.email_provider}).`)
+      } else if (j.invite_requested) {
+        report('error', `Added ${saved.email} but the invite email did not send. Use Edit to retry.`)
+      } else {
+        report('ok', `Added ${saved.email}. No invite sent -- use Send Invite in Edit when you are ready.`)
+      }
     } catch (e) {
       report('error', `Not added: ${(e as Error).message}`)
     } finally {
@@ -674,6 +684,14 @@ export default function Roster() {
                 )}
               </div>
             </div>
+            {/* Defaults to on: adding a BAM is normally the moment you invite them, and
+                the CSV import already sends automatically. It stays a checkbox because
+                sending mail is an outward action an admin should be able to decline. */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', margin: '4px 0 0' }}>
+              <input type="checkbox" checked={addForm.sendInvite} onChange={e => setAddForm(f => ({ ...f, sendInvite: e.target.checked }))} />
+              Email them the invite now
+              <span style={{ fontSize: 11, color: 'var(--midgray)' }}>-- uncheck to add the row only</span>
+            </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', margin: '4px 0 8px' }}>
               <input type="checkbox" checked={addForm.isTest} onChange={e => setAddForm(f => ({ ...f, isTest: e.target.checked }))} />
               Test account
@@ -684,7 +702,7 @@ export default function Roster() {
                 onClick={addBam}
                 disabled={saving || !addForm.firstName.trim() || !addForm.email.trim() || !addForm.cohortId}
               >
-                {saving ? 'Adding...' : 'Add to roster'}
+                {saving ? 'Adding...' : (addForm.sendInvite ? 'Add and send invite' : 'Add to roster')}
               </button>
               <button className="btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
             </div>
