@@ -42,11 +42,10 @@ export async function GET() {
     : parseReminderSettings(((data ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
   if (error) console.error('[student-reminders GET] read failed:', error.message)
 
-  // Realistic numbers rather than round ones: $150/$150 or $0/$150 both hide what the middle
-  // of the range reads like, which is the case Robin is actually approving.
+  // Five days out, which is the 10th. Everyone who gets this has submitted nothing, so there
+  // are no spend figures to make realistic.
   const preview = reminderEmail({
     firstName: 'Alex',
-    spent: 62.4,
     cap: 150,
     daysLeft: 5,
     monthLabel: 'September 2026',

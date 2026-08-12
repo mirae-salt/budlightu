@@ -90,7 +90,7 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
 
   const { data: bamRows, error: bamErr } = await db
     .from('bams')
-    .select('id, first_name, email, status, is_test, cohort_id')
+    .select('id, first_name, email, status, is_test, cohort_id, wants_reminders')
     .eq('status', 'active')
   if (bamErr) {
     console.error('[student-reminders] roster read failed:', bamErr.message)
@@ -99,27 +99,47 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
   const bams = (bamRows ?? []) as Array<{
     id: string; first_name: string; email: string | null
     status: string; is_test: boolean | null; cohort_id: string | null
+    wants_reminders: boolean | null
   }>
 
-  // Spend so far this period, and the cap. The ledger is the source of truth for both; a BAM
-  // with no ledger row for this period has spent nothing yet.
+  // WHO HAS UPLOADED ANYTHING, not how much they spent. The rule is "submitted nothing"
+  // (lib/student-reminders.ts), so one receipt of any value takes somebody off this list.
+  //
+  // Every status counts, including rejected and ocr_failed. Someone whose receipt failed OCR
+  // has done their part, and telling them "we have not received any from you" would be false.
+  const { data: receiptRows, error: recErr } = await db
+    .from('receipts')
+    .select('bam_id')
+    .eq('period', period)
+  if (recErr) {
+    console.error('[student-reminders] receipts read failed:', recErr.message)
+    return {
+      ran: false, mode: settings.mode,
+      note: `could not read this month's receipts, so nothing was sent: ${recErr.message}`,
+      ...empty
+    }
+  }
+  const receiptCounts = new Map<string, number>()
+  for (const r of (receiptRows ?? []) as Array<{ bam_id: string | null }>) {
+    if (!r.bam_id) continue
+    receiptCounts.set(r.bam_id, (receiptCounts.get(r.bam_id) ?? 0) + 1)
+  }
+
+  // The cap goes in the email. A missing ledger row means the month has not been calculated
+  // yet, which is normal on the 10th, so it falls back to the standard entitlement.
   const { data: ledgerRows, error: ledErr } = await db
     .from('reimbursement_ledger')
-    .select('bam_id, spent_cad, spendable_cap_cad, entitlement_cad')
+    .select('bam_id, spendable_cap_cad, entitlement_cad')
     .eq('period', period)
   if (ledErr) {
     console.error('[student-reminders] ledger read failed:', ledErr.message)
     return { ran: false, mode: settings.mode, note: `ledger unreadable: ${ledErr.message}`, ...empty }
   }
-  const ledger = new Map<string, { spent: number; cap: number }>()
+  const caps = new Map<string, number>()
   for (const r of (ledgerRows ?? []) as Array<{
-    bam_id: string; spent_cad: number | null
-    spendable_cap_cad: number | null; entitlement_cad: number | null
+    bam_id: string; spendable_cap_cad: number | null; entitlement_cad: number | null
   }>) {
-    ledger.set(r.bam_id, {
-      spent: Number(r.spent_cad ?? 0),
-      cap: Number(r.spendable_cap_cad ?? r.entitlement_cad ?? 150)
-    })
+    caps.set(r.bam_id, Number(r.spendable_cap_cad ?? r.entitlement_cad ?? 150))
   }
 
   // Who was already reminded for this period. Checked here so the common case does not rely
@@ -148,15 +168,17 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
   const label = monthLabel(period)
 
   for (const b of bams) {
-    const l = ledger.get(b.id)
     const candidate: ReminderCandidate = {
       bamId: b.id,
       firstName: b.first_name,
       email: b.email,
-      spent: l?.spent ?? 0,
-      cap: l?.cap ?? 150,
+      receiptCount: receiptCounts.get(b.id) ?? 0,
+      cap: caps.get(b.id) ?? 150,
       isTest: Boolean(b.is_test),
-      status: b.status
+      status: b.status,
+      // A null means the column defaulted, which is opted IN. Only an explicit false excludes
+      // somebody, so a student who never touched the setting still hears from us.
+      wantsReminders: b.wants_reminders !== false
     }
 
     const plan = planReminder({
@@ -174,7 +196,7 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
       cohort_id: b.cohort_id,
       period,
       kind: 'deadline',
-      spent_cad: candidate.spent,
+      spent_cad: 0,
       cap_cad: candidate.cap,
       mode: settings.mode
     })
@@ -193,7 +215,6 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
 
     const mail = reminderEmail({
       firstName: candidate.firstName,
-      spent: candidate.spent,
       cap: candidate.cap,
       daysLeft: plan.daysLeft,
       monthLabel: label,

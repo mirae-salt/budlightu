@@ -364,9 +364,10 @@ export default function ReceiptsQueue() {
           someone would look for it. See _components/QueueLink.tsx. */}
       <QueueLink
         href="/admin/unmatched"
+        title="Unmatched receipts"
         countKey="unmatched"
-        labelSome={n => `${n} receipt${n === 1 ? '' : 's'} could not be matched to a BAM`}
-        labelNone="All receipts are matched to a BAM. View unmatched history"
+        labelSome={n => `${n} could not be matched to a BAM`}
+        labelNone="none right now"
       />
 
       <div className="surface">

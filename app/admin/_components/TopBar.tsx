@@ -28,11 +28,56 @@ const TYPE_ICONS: Record<string, string> = {
   banking_change_request: '🏦',
 }
 
+/**
+ * Where the notification panel goes.
+ *
+ * It used to be `top: button.bottom + 8` and nothing else, which was fine while the bell sat
+ * beside the logo at the top of the sidebar. The bell moved down next to the log out button on
+ * 2026-08-12, and a 480px panel opening downward from there runs straight off the bottom of
+ * the window: the notifications were rendered and unreadable.
+ *
+ * So it opens whichever way there is room, and never taller than the space it has. Also
+ * clamped horizontally, because a fixed 380px panel is wider than a phone.
+ */
+const PANEL_GAP = 8
+const PANEL_WIDTH = 380
+const PANEL_MAX_HEIGHT = 480
+/** Below this a panel is too short to be worth opening downward into. */
+const PANEL_MIN_HEIGHT = 200
+
+export function placePanel(
+  r: { top: number; bottom: number; left: number },
+  viewport: { width: number; height: number } =
+    typeof window === 'undefined' ? { width: 1280, height: 800 } : { width: window.innerWidth, height: window.innerHeight }
+): { top: number; left: number; width: number; maxHeight: number } {
+  const spaceBelow = viewport.height - r.bottom - PANEL_GAP * 2
+  const spaceAbove = r.top - PANEL_GAP * 2
+
+  // Prefer downward, which is what people expect. Flip up only when down genuinely does not
+  // work AND up is better, so a cramped window does not flip back and forth.
+  const openDown = spaceBelow >= PANEL_MIN_HEIGHT || spaceBelow >= spaceAbove
+
+  const available = openDown ? spaceBelow : spaceAbove
+  // Never below the minimum: at that point the panel scrolls internally, which is readable,
+  // where a 40px-tall panel is not.
+  const maxHeight = Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, available))
+  const top = openDown
+    ? r.bottom + PANEL_GAP
+    : Math.max(PANEL_GAP, r.top - PANEL_GAP - maxHeight)
+
+  const width = Math.min(PANEL_WIDTH, viewport.width - PANEL_GAP * 2)
+  const left = Math.max(PANEL_GAP, Math.min(r.left, viewport.width - width - PANEL_GAP))
+
+  return { top, left, width, maxHeight }
+}
+
 export function NotificationBell() {
   const [notifs, setNotifs] = useState<Notif[]>([])
   const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
-  const [dropPos, setDropPos] = useState<{ top: number; left: number } | null>(null)
+  const [dropPos, setDropPos] = useState<
+    { top: number; left: number; width: number; maxHeight: number } | null
+  >(null)
   const ref = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
@@ -82,8 +127,7 @@ export function NotificationBell() {
         ref={btnRef}
         onClick={() => {
           if (!open && btnRef.current) {
-            const r = btnRef.current.getBoundingClientRect()
-            setDropPos({ top: r.bottom + 8, left: r.left })
+            setDropPos(placePanel(btnRef.current.getBoundingClientRect()))
           }
           setOpen(!open)
         }}
@@ -113,7 +157,7 @@ export function NotificationBell() {
       {open && dropPos && (
         <div style={{
           position: 'fixed', top: dropPos.top, left: dropPos.left,
-          width: 380, maxHeight: 480, overflowY: 'auto',
+          width: dropPos.width, maxHeight: dropPos.maxHeight, overflowY: 'auto',
           background: 'var(--card-bg, #fff)', border: '1px solid var(--border)',
           borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
           zIndex: 1000

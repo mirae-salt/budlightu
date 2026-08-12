@@ -483,9 +483,10 @@ export default function Roster() {
           it is the roster page that shows what it would change. */}
       <QueueLink
         href="/admin/banking-requests"
+        title="Banking changes"
         countKey="banking"
-        labelSome={n => `${n} banking change${n === 1 ? '' : 's'} waiting for approval`}
-        labelNone="No banking changes waiting. View request history"
+        labelSome={n => `${n} waiting for your approval`}
+        labelNone="none waiting"
       />
 
       {/* Fixed toast: an inline badge beside the button was too easy to miss. */}

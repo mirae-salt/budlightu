@@ -110,10 +110,10 @@ function OpenItemsPanel() {
   const items = [
     {
       priority: 'high' as const,
-      title: 'A receipt from Sept 20: which month?',
+      title: 'A receipt bought after the 15th: which month?',
       detail:
-        'Can they submit it with October receipts, or is October strictly October spending? ' +
-        "If it goes into October, it uses up October's $150.",
+        "Can they submit it with next month's receipts, or is each month strictly its own " +
+        "spending? If it rolls into next month, it uses up next month's $150.",
       owner: 'Robin',
       due: 'Before Sept 1',
     },

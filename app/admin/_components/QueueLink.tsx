@@ -28,11 +28,14 @@ import { useEffect, useState } from 'react'
 
 export function QueueLink({
   href,
+  title,
   countKey,
   labelSome,
   labelNone
 }: {
   href: string
+  /** The queue's name, always shown, so the row is findable when the count is zero. */
+  title: string
   countKey: 'unmatched' | 'banking'
   /** Shown when there is work. Receives the count, e.g. "3 receipts need matching". */
   labelSome: (n: number) => string
@@ -62,13 +65,24 @@ export function QueueLink({
   const waiting = typeof count === 'number' && count > 0
 
   if (!waiting) {
+    // Same box, same position, quieter. A bare 12px sentence in muted grey was not findable:
+    // Mirae could not see where Unmatched had gone, which for a moved page is the same as
+    // having deleted it.
     return (
       <Link
         href={href}
-        className="muted"
-        style={{ fontSize: 12, textDecoration: 'none', display: 'inline-block', marginBottom: 16 }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16,
+          padding: '10px 14px', borderRadius: 10, textDecoration: 'none',
+          background: 'rgba(0,0,0,0.02)', border: '1px solid rgba(0,0,0,0.08)',
+          color: 'var(--text-muted, #6b7280)', fontSize: 13
+        }}
       >
-        {labelNone}
+        <span style={{
+          width: 8, height: 8, borderRadius: 999, background: '#22c55e', flexShrink: 0
+        }} />
+        <span><strong style={{ fontWeight: 600 }}>{title}</strong> {labelNone}</span>
+        <span style={{ marginLeft: 'auto' }}>Open</span>
       </Link>
     )
   }
@@ -88,7 +102,7 @@ export function QueueLink({
         minWidth: 20, height: 20, display: 'inline-flex', alignItems: 'center',
         justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: '0 6px'
       }}>{count}</span>
-      <span>{labelSome(count)}</span>
+      <span><strong style={{ fontWeight: 700 }}>{title}</strong> {labelSome(count)}</span>
       <span style={{ marginLeft: 'auto', fontWeight: 400 }}>Review</span>
     </Link>
   )

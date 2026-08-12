@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from 'react'
 import { BANK_SEED } from '@/lib/banks'
+import { ReminderToggle } from './ReminderToggle'
 import { MIN_REASON_LENGTH } from '@/lib/banking-request'
 
 type PendingRequest = {
@@ -341,6 +342,8 @@ export default function AccountPage() {
             </div>
           </div>
         )}
+
+        <ReminderToggle />
       </div>
     </>
   )

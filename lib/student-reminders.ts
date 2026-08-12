@@ -1,28 +1,30 @@
 /**
- * Telling a student they are about to lose their $150, while they can still do something.
+ * Telling a student they have not submitted anything yet, while they can still do something.
  *
  * WHY THIS EXISTS
  * ---------------
  * Every automated email the program sends a student is a RESULT: your account is ready, your
  * receipt was rejected, here is your invoice. Nothing reaches them while the outcome is still
  * theirs to change. There is a spending reminder in /api/admin/warnings, but it needs a
- * warning record, and warning records are created by the audit on the 15th, so it can only
- * fire after the month is over and Robin has to click it.
+ * warning record, and warning records are created by the audit, so it can only fire after the
+ * month is over and Robin has to click it.
  *
- * On 2026-08-12 late receipts started being REFUSED. A silent deadline plus a hard refusal
- * is strictly worse for the student than the silent deadline alone was: they lose the whole
+ * On 2026-08-12 late receipts started being REFUSED. A silent deadline plus a hard refusal is
+ * strictly worse for the student than the silent deadline alone was: they lose the whole
  * month's $150 and there is no longer any give. This closes that.
  *
- * WHAT IS DELIBERATELY NOT HERE
- * -----------------------------
- * No judgement about whether someone is trying. This sends on one fact -- how much of the
- * cap is unspent with N days to go -- and says only that. Reading intent into a number is
- * Robin's job, and she has the dashboard and the shortfall warning for it.
+ * WHO GETS ONE: PEOPLE AT ZERO, NOT PEOPLE UNDER $150
+ * ---------------------------------------------------
+ * Mirae's call, 2026-08-12, and it is the better rule. Somebody who uploaded $80 has
+ * understood the process and made a decision, and emailing them is second-guessing how much
+ * beer they should buy. Somebody at zero on the 14th has either forgotten or is stuck, and
+ * that is the only case an email can fix. It also means the reminder can never read as a
+ * complaint about the amount, because we are not counting.
  *
- * FAILS CLOSED, and gated on top of that. `mode` defaults to 'off': an unreadable switch
- * sends nothing. That is the opposite of how question notifications fail, and correct here
- * for a different reason -- the audience is 58 students rather than three colleagues, and an
- * unwanted email to a student cannot be walked back with a Slack message.
+ * FAILS CLOSED, and gated on top of that. `mode` defaults to 'off': an unreadable switch sends
+ * nothing. That is the opposite of how question notifications fail, and correct here for a
+ * different reason. Three colleagues can absorb a stray email; 58 students cannot un-receive
+ * one.
  */
 
 export type ReminderMode =
@@ -45,8 +47,8 @@ export type ReminderKind =
  * Days of the month a pre-deadline reminder goes out.
  *
  * Two, not five. The 10th leaves time to actually go and buy something; the 14th is the last
- * day that is still useful. Daily nudges from the 10th get filtered as noise, and then the
- * one that mattered is filtered too.
+ * day that is still useful. Daily nudges from the 10th get filtered as noise, and then the one
+ * that mattered is filtered too.
  *
  * Robin can change these from the admin screen, so they are a default rather than a rule.
  */
@@ -56,19 +58,13 @@ export type ReminderSettings = {
   mode: ReminderMode
   /** Days of the month to send the pre-deadline reminder. */
   days: number[]
-  /**
-   * Send the pre-deadline reminder only when they are below this. Null means send to
-   * everyone who has not hit the cap.
-   */
-  belowCad: number | null
 }
 
 export const REMINDER_DEFAULT: ReminderSettings = {
-  // OFF. Turning this on emails students, so it is a decision someone makes on purpose,
-  // not a default that arrives with a deploy.
+  // OFF. Turning this on emails students, so it is a decision someone makes on purpose, not a
+  // default that arrives with a deploy.
   mode: 'off',
-  days: DEFAULT_REMINDER_DAYS,
-  belowCad: null
+  days: DEFAULT_REMINDER_DAYS
 }
 
 function isMode(v: unknown): v is ReminderMode {
@@ -78,8 +74,8 @@ function isMode(v: unknown): v is ReminderMode {
 /**
  * Reads the stored switch.
  *
- * Anything unrecognised reads as 'off'. A malformed row must not be able to start sending
- * mail to 58 students, which is exactly what defaulting to 'live' would allow.
+ * Anything unrecognised reads as 'off'. A malformed row must not be able to start sending mail
+ * to 58 students, which is exactly what defaulting to 'live' would allow.
  */
 export function parseReminderSettings(raw: unknown): ReminderSettings {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return REMINDER_DEFAULT
@@ -95,12 +91,9 @@ export function parseReminderSettings(raw: unknown): ReminderSettings {
       )].sort((a, b) => a - b)
     : DEFAULT_REMINDER_DAYS
 
-  const below = Number(r.belowCad)
-
   return {
     mode: isMode(r.mode) ? r.mode : 'off',
-    days: days.length > 0 ? days : DEFAULT_REMINDER_DAYS,
-    belowCad: Number.isFinite(below) && below > 0 ? below : null
+    days: days.length > 0 ? days : DEFAULT_REMINDER_DAYS
   }
 }
 
@@ -137,26 +130,40 @@ export type ReminderCandidate = {
   bamId: string
   firstName: string
   email: string | null
-  /** Bud Light spend counted so far this period, tax included. */
-  spent: number
+  /**
+   * How many receipts they have uploaded for this period.
+   *
+   * THIS IS THE WHOLE TEST: zero gets a reminder, anything above zero does not. See the header
+   * for why this is the rule rather than a dollar threshold.
+   */
+  receiptCount: number
+  /** Reimbursement available this period. In the email so they know what is at stake. */
   cap: number
   /** True for admin TEST rows. They still get reminders so Robin can see one. */
   isTest: boolean
   /** Statuses other than active are skipped: nobody archived should be nudged. */
   status: string
+  /**
+   * False when the student has turned reminders off for themselves.
+   *
+   * They can, on their account page. A reminder about money they are entitled to is a courtesy,
+   * and a courtesy nobody can decline is just mail. Admins control WHETHER the program sends
+   * these at all; each student controls whether they personally receive them.
+   */
+  wantsReminders: boolean
 }
 
 export type ReminderPlan =
   | { send: false; reason: string }
-  | { send: true; kind: ReminderKind; daysLeft: number; remaining: number }
+  | { send: true; kind: ReminderKind; daysLeft: number; cap: number }
 
 /**
  * Whether this one person gets a pre-deadline reminder today.
  *
  * Pure, and takes the date rather than reading the clock, so the day-boundary cases are
  * testable. `alreadySent` comes from the student_reminders row: this function does not decide
- * idempotency, the database's unique index does, but it is checked here too so the common
- * case does not depend on catching a constraint violation.
+ * idempotency, the database's unique index does, but it is checked here too so the common case
+ * does not depend on catching a constraint violation.
  */
 export function planReminder(input: {
   candidate: ReminderCandidate
@@ -173,18 +180,16 @@ export function planReminder(input: {
   if (alreadySent) return { send: false, reason: 'already reminded this period' }
   if (!settings.days.includes(day)) return { send: false, reason: `not a reminder day (${day})` }
 
-  // An email address is not optional here. There is no roster row without one in practice,
-  // but a null would otherwise become a send to "null" and a confusing bounce.
+  // An email address is not optional here. There is no roster row without one in practice, but
+  // a null would otherwise become a send to "null" and a confusing bounce.
   if (!c.email) return { send: false, reason: 'no email address on the roster row' }
   if (c.status !== 'active') return { send: false, reason: `status is ${c.status}` }
+  if (!c.wantsReminders) return { send: false, reason: 'this BAM turned reminders off' }
 
-  const remaining = Math.max(0, round2(c.cap - c.spent))
-  // Nothing to remind them about. Reaching the cap is the outcome the program wants; an
-  // email saying "you are done" is the kind of message that makes the next one ignorable.
-  if (remaining <= 0) return { send: false, reason: 'cap already reached' }
-
-  if (settings.belowCad !== null && c.spent >= settings.belowCad) {
-    return { send: false, reason: `spent $${c.spent.toFixed(2)}, at or above the $${settings.belowCad} threshold` }
+  // Anyone who has uploaded anything at all is left alone. One receipt means they know how
+  // this works, and the amount is their decision.
+  if (c.receiptCount > 0) {
+    return { send: false, reason: `already submitted ${c.receiptCount} receipt(s) this month` }
   }
 
   return {
@@ -193,12 +198,8 @@ export function planReminder(input: {
     // On the 14th with a deadline of the 15th this is 1: today plus tomorrow is not "2 days
     // left" to someone deciding whether to go to a store tonight.
     daysLeft: Math.max(0, deadlineDay - day),
-    remaining
+    cap: c.cap
   }
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
 }
 
 /**
@@ -207,38 +208,35 @@ function round2(n: number): number {
  */
 export function reminderEmail(input: {
   firstName: string
-  spent: number
   cap: number
   daysLeft: number
   monthLabel: string
   portalUrl: string
 }): { subject: string; html: string; text: string } {
-  const { firstName, spent, cap, daysLeft, monthLabel, portalUrl } = input
-  const remaining = Math.max(0, round2(cap - spent))
+  const { firstName, cap, daysLeft, monthLabel, portalUrl } = input
+
+  // Everyone who receives this has submitted nothing, so there is no running total to report
+  // and no reason to imply we have been keeping score. One fact and one link.
   const dayPhrase = daysLeft <= 0
     ? 'Today is the last day'
     : daysLeft === 1
       ? 'Tomorrow is the last day'
-      : `You have ${daysLeft} days`
+      : `There are ${daysLeft} days left`
 
-  // No guilt, no "don't forget!!", no exclamation marks. One fact and one link. This is a
-  // reminder about money the student is entitled to, not a chase.
-  const subject = `${dayPhrase.startsWith('You') ? `${daysLeft} days left` : dayPhrase} to submit ${monthLabel} receipts`
+  const subject = daysLeft <= 1
+    ? `${dayPhrase} to submit your ${monthLabel} receipts`
+    : `${daysLeft} days left to submit your ${monthLabel} receipts`
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
       <p style="font-size: 15px; color: #1a1a2e; margin: 0 0 12px;">Hi ${escapeHtml(firstName)},</p>
       <p style="font-size: 14px; color: #374151; line-height: 1.6; margin: 0 0 16px;">
-        ${dayPhrase.toLowerCase() === 'today is the last day' ? 'Today is the last day' : dayPhrase}
-        to upload your ${escapeHtml(monthLabel)} Bud Light receipts.
+        ${dayPhrase} to upload your ${escapeHtml(monthLabel)} Bud Light receipts. We have not
+        received any from you yet this month.
       </p>
-      <table style="font-size: 14px; color: #374151; line-height: 1.9; border-collapse: collapse; margin: 0 0 16px;">
-        <tr><td style="padding-right: 16px; font-weight: 600;">Submitted so far</td><td>$${spent.toFixed(2)}</td></tr>
-        <tr><td style="padding-right: 16px; font-weight: 600;">Still available</td><td>$${remaining.toFixed(2)} of $${cap.toFixed(2)}</td></tr>
-      </table>
       <p style="font-size: 14px; color: #374151; line-height: 1.6; margin: 0 0 20px;">
-        Whatever is left over does not carry into next month, so this month's amount is only
-        available until the 15th.
+        You can claim up to $${cap.toFixed(2)} back for ${escapeHtml(monthLabel)}. It does not
+        carry into next month, so it is only available until the 15th.
       </p>
       <p style="margin: 0 0 20px;">
         <a href="${escapeHtml(portalUrl)}/portal/upload"
@@ -247,10 +245,11 @@ export function reminderEmail(input: {
         </a>
       </p>
       <p style="font-size: 13px; color: #6b7280; line-height: 1.6; margin: 0;">
-        Nothing to submit this month? That is fine, no reply needed. If something is in the
-        way, tell us on the
+        Nothing to submit this month? That is fine, no reply needed. If something is in the way,
+        tell us on the
         <a href="${escapeHtml(portalUrl)}/portal/support" style="color: #0073cf;">Support page</a>
-        and we will sort it out.
+        and we will sort it out. You can turn these reminders off on your
+        <a href="${escapeHtml(portalUrl)}/portal/account" style="color: #0073cf;">account page</a>.
       </p>
       <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">Bud Light U</p>
     </div>
@@ -259,18 +258,18 @@ export function reminderEmail(input: {
   const text = [
     `Hi ${firstName},`,
     '',
-    `${dayPhrase} to upload your ${monthLabel} Bud Light receipts.`,
+    `${dayPhrase} to upload your ${monthLabel} Bud Light receipts. We have not received any`,
+    'from you yet this month.',
     '',
-    `Submitted so far:  $${spent.toFixed(2)}`,
-    `Still available:   $${remaining.toFixed(2)} of $${cap.toFixed(2)}`,
-    '',
-    "Whatever is left over does not carry into next month, so this month's amount is only",
-    'available until the 15th.',
+    `You can claim up to $${cap.toFixed(2)} back for ${monthLabel}. It does not carry into next`,
+    'month, so it is only available until the 15th.',
     '',
     `Upload receipts: ${portalUrl}/portal/upload`,
     '',
     'Nothing to submit this month? That is fine, no reply needed. If something is in the way,',
     `tell us on the Support page: ${portalUrl}/portal/support`,
+    '',
+    `You can turn these reminders off here: ${portalUrl}/portal/account`,
     '',
     '- Bud Light U'
   ].join('\n')

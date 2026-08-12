@@ -371,9 +371,10 @@ export default function SettingsPage() {
       <section style={sectionStyle}>
         <h2 style={h2Style}>Reminders to BAMs</h2>
         <p style={pStyle}>
-          A reminder to anyone who has not used their $150 yet, sent on the{' '}
-          {(reminders?.days ?? [10, 14]).join(' and the ')} of the month. It shows how much they
-          have left and links to the upload page. Nobody who has already hit the cap gets one.
+          Sent on the {(reminders?.days ?? [10, 14]).join(' and the ')} of the month to any BAM
+          who has not submitted a single receipt yet that month. Anyone who has uploaded
+          something, however small, is left alone. BAMs can also turn these off for themselves
+          on their own account page.
         </p>
 
         {reminders?.degraded && (
