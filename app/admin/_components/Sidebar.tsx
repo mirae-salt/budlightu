@@ -36,6 +36,7 @@ const groups: NavGroup[] = [
     items: [
       { href: '/admin/team',      label: 'Admin Team', icon: <IconKey /> },
       { href: '/admin/audit',     label: 'Audit log',  icon: <IconShield /> },
+      { href: '/admin/maintenance', label: 'Maintenance', icon: <IconAlert /> },
       { href: '/admin/guide',     label: 'BLU Guide', icon: <IconInfo /> }
     ]
   }

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { browserClient } from '@/lib/supabase-browser'
 import { getRole, isAdminRole } from '@/lib/auth-claims'
+import { shouldShowMaintenance, type MaintenanceState } from '@/lib/maintenance'
 
 /* ── Inline SVG icons (must be above const usage for HMR) ── */
 const ip = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, strokeWidth: 1.75 }
@@ -74,14 +75,36 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const isLogin = path === '/portal/login'
   const [loggedIn, setLoggedIn] = useState(false)
 
+  // Maintenance notice. Two separate async facts decide this -- the switch, and
+  // whether the visitor is an admin -- and showing the notice before the second one
+  // resolves would flash a "come back later" screen at the person doing the
+  // maintenance. So nothing is blocked until BOTH have been checked.
+  const [maintenance, setMaintenance] = useState<MaintenanceState | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+
   useEffect(() => {
-    if (isLogin) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/maintenance')
+        const j = await res.json()
+        if (!cancelled) setMaintenance(j?.maintenance ?? null)
+      } catch {
+        // Fail open: no notice rather than a broken portal. See lib/maintenance.ts.
+        if (!cancelled) setMaintenance(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [path])
+
+  useEffect(() => {
+    if (isLogin) { setAuthChecked(true); return }
     let cancelled = false
     ;(async () => {
       const sb = browserClient()
       const { data: userRes } = await sb.auth.getUser()
-      if (!userRes.user) return
-      if (!cancelled) setLoggedIn(true)
+      if (!userRes.user) { if (!cancelled) setAuthChecked(true); return }
+      if (!cancelled) { setLoggedIn(true); setAuthChecked(true) }
       // P0-A: the "Back to admin" link used to appear based on
       // `user_metadata.role`, which the student's own session can write. It is
       // only a nav link, but it now reads the trusted app_metadata claim so no
@@ -100,6 +123,43 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }, [path, isLogin])
 
   const isPreAuth = isLogin || (!loggedIn && path === '/portal/faq')
+
+  // The rule lives in lib/maintenance.ts, pinned by tests: /portal/login and /admin
+  // are never blocked, and an admin is never blocked. Those three are what keep the
+  // off switch reachable.
+  const blocked = authChecked && shouldShowMaintenance({ state: maintenance, path, isAdmin })
+
+  if (blocked) {
+    const until = maintenance?.until
+      ? new Date(maintenance.until).toLocaleString('en-US', {
+          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+        })
+      : null
+    return (
+      <div className="portal-shell portal-shell--no-sidebar">
+        <div className="portal-main portal-main-centered">
+          <main className="container" style={{ maxWidth: 460, textAlign: 'center' }}>
+            <img
+              src="/brand/BudLightU-logo.png"
+              alt="Bud Light U"
+              style={{ width: 120, margin: '0 auto 24px', display: 'block' }}
+            />
+            <h1 style={{ fontSize: 22 }}>Back shortly</h1>
+            <p className="subtle" style={{ lineHeight: 1.6 }}>{maintenance?.message}</p>
+            {until && (
+              <p className="muted" style={{ fontSize: 13, marginTop: 12 }}>
+                Expected back by {until}.
+              </p>
+            )}
+            <p className="muted" style={{ fontSize: 13, marginTop: 24 }}>
+              Nothing you have submitted is affected. If you need something urgently,
+              contact your program manager.
+            </p>
+          </main>
+        </div>
+      </div>
+    )
+  }
   const groups = isPreAuth ? publicGroups : authGroups
 
   async function logout() {
