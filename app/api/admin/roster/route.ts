@@ -29,6 +29,7 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
 import { parseBankName, parseSchoolId, parseCohortId } from '../../../../lib/admin-input'
+import { lookupBank } from '../../../../lib/banks'
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
 import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
@@ -219,7 +220,61 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
-  return NextResponse.json({ ok: true, bam: data[0] })
+  // Changing the bank has to move the institution number with it.
+  //
+  // The institution number is a property of the BANK, and it lives in an encrypted
+  // column that this UPDATE cannot touch. So changing bank_name here left the old
+  // bank's number in place: the invoice PDF would print "RBC Royal Bank" next to TD's
+  // 004, naming one bank and routing the deposit to another. Onboarding was fixed for
+  // the same defect; this was the remaining path.
+  //
+  // Transit and account are passed as null, which encrypt_bam_banking treats as "leave
+  // this column alone" -- so this cannot disturb the parts of the deposit that identify
+  // the student's actual account.
+  const warnings: string[] = []
+  if ('bank_name' in update) {
+    const bank = update.bank_name ? lookupBank(String(update.bank_name)) : null
+    if (update.bank_name && !bank) {
+      // parseBankName already rejects an unknown bank, so this is belt and braces.
+      warnings.push('The bank was saved but its institution number could not be resolved. Check it before invoicing.')
+    } else if (bank) {
+      const { error: encErr } = await db.rpc('encrypt_bam_banking', {
+        p_bam_id: id,
+        p_institution_no: bank.institutionNo,
+        p_transit_no: null,
+        p_account_no: null,
+        p_hst_number: null
+      })
+      if (encErr) {
+        console.error('[roster PATCH] institution number not updated for', id, encErr.message)
+        warnings.push(
+          `The bank name was changed to ${bank.displayName}, but its institution number could not be updated ` +
+          `(${encErr.message}). Do not invoice this BAM until that is fixed — the deposit would route to the previous bank.`
+        )
+      } else {
+        // Read it back. A silent no-op here is exactly the mismatch this block exists
+        // to prevent, and it would only surface on a PDF that had already been sent.
+        const { data: dec, error: decErr } = await db.rpc('decrypt_bam_banking', { p_bam_id: id })
+        const got = Array.isArray(dec) ? dec[0] : dec
+        if (decErr || !got || got.institution_no !== bank.institutionNo) {
+          console.error(
+            '[roster PATCH] institution read-back mismatch for', id,
+            decErr?.message ?? `expected ${bank.institutionNo}`
+          )
+          warnings.push(
+            `The bank name was changed to ${bank.displayName}, but the stored institution number could not be confirmed. ` +
+            'Do not invoice this BAM until it is checked.'
+          )
+        }
+      }
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    bam: data[0],
+    ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {})
+  })
 }
 
 /**

@@ -33,12 +33,38 @@ describe('upload month selector', () => {
     expect(submittable.map(o => o.label)).toEqual(['September 2026'])
   })
 
-  it('in October, September is still offered (the late-submission case)', () => {
+  it('in October, September is NOT offered — it is closed', () => {
+    // This used to offer September as a late-submission courtesy. It was not a
+    // courtesy: scheduler-audit only reads the current month, so a September receipt
+    // filed in October was stored, never audited, never paid, and never surfaced. The
+    // student is now told while they can still act on it.
     const oct = new Date('2026-10-05T12:00:00Z')
-    const labels = buildMonthOptions(cohortWindow, false, oct)
+    const opts = buildMonthOptions(cohortWindow, false, oct)
+    const submittable = opts.filter(o => o.isSubmittable).map(o => o.label)
+    expect(submittable).toContain('October 2026')
+    expect(submittable).not.toContain('September 2026')
+
+    // Still listed, so the student can see it exists and why it is unavailable.
+    const sept = opts.find(o => o.label === 'September 2026')
+    expect(sept?.isSubmittable).toBe(false)
+    expect(sept?.tag).toBe('closed')
+  })
+
+  it('after the deadline nothing is submittable, and the current month says why', () => {
+    // 08:00 UTC on the 16th (lib/deadline.ts).
+    const past = new Date('2026-10-16T08:00:00Z')
+    const opts = buildMonthOptions(cohortWindow, false, past)
+    expect(opts.filter(o => o.isSubmittable)).toHaveLength(0)
+
+    const octOpt = opts.find(o => o.label === 'October 2026')
+    expect(octOpt?.tag).toMatch(/due on the 15th/i)
+  })
+
+  it('before the deadline the current month is submittable', () => {
+    const before = new Date('2026-10-16T07:59:00Z')
+    const submittable = buildMonthOptions(cohortWindow, false, before)
       .filter(o => o.isSubmittable).map(o => o.label)
-    expect(labels).toContain('September 2026')
-    expect(labels).toContain('October 2026')
+    expect(submittable).toEqual(['October 2026'])
   })
 
   it('every submittable option is actually accepted by the server rule', () => {

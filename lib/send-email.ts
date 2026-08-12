@@ -26,6 +26,15 @@ export interface SendEmailOpts {
   text?: string
   attachments?: Array<{ filename: string; content: Buffer }>
   from?: string
+  /**
+   * Where a reply should go. Defaults to REPLY_TO_EMAIL.
+   *
+   * budlightu.com has NO MX record -- it is a send-only domain -- so a reply to the
+   * From address bounces. Meanwhile the invite email tells students "reply to this
+   * email", and AP might well reply to an invoice. Without this header those replies
+   * went nowhere at all.
+   */
+  replyTo?: string
 }
 
 export interface SendEmailResult {
@@ -41,6 +50,18 @@ export interface SendEmailResult {
  * `cleanText` on the display name also collapses the CR/LF that would let an
  * env value inject an extra header.
  */
+/**
+ * The address replies should reach, or null when none is configured.
+ *
+ * Deliberately falls back to nothing rather than to the From address: a Reply-To
+ * pointing at a mailbox that does not exist is worse than none, because the sender
+ * gets a bounce instead of their mail client showing them there is nowhere to reply.
+ */
+function replyToHeader(explicit?: string): string | undefined {
+  const addr = cleanEnvValue(explicit ?? process.env.REPLY_TO_EMAIL ?? '')
+  return addr ? addr : undefined
+}
+
 function fromHeader(addressEnv: string, nameEnv: string | null, defaultName: string | null): string | null {
   const address = cleanEnvValue(process.env[addressEnv])
   if (!address || !isEmailAddress(address)) return null
@@ -95,6 +116,7 @@ async function sendViaGmail(opts: SendEmailOpts): Promise<SendEmailResult> {
       from,
       to: Array.isArray(opts.to) ? opts.to.join(', ') : opts.to,
       cc: opts.cc?.join(', '),
+      replyTo: replyToHeader(opts.replyTo),
       subject: opts.subject,
       html: opts.html,
       text: opts.text,
@@ -154,6 +176,10 @@ async function sendViaGraph(opts: SendEmailOpts): Promise<SendEmailResult> {
     body: { contentType: 'HTML', content: opts.html },
     toRecipients: toList.map(a => ({ emailAddress: { address: a } })),
     ccRecipients: (opts.cc ?? []).map(a => ({ emailAddress: { address: a } })),
+    // Graph spells it as a list. Omitted entirely when unset, rather than sent empty.
+    ...(replyToHeader(opts.replyTo)
+      ? { replyTo: [{ emailAddress: { address: replyToHeader(opts.replyTo) as string } }] }
+      : {}),
     attachments: (opts.attachments ?? []).map(a => ({
       '@odata.type': '#microsoft.graph.fileAttachment',
       name: a.filename,
@@ -196,6 +222,7 @@ async function sendViaResend(opts: SendEmailOpts): Promise<SendEmailResult> {
     const resend = new Resend(cleanEnvValue(process.env.RESEND_API_KEY))
     const { data, error } = await resend.emails.send({
       from,
+      replyTo: replyToHeader(opts.replyTo),
       to: opts.to,
       cc: opts.cc,
       subject: opts.subject,

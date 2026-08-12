@@ -2,6 +2,9 @@
 import { useState, useEffect, use } from 'react'
 import { BANK_SEED } from '@/lib/banks'
 import { browserClient } from '@/lib/supabase-browser'
+// Free text here let a student type "Ontario", which computeHst() throws on at invoice
+// time. The list is derived from the tax table itself, so the two cannot drift.
+import { PROVINCE_CODES } from '@/lib/invoice-payload'
 
 /**
  * Onboarding form — invite-token gated (P0-3).
@@ -250,7 +253,7 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
             <div className="field"><label>Street</label><input value={form.street} onChange={e => setForm({...form, street: e.target.value})} style={fieldErrors.street ? errStyle : {}} />{fieldErrors.street && <span className="field-err">{fieldErrors.street}</span>}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
               <div className="field"><label>City</label><input value={form.city} onChange={e => setForm({...form, city: e.target.value})} style={fieldErrors.city ? errStyle : {}} />{fieldErrors.city && <span className="field-err">{fieldErrors.city}</span>}</div>
-              <div className="field"><label>Province</label><input value={form.prov} onChange={e => setForm({...form, prov: e.target.value})} placeholder="ON" style={fieldErrors.prov ? errStyle : {}} />{fieldErrors.prov && <span className="field-err">{fieldErrors.prov}</span>}</div>
+              <div className="field"><label>Province</label><select value={form.prov} onChange={e => setForm({...form, prov: e.target.value})} style={fieldErrors.prov ? errStyle : {}}><option value="">Select...</option>{PROVINCE_CODES.map(p => <option key={p} value={p}>{p}</option>)}</select>{fieldErrors.prov && <span className="field-err">{fieldErrors.prov}</span>}</div>
               <div className="field"><label>Postal</label><input value={form.postal} onChange={e => setForm({...form, postal: e.target.value})} placeholder="M5V 3L9" style={fieldErrors.postal ? errStyle : {}} />{fieldErrors.postal && <span className="field-err">{fieldErrors.postal}</span>}</div>
             </div>
             <div className="field"><label>School / campus</label><input value={form.school_id} onChange={e => setForm({...form, school_id: e.target.value})} style={fieldErrors.school_id ? errStyle : {}} />{fieldErrors.school_id && <span className="field-err">{fieldErrors.school_id}</span>}</div>

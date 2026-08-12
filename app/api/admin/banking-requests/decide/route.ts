@@ -226,9 +226,9 @@ export async function POST(req: NextRequest) {
   })
   if (encErr) {
     console.error('[banking-requests/decide] encrypt_bam_banking failed:', encErr.message)
-    await restoreBanking(db, request.bam_id, before, beforeBam?.bank_name ?? null)
+    const rb = await restoreBanking(db, request.bam_id, before, beforeBam?.bank_name ?? null)
     return NextResponse.json(
-      { ok: false, message: `The new banking details could not be saved (${encErr.message}). The previous details were restored.` },
+      { ok: false, message: `The new banking details could not be saved (${encErr.message}).${restoreNote(rb)}` },
       { status: 500 }
     )
   }
@@ -244,11 +244,11 @@ export async function POST(req: NextRequest) {
     after.transit_no === v.transitNo &&
     after.account_no === v.accountNo
   if (!persisted) {
-    await restoreBanking(db, request.bam_id, before, beforeBam?.bank_name ?? null)
+    const rb = await restoreBanking(db, request.bam_id, before, beforeBam?.bank_name ?? null)
     return NextResponse.json(
       {
         ok: false,
-        message: 'The saved banking details did not match what was requested, so the change was rolled back. Nothing was applied.'
+        message: `The saved banking details did not match what was requested.${restoreNote(rb)}`
       },
       { status: 500 }
     )
@@ -287,11 +287,11 @@ export async function POST(req: NextRequest) {
     }
   })
   if (!auditOk) {
-    await restoreBanking(db, request.bam_id, before, beforeBam?.bank_name ?? null)
+    const rb = await restoreBanking(db, request.bam_id, before, beforeBam?.bank_name ?? null)
     return NextResponse.json(
       {
         ok: false,
-        message: 'The change was rolled back: its audit-log entry could not be written. Please try again.'
+        message: `The audit-log entry could not be written, so the change was not kept.${restoreNote(rb)}`
       },
       { status: 500 }
     )
@@ -368,7 +368,18 @@ async function writeAudit(
  * cannot blank the new values back out. That case is logged and reported as a
  * failure to the admin rather than being papered over.
  */
-async function restoreBanking(db: Db, bamId: string, before: Banking, beforeBankName: string | null) {
+async function restoreBanking(
+  db: Db,
+  bamId: string,
+  before: Banking,
+  beforeBankName: string | null
+): Promise<{ restored: boolean; why?: string }> {
+  // The null-means-leave-alone behaviour is the trap here. If the BAM had no banking
+  // on file before, every argument below is null, the RPC succeeds having changed
+  // nothing, and the NEW unverified digits stay on the row. That is the case that must
+  // never be reported as a successful rollback.
+  const hadBanking = Boolean(before.institution_no || before.transit_no || before.account_no)
+
   const { error: rpcErr } = await db.rpc('encrypt_bam_banking', {
     p_bam_id: bamId,
     p_institution_no: before.institution_no,
@@ -379,9 +390,52 @@ async function restoreBanking(db: Db, bamId: string, before: Banking, beforeBank
   if (rpcErr) {
     console.error('[banking-requests/decide] RESTORE FAILED for bam', bamId, rpcErr.message,
       '- banking may be in a partially updated state; manual check required')
+    return { restored: false, why: `the restore call failed (${rpcErr.message})` }
   }
+
   // email_verified_at intentionally stays NULL. Re-verification is the safe
   // direction: the worst case is the student confirms details that never changed.
   const { error: nameErr } = await db.from('bams').update({ bank_name: beforeBankName }).eq('id', bamId)
-  if (nameErr) console.error('[banking-requests/decide] bank_name restore failed:', nameErr.message)
+  if (nameErr) {
+    console.error('[banking-requests/decide] bank_name restore failed:', nameErr.message)
+    return { restored: false, why: `the bank name could not be put back (${nameErr.message})` }
+  }
+
+  if (!hadBanking) {
+    console.error('[banking-requests/decide] RESTORE WAS A NO-OP for bam', bamId,
+      '- there were no previous values to put back, so the new ones are still stored')
+    return {
+      restored: false,
+      why: 'there were no previous banking details to restore, so the submitted ones are still on the record'
+    }
+  }
+
+  // Read back. A rollback that is only asserted is the same class of claim as a write
+  // that is only attempted -- and this one decides where money goes.
+  const { data: dec, error: decErr } = await db.rpc('decrypt_bam_banking', { p_bam_id: bamId })
+  const got = Array.isArray(dec) ? dec[0] : dec
+  if (decErr || !got) {
+    return { restored: false, why: 'the restored values could not be read back to confirm them' }
+  }
+  const matches =
+    got.institution_no === before.institution_no &&
+    got.transit_no === before.transit_no &&
+    got.account_no === before.account_no
+  if (!matches) {
+    console.error('[banking-requests/decide] RESTORE READ-BACK MISMATCH for bam', bamId)
+    return { restored: false, why: 'the restored values did not match what was on file before' }
+  }
+
+  return { restored: true }
+}
+
+/**
+ * The sentence appended to a failure message, so no caller has to remember the wording
+ * and the bad case cannot be left out.
+ */
+function restoreNote(result: { restored: boolean; why?: string }): string {
+  return result.restored
+    ? ' The previous details were restored.'
+    : ` THE ROLLBACK DID NOT COMPLETE: ${result.why ?? 'reason unknown'}. ` +
+      'Treat this BAM\'s banking as unverified, do not send an invoice for them, and tell Mirae.'
 }

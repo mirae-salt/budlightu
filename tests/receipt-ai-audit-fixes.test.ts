@@ -273,15 +273,42 @@ describe('P0-G: REVIEW band + first-cohort safeguard', () => {
 describe('P1-24: period validation', () => {
   const now = new Date(Date.UTC(2026, 7, 7)) // 2026-08-07
   const cohort = { start_date: '2026-05-01', end_date: '2027-04-30' }
-  it('accepts current and previous month', () => {
+  it('accepts the current month before its deadline', () => {
+    // 2026-08-07, well inside August's window.
     expect(validatePeriod('2026-08', cohort, now)).toEqual({ ok: true, period: '2026-08-01' })
-    expect(validatePeriod('2026-07-01', cohort, now)).toEqual({ ok: true, period: '2026-07-01' })
+  })
+
+  it('refuses a closed month instead of storing a receipt nobody will look at', () => {
+    // July on August 7th. This used to be ACCEPTED as a courtesy for late submitters,
+    // and that was the worse outcome: scheduler-audit only ever reads the current
+    // month, and July's invoice was generated back on July 16th, so the receipt was
+    // stored, never audited, never paid, and never surfaced to anyone.
+    const r = validatePeriod('2026-07-01', cohort, now)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.message).toMatch(/July is closed/i)
+      // It must NOT tell them to submit it next month. There is no rollover, so that
+      // receipt would be charged to next month's $150 -- costing them the cap they were
+      // trying to use, and reading as a rollover that does not exist.
+      expect(r.message).not.toMatch(/next month/i)
+      expect(r.message).toMatch(/program manager/i)
+    }
+  })
+
+  it('refuses the current month once its deadline has passed', () => {
+    // 08:00 UTC on the 16th is the cutoff (lib/deadline.ts).
+    const past = new Date(Date.UTC(2026, 7, 16, 8, 0))
+    const r = validatePeriod('2026-08', cohort, past)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toMatch(/closed on the 15th/i)
   })
   it('rejects future months', () => {
     expect(validatePeriod('2026-09', cohort, now).ok).toBe(false)
     expect(validatePeriod('2027-01', cohort, now).ok).toBe(false)
   })
-  it('rejects months older than the previous one (cap bypass)', () => {
+  it('rejects older months too (cap bypass)', () => {
+    // The original point of this case: a fabricated older month would hand the student
+    // a fresh $150 cap. Still refused, now by the same closed-month rule.
     expect(validatePeriod('2026-06', cohort, now).ok).toBe(false)
     expect(validatePeriod('2026-05', cohort, now).ok).toBe(false)
   })

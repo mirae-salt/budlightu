@@ -10,7 +10,7 @@
  * cases as the server rule.
  */
 import { PROGRAM_START_MONTH, PROGRAM_START_YEAR, PROGRAM_MONTHS } from './program'
-import { isPastDeadline } from './deadline'
+import { isPastDeadline, DEADLINE_DAY } from './deadline'
 
 export type MonthOption = { value: string; label: string; shortLabel: string; tag?: string; isCurrent?: boolean; isSubmittable?: boolean }
 
@@ -47,10 +47,16 @@ export function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolea
   const curMonth = now.getUTCMonth()
 
   const prev = new Date(Date.UTC(curYear, curMonth - 1, 1))
-  const submittable = new Set([
-    monthValue(curYear, curMonth),
-    monthValue(prev.getUTCFullYear(), prev.getUTCMonth())
-  ])
+
+  // The CURRENT month only, and only before its deadline. This used to include the
+  // previous month too, which looked generous and was the opposite: the server stored
+  // such a receipt, `scheduler-audit` never looked at it (it reads only the current
+  // month), and nobody was told. Refusing it here means the student finds out while
+  // they can still do something about it. Mirrors lib/period.ts, which is the
+  // authority — if these two disagree the student uploads and is then rejected.
+  const submittable = new Set(
+    isPastDeadline(now) ? [] : [monthValue(curYear, curMonth)]
+  )
 
   const seen = new Set<string>()
   const opts: MonthOption[] = []
@@ -64,31 +70,31 @@ export function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolea
     const monthStartUtc = Date.UTC(year, month0, 1)
     const thisMonthUtc = Date.UTC(curYear, curMonth, 1)
 
-    // Both halves of the server rule (lib/period.ts): the current or previous
-    // month, AND inside the cohort's dates. Checking only the first half is what
-    // would leave August selectable in September once the cohort's start_date goes
-    // back to the 1st of September, i.e. the same UI-allows/server-rejects bug
-    // this function was just fixed for. Until the cohort loads, nothing outside
-    // the date rule is offered.
+    // Both halves of the server rule (lib/period.ts): the month must be submittable
+    // AND inside the cohort's dates. Checking only the first half is what would leave
+    // August selectable in September once the cohort's start_date goes back to the 1st
+    // of September, i.e. the same UI-allows/server-rejects bug this function was fixed
+    // for once already. Until the cohort loads, nothing outside the date rule is
+    // offered.
     const inWindow = cohort ? value >= cohort.startMonth && value <= cohort.endMonth : true
-    // Mirrors the server exception in lib/period.ts: a test account may submit for
-    // the CURRENT month even outside the program window, so the flow can be
-    // exercised before the program opens. Labelled "Test" rather than by month
-    // name, because it is not a real program month and should not look like one.
-    const isTestSlot = isTestBam && isCurrent && !inWindow
+    // Mirrors the server exception in lib/period.ts: a test account may submit for the
+    // CURRENT month even outside the program window AND after the deadline, so the flow
+    // can be exercised at any point. Labelled "Test" rather than by month name, because
+    // it is not a real program month and should not look like one.
+    const isTestSlot = isTestBam && isCurrent && (!inWindow || isPastDeadline(now))
     const isSubmittable = (submittable.has(value) && inWindow) || isTestSlot
 
     let tag: string | undefined
     if (isTestSlot) tag = 'test only'
     else if (!isSubmittable) {
       if (!inWindow) tag = 'outside your program'
-      else tag = monthStartUtc > thisMonthUtc ? 'not open yet' : 'closed'
+      else if (monthStartUtc > thisMonthUtc) tag = 'not open yet'
+      // The current month, offered but not submittable, means its deadline has passed.
+      // Said plainly, because "closed" on the month a student is standing in reads as a
+      // bug rather than a deadline.
+      else if (isCurrent) tag = `closed — receipts were due on the ${DEADLINE_DAY}th`
+      else tag = 'closed'
     }
-    // Was `now.getUTCDate() > 15`, which told a BC student they were past the deadline
-    // from 5pm their own time ON the 15th, because by then it was the 16th in UTC. The
-    // rule now lives in lib/deadline.ts and is stated in Eastern time.
-    else if (isCurrent && isPastDeadline(now)) tag = 'past deadline'
-    else if (monthStartUtc < thisMonthUtc) tag = 'late, still accepted'
 
     const monthName = new Date(monthStartUtc).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
     opts.push({

@@ -33,17 +33,30 @@ describe('validatePeriod: test-account exception', () => {
   })
 
   it('the exception is the current month only: no backdating', () => {
-    // July is the previous month, so the date rule allows it, but it is outside the
-    // program window and the exception does not cover it.
+    // July is a past month, so it is closed. The test exception covers the current
+    // month only and does not reach back.
     const r = validatePeriod('2026-07', cohort, today, { isTest: true })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.message).toMatch(/outside your program/i)
+    if (!r.ok) expect(r.message).toMatch(/July is closed/i)
   })
 
   it('a test account inside the program window behaves normally', () => {
     const inProgram = new Date('2026-10-05T12:00:00Z')
     expect(validatePeriod('2026-10', cohort, inProgram, { isTest: true }).ok).toBe(true)
-    expect(validatePeriod('2026-09', cohort, inProgram, { isTest: true }).ok).toBe(true)
+    // September is closed by October: a test account gets the current-month exception,
+    // not a way to reopen a month whose invoice has already gone out.
+    expect(validatePeriod('2026-09', cohort, inProgram, { isTest: true }).ok).toBe(false)
     expect(validatePeriod('2027-05', cohort, inProgram, { isTest: true }).ok).toBe(false)
+  })
+
+  it('a test account CAN still submit after the deadline, so testing is never blocked', () => {
+    // The whole point of the exception: exercising the flow must not depend on where we
+    // are in the month. A real student is refused at the same instant (below).
+    const afterDeadline = new Date('2026-10-16T08:00:00Z')
+    expect(validatePeriod('2026-10', cohort, afterDeadline, { isTest: true }).ok).toBe(true)
+
+    const r = validatePeriod('2026-10', cohort, afterDeadline, { isTest: false })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toMatch(/closed on the 15th/i)
   })
 })

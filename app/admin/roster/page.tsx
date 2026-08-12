@@ -306,7 +306,10 @@ export default function Roster() {
       const saved = j.bam as SavedBam
       setBams(prev => prev.map(b => b.id === id ? rowFromSaved(saved, cohortName(saved.cohort_id) ?? b.cohort) : b))
       setEditingId(null)
-      report('ok', 'Saved')
+      // Changing the bank re-derives its institution number in a second, encrypted
+      // write. That can fail on its own, and the route says so via `warning` — a clean
+      // "Saved" there would hide a row whose PDF names one bank and pays another.
+      report(j.warning ? 'error' : 'ok', j.warning ? `Saved, but: ${j.warning}` : 'Saved')
     } catch (e) {
       report('error', `Save failed: ${(e as Error).message}`)
     } finally {
