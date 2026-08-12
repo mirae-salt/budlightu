@@ -9,7 +9,23 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 import { NotificationBell } from './TopBar'
 
-type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
+/**
+ * `countKey` names a live queue count from /api/admin/nav-counts.
+ *
+ * Unmatched receipts and banking changes are empty most of the time, so in a flat list they
+ * read as permanent parts of the program rather than "something needs you". With a count
+ * they dim at zero and stand out when there is work.
+ *
+ * They are NOT hidden at zero. Nothing else in the app links to either page, so hiding them
+ * would mean the only way back to a queue's history is typing the URL.
+ */
+type NavItem = {
+  href: string
+  label: string
+  icon: ReactNode
+  badge?: string
+  countKey?: 'unmatched' | 'banking'
+}
 type NavGroup = { title: string; items: NavItem[] }
 
 const groups: NavGroup[] = [
@@ -26,17 +42,17 @@ const groups: NavGroup[] = [
     items: [
       { href: '/admin/roster',    label: 'BAMs',       icon: <IconUsers /> },
       { href: '/admin/cohorts',   label: 'Cohorts',    icon: <IconLayers /> },
-      { href: '/admin/unmatched', label: 'Unmatched',  icon: <IconAlert /> },
-      { href: '/admin/banking-requests', label: 'Banking changes', icon: <IconBank /> },
+      { href: '/admin/unmatched', label: 'Unmatched',  icon: <IconAlert />, countKey: 'unmatched' },
+      { href: '/admin/banking-requests', label: 'Banking changes', icon: <IconBank />, countKey: 'banking' },
       { href: '/admin/questions', label: 'Questions', icon: <IconInfo /> }
     ]
   },
   {
     title: 'System',
     items: [
+      { href: '/admin/settings',  label: 'Settings',   icon: <IconSliders /> },
       { href: '/admin/team',      label: 'Admin Team', icon: <IconKey /> },
       { href: '/admin/audit',     label: 'Audit log',  icon: <IconShield /> },
-      { href: '/admin/maintenance', label: 'Maintenance', icon: <IconAlert /> },
       { href: '/admin/guide',     label: 'BLU Guide', icon: <IconInfo /> }
     ]
   }
@@ -45,6 +61,25 @@ const groups: NavGroup[] = [
 export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const path = usePathname()
   const [profile, setProfile] = useState<{ name: string; initial: string }>({ name: '', initial: '' })
+  // null means "not read yet, or could not be read". Rendered as no badge rather than as 0,
+  // because 0 is precisely the value that says nothing needs attention.
+  const [counts, setCounts] = useState<Record<string, number | null>>({})
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch('/api/admin/nav-counts')
+        const j = await res.json()
+        if (!cancelled && res.ok && j?.ok) setCounts(j.counts ?? {})
+      } catch {
+        // Leave the counts unknown. A sidebar badge is not worth an error message.
+      }
+    }
+    void load()
+    // Refreshed on navigation so approving the last banking request clears its badge
+    // without a reload.
+    return () => { cancelled = true }
+  }, [path])
   useEffect(() => {
     const sb = browserClient()
     sb.auth.getUser().then(({ data }) => {
@@ -81,11 +116,22 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
           <div className="nav-group-title">{g.title}</div>
           {g.items.map(it => {
             const active = it.href === '/admin' ? path === '/admin' : path.startsWith(it.href)
+            const live = it.countKey ? counts[it.countKey] : undefined
+            const waiting = typeof live === 'number' && live > 0
             return (
-              <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`} onClick={onNavigate}>
+              <Link
+                key={it.href}
+                href={it.href}
+                className={`nav-item ${active ? 'active' : ''}`}
+                onClick={onNavigate}
+                // Dimmed at zero, full strength when something is waiting. A queue with
+                // nothing in it should not compete with the pages used every day.
+                style={it.countKey && live === 0 && !active ? { opacity: 0.55 } : undefined}
+              >
                 {it.icon}
                 <span>{it.label}</span>
-                {it.badge && it.badge !== '0' && <span className="nav-badge">{it.badge}</span>}
+                {waiting && <span className="nav-badge">{live}</span>}
+                {it.badge && it.badge !== '0' && !it.countKey && <span className="nav-badge">{it.badge}</span>}
               </Link>
             )
           })}
@@ -137,6 +183,7 @@ function IconFile()    { return <svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2
 function IconUsers()   { return <svg {...iconProps}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg> }
 function IconLayers()  { return <svg {...iconProps}><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/></svg> }
 function IconAlert()   { return <svg {...iconProps}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> }
+function IconSliders() { return <svg {...iconProps}><path d="M4 21v-7M4 10V3m8 18v-9m0-5V3m8 18v-4m0-4V3M1 14h6m2-5h6m2 8h6"/></svg> }
 function IconKey()     { return <svg {...iconProps}><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777Zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg> }
 function IconShield()  { return <svg {...iconProps}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg> }
 function IconBank()    { return <svg {...iconProps}><path d="M3 10h18"/><path d="M12 3 3 8h18z"/><path d="M6 10v7M10 10v7M14 10v7M18 10v7"/><path d="M3 21h18"/></svg> }

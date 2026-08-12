@@ -99,27 +99,73 @@ function TabNav() {
    TAB: Open items — pending decisions & action items
    ═══════════════════════════════════════════════════════════════════ */
 function OpenItemsPanel() {
+  // Kept in step with DESIGN-NOTES.md section 6 and the open-question sections in
+  // CLAUDE.md. Last reviewed 2026-08-12. Items are removed when Robin answers, not when
+  // the code changes: several of these are decisions, not tasks.
   const items = [
     {
       priority: 'high' as const,
+      title: 'Which month does a purchase after the 15th belong to?',
+      detail:
+        'Receipts close on the 15th and there is no rollover, so a purchase made on the 20th ' +
+        'has nowhere to go inside that month. As built it lands in the NEXT cycle and comes out ' +
+        "of that month's $150. That makes the real spending window the 16th to the 15th, while " +
+        'every label says "September". Confirm: is the 16th-to-15th window what you intend? If ' +
+        'so we spell it out to the BAMs; if not, either the deadline or the period has to move.',
+      owner: 'Robin',
+      due: 'Before Sept 1',
+    },
+    {
+      priority: 'high' as const,
+      title: 'Terms and conditions body',
+      detail:
+        'Everything in the portal T&C page today is our placeholder wording, including two lines ' +
+        'we wrote on Aug 12 that need your sign-off specifically: that a month runs from the 16th ' +
+        'to the 15th, and that a closed month will not accept receipts at all. Two sections ' +
+        '(Conduct and brand, Ending your participation) are still marked DRAFT on the page.',
+      owner: 'Robin',
+      due: 'Before Sept 1',
+    },
+    {
+      priority: 'high' as const,
+      title: 'Check receipts on the 16th or the 17th?',
+      detail:
+        'You said receipts due the 15th, checked on the 17th, invoices to AP on the 17th. The ' +
+        'system currently checks on the 15th and generates on the 16th. If both run on the 17th ' +
+        'there is no gap for you to review the receipts it flags, so anything undecided drops out ' +
+        "of that month's invoice and you fix it by hand. Suggested: it checks on the 16th, you " +
+        'clear anything flagged, invoices go to AP on the 17th as you asked.',
+      owner: 'Robin',
+      due: 'Before Sept 15',
+    },
+    {
+      priority: 'medium' as const,
+      title: 'Low-spend warning threshold',
+      detail:
+        'Currently set to $75: a BAM who spends less than that in a month gets a warning email, ' +
+        'and two shortfalls in a row flags them for reevaluation. The $75 was a placeholder ' +
+        '("let us say 75 for now") and has never been confirmed. Also worth deciding whether the ' +
+        'first cycle needs an exception, since onboarding to deadline is only two weeks and a lot ' +
+        'of BAMs will fall short through no fault of their own.',
+      owner: 'Robin',
+      due: 'Before Sept 15',
+    },
+    {
+      priority: 'medium' as const,
       title: 'Float card info — who takes over from Jenna?',
-      detail: 'Jenna is leaving. Need to confirm who will manage the float card and ad-hoc expense tracking going forward. Ask Robin.',
+      detail: 'Jenna is leaving. Need to confirm who will manage the float card and ad-hoc expense tracking going forward.',
       owner: 'Robin',
       due: 'ASAP',
     },
     {
-      priority: 'high' as const,
-      title: 'Final BAM roster for Fall 2026',
-      detail: 'Confirmed list of ~58 BAMs needed by Aug 10 to set up cohort, onboarding invites, and portal accounts before Sept 1 launch.',
-      owner: 'Robin',
-      due: 'Aug 10',
-    },
-    {
-      priority: 'medium' as const,
-      title: 'Underspend threshold — what counts as "too low"?',
-      detail: 'Receipts $150+ are flagged for Robin\'s review. But what\'s the minimum spend to trigger a warning? Old docs suggested $140 (soft floor) but this was never confirmed. Robin to decide: at what dollar amount should BAMs get a low-spend warning? (e.g. under $100? $50? Any amount under $150?)',
-      owner: 'Robin',
-      due: 'Before Sept 1',
+      priority: 'low' as const,
+      title: 'Sending address allowlist with IT',
+      detail:
+        'Ticket sent Aug 12: add noreply@budlightu.com to the safe-sender list for ' +
+        'accounts.payable@ilovesalt.com, so invoices are not quarantined. Until it is in place ' +
+        'invoices go to Guneet, who forwards them. Waiting on IT.',
+      owner: 'Mirae',
+      due: 'Before Sept 17',
     },
   ]
 
@@ -132,7 +178,9 @@ function OpenItemsPanel() {
   return (
     <>
       <p style={{ fontSize: 13, color: 'var(--midgray)', marginBottom: 16, lineHeight: 1.5 }}>
-        Decisions and info needed before the system goes live. Resolved items will be removed.
+        Decisions we need from you before the system goes live. These are questions, not
+        tasks for the build: each one changes what the portal tells 58 BAMs, so we would
+        rather ask than guess. Answered items are removed from this list.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

@@ -31,11 +31,20 @@ export type QuestionNotifySettings = {
   default: QuestionNotifyMode
   /** Keyed by lowercased email. */
   byEmail: Record<string, QuestionNotifyMode>
+  /**
+   * Addresses that get every question but are not admins.
+   *
+   * Recipients used to be an env var, which meant Robin could not change who receives
+   * anything without asking Mirae to redeploy. Admins are covered by `byEmail` (each
+   * controls their own); this is for anyone else she wants copied, and she edits it
+   * herself on /admin/settings.
+   */
+  extraRecipients?: string[]
 }
 
 export const QUESTION_NOTIFY_KEY = 'question_notify'
 
-export const QUESTION_NOTIFY_DEFAULT: QuestionNotifySettings = { default: 'each', byEmail: {} }
+export const QUESTION_NOTIFY_DEFAULT: QuestionNotifySettings = { default: 'each', byEmail: {}, extraRecipients: [] }
 
 export const QUESTION_NOTIFY_OPTIONS: Array<{
   mode: QuestionNotifyMode
@@ -83,7 +92,7 @@ export function parseQuestionNotify(raw: unknown): QuestionNotifySettings {
 
   // Old shape, from before this was per-admin.
   if (isMode(r.mode) && r.default === undefined && r.byEmail === undefined) {
-    return { default: r.mode, byEmail: {} }
+    return { default: r.mode, byEmail: {}, extraRecipients: [] }
   }
 
   const byEmail: Record<string, QuestionNotifyMode> = {}
@@ -95,9 +104,18 @@ export function parseQuestionNotify(raw: unknown): QuestionNotifySettings {
     }
   }
 
+  const extraRecipients = Array.isArray(r.extraRecipients)
+    ? [...new Set(
+        (r.extraRecipients as unknown[])
+          .map(v => normalizeAdminEmail(typeof v === 'string' ? v : ''))
+          .filter(v => v.includes('@'))
+      )]
+    : []
+
   return {
     default: isMode(r.default) ? r.default : 'each',
-    byEmail
+    byEmail,
+    extraRecipients
   }
 }
 
@@ -134,7 +152,31 @@ export function withModeFor(
   const base = settings ?? QUESTION_NOTIFY_DEFAULT
   const key = normalizeAdminEmail(email)
   if (!key) return base
-  return { default: base.default, byEmail: { ...base.byEmail, [key]: mode } }
+  return { ...base, byEmail: { ...base.byEmail, [key]: mode } }
+}
+
+/**
+ * Replaces the extra-recipient list. Separate from withModeFor so an admin editing their
+ * own frequency can never touch the shared list, and vice versa.
+ */
+export function withExtraRecipients(
+  settings: QuestionNotifySettings | null,
+  emails: string[]
+): QuestionNotifySettings {
+  const base = settings ?? QUESTION_NOTIFY_DEFAULT
+  const cleaned = [...new Set(emails.map(normalizeAdminEmail).filter(e => e.includes('@')))]
+  return { ...base, extraRecipients: cleaned }
+}
+
+/** Free-text list to addresses, so the UI and the server agree on what counts. */
+export function parseRecipientList(raw: string): { ok: true; emails: string[] } | { ok: false; bad: string[] } {
+  const parts = String(raw ?? '')
+    .split(/[,;\n]/)
+    .map(p => p.trim())
+    .filter(Boolean)
+  const bad = parts.filter(p => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p))
+  if (bad.length > 0) return { ok: false, bad }
+  return { ok: true, emails: [...new Set(parts.map(normalizeAdminEmail))] }
 }
 
 /** Validates an admin's submitted value. */
@@ -156,7 +198,10 @@ export function recipientsForArrival(
 ): string[] {
   // No readable settings: tell everyone. See the header.
   if (!settings) return adminEmails
-  return adminEmails.filter(e => modeFor(settings, e) === 'each')
+  const admins = adminEmails.filter(e => modeFor(settings, e) === 'each')
+  // Extra recipients always get every question: they are not admins, so they have no page
+  // on which to choose a frequency.
+  return [...new Set([...admins, ...(settings.extraRecipients ?? [])])]
 }
 
 /** Admins to include in the daily digest. */

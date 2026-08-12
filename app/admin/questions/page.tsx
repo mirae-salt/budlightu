@@ -16,9 +16,9 @@
  * box would be a worse promise than none.
  */
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { TopBar } from '../_components/TopBar'
 import {
-  QUESTION_NOTIFY_OPTIONS,
   type QuestionNotifyMode
 } from '@/lib/question-notify'
 
@@ -37,10 +37,9 @@ export default function QuestionsPage() {
   // asking for a code change.
   const [notify, setNotify] = useState<{ mode: QuestionNotifyMode } | null>(null)
   const [notifyDegraded, setNotifyDegraded] = useState(false)
-  const [notifyBusy, setNotifyBusy] = useState(false)
-  const [notifyNote, setNotifyNote] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -73,31 +72,17 @@ export default function QuestionsPage() {
     return () => { cancelled = true }
   }, [])
 
-  async function saveNotify(mode: QuestionNotifyMode) {
-    setNotifyBusy(true)
-    setNotifyNote(null)
-    try {
-      const res = await fetch('/api/admin/question-notify', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
+  // Matches the question text, the BAM's name and their email, which is everything shown
+  // on a card. Searching for what you can see is the only rule worth having here.
+  const q = query.trim().toLowerCase()
+  const visible = q === ''
+    ? rows
+    : rows.filter(r => {
+        const b = r.bams
+        const name = [b?.first_name, b?.last_name].filter(Boolean).join(' ')
+        return [r.question, name, b?.email ?? '']
+          .some(v => String(v).toLowerCase().includes(q))
       })
-      const j = await res.json()
-      if (!res.ok || !j.ok) {
-        setNotifyNote(j.message || `Failed (${res.status})`)
-        return
-      }
-      // Show what the server read back, not what was clicked.
-      setNotify(j.setting)
-      setNotifyDegraded(false)
-      const chosen = QUESTION_NOTIFY_OPTIONS.find(o => o.mode === j.setting.mode)
-      setNotifyNote(j.warning ? `Saved, but: ${j.warning}` : `Saved: ${chosen?.label ?? j.setting.mode}`)
-    } catch (e) {
-      setNotifyNote(`Failed: ${(e as Error).message}`)
-    } finally {
-      setNotifyBusy(false)
-    }
-  }
 
   const who = (r: DbQuestion) => {
     const b = r.bams
@@ -120,57 +105,48 @@ export default function QuestionsPage() {
           </p>
         </div>
 
-        {/* Robin sets this herself. It is the setting most likely to need changing once
-            real volume arrives, so it lives on the page where she reads the questions
-            rather than somewhere she has to be told about. */}
+        {/* The frequency control used to be a block of radio buttons here. It moved to
+            /admin/settings, where it sits next to the recipient list and the maintenance
+            switch, because "who gets emailed about what" was spread across three pages and
+            an environment variable. What stays here is the CURRENT answer, so this page
+            still tells you whether you are being emailed without making you go look. */}
         <div style={{
-          marginBottom: 20, padding: '14px 16px', borderRadius: 10,
-          border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(0,163,224,0.04)'
+          marginBottom: 20, padding: '12px 14px', borderRadius: 10,
+          border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(0,163,224,0.04)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 12, flexWrap: 'wrap'
         }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 2 }}>
-            Email me about new questions
+          <div style={{ fontSize: 13, color: 'var(--bl-navy)' }}>
+            {notifyDegraded
+              ? 'Your email setting could not be read just now.'
+              : notify?.mode === 'each'
+                ? 'You are emailed about every question as it arrives.'
+                : notify?.mode === 'daily'
+                  ? 'You get one summary a day listing new questions.'
+                  : notify?.mode === 'off'
+                    ? 'You are not emailed about these. This page is the only place they appear.'
+                    : 'Checking how often you are emailed...'}
           </div>
-          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
-            Change this whenever you like. Questions are always saved here regardless.
-          </p>
-
-          {notifyDegraded && (
-            <p style={{ fontSize: 12, color: '#b45309', margin: '0 0 8px' }}>
-              We could not read your current setting, so this shows the default. Saving will fix it.
-            </p>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {QUESTION_NOTIFY_OPTIONS.map(o => (
-              <label
-                key={o.mode}
-                style={{
-                  display: 'flex', gap: 8, alignItems: 'flex-start',
-                  cursor: notifyBusy ? 'wait' : 'pointer', fontWeight: 400
-                }}
-              >
-                <input
-                  type="radio"
-                  name="question-notify"
-                  checked={notify?.mode === o.mode}
-                  disabled={notifyBusy}
-                  onChange={() => saveNotify(o.mode)}
-                  style={{ width: 'auto', marginTop: 3 }}
-                />
-                <span style={{ fontSize: 13 }}>
-                  <strong>{o.label}</strong>
-                  <span className="muted" style={{ display: 'block', fontSize: 11 }}>{o.detail}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-
-          {notifyNote && (
-            <p style={{ fontSize: 12, margin: '10px 0 0', color: notifyNote.startsWith('Saved') ? '#065f46' : '#991b1b' }}>
-              {notifyNote}
-            </p>
-          )}
+          <Link href="/admin/settings" style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            Change in Settings
+          </Link>
         </div>
+
+        {/* Search, because there is no answered/unanswered status to filter by yet: adding
+            one needs a column on portal_questions. Until then finding "the one about the
+            Halifax receipt" means reading every card. */}
+        {!loading && !error && rows.length > 3 && (
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search questions, names or emails"
+            style={{
+              width: '100%', boxSizing: 'border-box', marginBottom: 16,
+              padding: '10px 12px', fontSize: 13, fontFamily: 'inherit',
+              border: '1px solid rgba(0,0,0,0.15)', borderRadius: 8
+            }}
+          />
+        )}
 
         {loading && <p className="muted">Loading…</p>}
 
@@ -190,9 +166,16 @@ export default function QuestionsPage() {
           </p>
         )}
 
-        {!loading && !error && rows.length > 0 && (
+        {!loading && !error && rows.length > 0 && visible.length === 0 && (
+          <p className="muted" style={{ fontSize: 13 }}>
+            Nothing matches &ldquo;{query.trim()}&rdquo;. {rows.length} question
+            {rows.length === 1 ? '' : 's'} in total.
+          </p>
+        )}
+
+        {!loading && !error && visible.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {rows.map(r => {
+            {visible.map(r => {
               const w = who(r)
               return (
                 <div key={r.id} style={{
