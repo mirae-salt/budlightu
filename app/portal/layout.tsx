@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { browserClient } from '@/lib/supabase-browser'
 import { getRole, isAdminRole } from '@/lib/auth-claims'
 import { shouldShowMaintenance, type MaintenanceState } from '@/lib/maintenance'
+import { MaintenanceBanner } from '../_components/MaintenanceBanner'
 
 /* ── Inline SVG icons (must be above const usage for HMR) ── */
 const ip = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, strokeWidth: 1.75 }
@@ -240,6 +241,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       )}
 
       <div style={{ minWidth: 0, width: isPreAuth ? '100%' : undefined }}>
+        {/* Only reachable when NOT blocked -- the block path returns above. So a banner
+            and a block never both render. */}
+        <MaintenanceBanner />
         {!isPreAuth && (
           <div className="portal-mobile-header">
             <button className="admin-hamburger" onClick={() => setSidebarOpen(o => !o)} aria-label="Menu">

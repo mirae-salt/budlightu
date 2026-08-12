@@ -1,6 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import { Sidebar } from './_components/Sidebar'
+import { MaintenanceBanner } from '../_components/MaintenanceBanner'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -11,6 +12,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className={`sidebar-backdrop${sidebarOpen ? ' open' : ''}`} onClick={close} />
       <Sidebar open={sidebarOpen} onNavigate={close} />
       <div style={{ minWidth: 0 }}>
+        {/* Admins see the banner too: it is how you confirm a notice is live without
+            opening a private window. */}
+        <MaintenanceBanner />
         <div className="admin-mobile-header">
           <button className="admin-hamburger" onClick={() => setSidebarOpen(o => !o)} aria-label="Menu">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

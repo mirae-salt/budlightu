@@ -12,13 +12,14 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import { TopBar } from '../_components/TopBar'
-import { DEFAULT_MESSAGE, MAX_MESSAGE_LENGTH, type MaintenanceState } from '@/lib/maintenance'
+import { DEFAULT_MESSAGE, DEFAULT_BANNER_MESSAGE, MAX_MESSAGE_LENGTH, type MaintenanceState, type MaintenanceMode } from '@/lib/maintenance'
 
 export default function MaintenancePage() {
   const [state, setState] = useState<MaintenanceState | null>(null)
   const [degraded, setDegraded] = useState(false)
   const [message, setMessage] = useState('')
   const [minutes, setMinutes] = useState('')
+  const [mode, setMode] = useState<MaintenanceMode>('banner')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
@@ -31,6 +32,7 @@ export default function MaintenancePage() {
       setState(j?.maintenance ?? null)
       setDegraded(Boolean(j?.degraded))
       if (j?.maintenance?.message) setMessage(j.maintenance.message)
+      if (j?.maintenance?.mode) setMode(j.maintenance.mode)
     } catch (e) {
       // Unknown is not "off". Say so rather than render a confident Off.
       setState(null)
@@ -56,7 +58,7 @@ export default function MaintenancePage() {
       const res = await fetch('/api/maintenance', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ on, message: on ? message.trim() : '', until })
+        body: JSON.stringify({ on, mode, message: on ? message.trim() : '', until })
       })
       const j = await res.json()
 
@@ -70,10 +72,12 @@ export default function MaintenancePage() {
       setNotice({
         kind: j.warning ? 'error' : 'ok',
         text: j.warning
-          ? `${j.maintenance.on ? 'Maintenance is ON' : 'Maintenance is OFF'}, but: ${j.warning}`
+          ? `Saved, but: ${j.warning}`
           : (j.maintenance.on
-              ? 'Maintenance is ON. Students see the notice; you and other admins are unaffected.'
-              : 'Maintenance is OFF. The portal is open.')
+              ? (j.maintenance.mode === 'block'
+                  ? 'Blocking is ON. BAMs see the notice instead of the portal; you and other admins are unaffected.'
+                  : 'Banner is ON. Everything keeps working -- BAMs just see a strip at the top.')
+              : 'Maintenance is OFF. No notice is showing.')
       })
     } catch (e) {
       setNotice({ kind: 'error', text: `Failed: ${(e as Error).message}` })
@@ -119,7 +123,9 @@ export default function MaintenancePage() {
               <strong style={{ fontSize: 14, color: isOn ? '#92400e' : '#065f46' }}>
                 {degraded
                   ? 'Unknown — the switch could not be read'
-                  : isOn ? 'Maintenance is ON' : 'Maintenance is OFF'}
+                  : isOn
+                    ? (state?.mode === 'block' ? 'BLOCKING — the portal is closed to BAMs' : 'BANNER — a notice is showing, everything works')
+                    : 'Off — no notice is showing'}
               </strong>
               {isOn && state?.until && (
                 <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
@@ -137,6 +143,32 @@ export default function MaintenancePage() {
               </p>
             )}
 
+            {/* Two very different actions, so they are picked before the buttons rather
+                than being two buttons that look alike. */}
+            <div className="field">
+              <label>Which one</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontWeight: 400 }}>
+                  <input type="radio" name="mode" checked={mode === 'banner'} onChange={() => setMode('banner')} style={{ width: 'auto', marginTop: 3 }} />
+                  <span style={{ fontSize: 13 }}>
+                    <strong>Banner</strong> — a strip at the top. Everything keeps working.
+                    <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                      For &ldquo;maintenance tonight at 8pm&rdquo;. This is the one you will use most.
+                    </span>
+                  </span>
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontWeight: 400 }}>
+                  <input type="radio" name="mode" checked={mode === 'block'} onChange={() => setMode('block')} style={{ width: 'auto', marginTop: 3 }} />
+                  <span style={{ fontSize: 13 }}>
+                    <strong>Block</strong> — replaces the portal for BAMs.
+                    <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                      Only when letting someone submit into a half-working app is worse than turning them away.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="field">
               <label>What BAMs will see</label>
               <textarea
@@ -144,11 +176,11 @@ export default function MaintenancePage() {
                 onChange={e => setMessage(e.target.value)}
                 rows={3}
                 maxLength={MAX_MESSAGE_LENGTH}
-                placeholder={DEFAULT_MESSAGE}
+                placeholder={mode === 'block' ? DEFAULT_MESSAGE : DEFAULT_BANNER_MESSAGE}
                 style={{ width: '100%', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.5 }}
               />
               <span className="muted" style={{ fontSize: 11 }}>
-                Leave blank to use: “{DEFAULT_MESSAGE}”
+                Leave blank to use: “{mode === 'block' ? DEFAULT_MESSAGE : DEFAULT_BANNER_MESSAGE}”
               </span>
             </div>
 
@@ -168,18 +200,12 @@ export default function MaintenancePage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-              {isOn ? (
-                <button onClick={() => save(false)} disabled={busy}>
-                  {busy ? 'Saving…' : 'Turn maintenance OFF'}
-                </button>
-              ) : (
-                <button onClick={() => save(true)} disabled={busy}>
-                  {busy ? 'Saving…' : 'Turn maintenance ON'}
-                </button>
-              )}
+              <button onClick={() => save(true)} disabled={busy}>
+                {busy ? 'Saving…' : isOn ? 'Save changes' : (mode === 'block' ? 'Close the portal' : 'Show the banner')}
+              </button>
               {isOn && (
-                <button className="btn-ghost" onClick={() => save(true)} disabled={busy}>
-                  Update the message
+                <button className="btn-ghost" onClick={() => save(false)} disabled={busy}>
+                  Turn it off
                 </button>
               )}
               <button className="btn-ghost" onClick={load} disabled={busy} style={{ marginLeft: 'auto' }}>
@@ -199,9 +225,13 @@ export default function MaintenancePage() {
             )}
 
             <p className="muted" style={{ fontSize: 12, marginTop: 24, lineHeight: 1.6 }}>
+              Takes effect immediately — no deploy. An open tab picks it up within a
+              minute without reloading.
+              <br />
               Never blocked, so you cannot lock yourself out: the sign-in page, every
-              /admin page, and anyone with an admin role. To see what BAMs see, open the
-              portal in a private window.
+              /admin page, and anyone with an admin role. A banner shows to you as well,
+              so you can confirm it is live without a private window. To see what a
+              <em> block</em> looks like to a BAM, use a private window.
             </p>
           </>
         )}

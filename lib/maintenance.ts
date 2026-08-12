@@ -23,9 +23,24 @@
  * case of failing open is that someone sees a working app during maintenance.
  */
 
+/**
+ * How loud the notice is.
+ *
+ * `banner`: a strip above the page. Everything keeps working. This is the one that
+ * gets used often -- "we are deploying at 8pm", "receipts may be slow for an hour" --
+ * especially around the 15th when BAMs are submitting.
+ * `block`: replaces the page. For the rare case where letting someone submit into a
+ * half-working app is worse than turning them away.
+ *
+ * Defaults to `banner` when unspecified, because the quieter of the two is the safer
+ * thing to end up with by accident.
+ */
+export type MaintenanceMode = 'banner' | 'block'
+
 export type MaintenanceState = {
   /** Whether the notice is showing. */
   on: boolean
+  mode: MaintenanceMode
   /** Shown to students. Falls back to DEFAULT_MESSAGE when blank. */
   message: string
   /**
@@ -38,10 +53,15 @@ export type MaintenanceState = {
 
 export const MAINTENANCE_KEY = 'maintenance'
 
+/** Used when a block is turned on with no message. */
 export const DEFAULT_MESSAGE =
   'The portal is briefly down for maintenance. Please try again in a few minutes.'
 
-export const MAINTENANCE_OFF: MaintenanceState = { on: false, message: '', until: null }
+/** Used when a banner is turned on with no message. */
+export const DEFAULT_BANNER_MESSAGE =
+  'Scheduled maintenance this evening. The portal may be briefly unavailable.'
+
+export const MAINTENANCE_OFF: MaintenanceState = { on: false, mode: 'banner', message: '', until: null }
 
 /** Paths that stay reachable even with maintenance on. See guarantee 1 and 3. */
 function isAlwaysReachable(path: string): boolean {
@@ -64,9 +84,28 @@ export function shouldShowMaintenance(input: {
 }): boolean {
   // Fail open: no readable state means no notice.
   if (!input.state || !input.state.on) return false
+  // A banner never takes the page away. Only 'block' does.
+  if (input.state.mode !== 'block') return false
   if (input.isAdmin) return false
   if (isAlwaysReachable(input.path)) return false
   return input.path.startsWith('/portal')
+}
+
+/**
+ * Should this visitor see the banner strip?
+ *
+ * Shown on portal pages including the sign-in page, because "we are down at 8pm" is
+ * worth knowing before you sign in. Admins DO see it: it is information, not an
+ * obstacle, and an admin should be able to tell at a glance that the notice is live
+ * without opening a private window.
+ */
+export function shouldShowBanner(input: {
+  state: MaintenanceState | null
+  path: string
+}): boolean {
+  if (!input.state || !input.state.on) return false
+  if (input.state.mode !== 'banner') return false
+  return input.path.startsWith('/portal') || input.path.startsWith('/admin')
 }
 
 /**
@@ -83,9 +122,13 @@ export function parseMaintenance(raw: unknown): MaintenanceState {
   const on = r.on === true
   if (!on) return MAINTENANCE_OFF
 
+  // Anything other than the literal 'block' is a banner. Ending up with the quieter
+  // notice from a malformed value is the safe direction.
+  const mode: MaintenanceMode = r.mode === 'block' ? 'block' : 'banner'
+
   const message = typeof r.message === 'string' && r.message.trim()
     ? r.message.trim()
-    : DEFAULT_MESSAGE
+    : (mode === 'block' ? DEFAULT_MESSAGE : DEFAULT_BANNER_MESSAGE)
 
   let until: string | null = null
   if (typeof r.until === 'string' && r.until.trim()) {
@@ -94,7 +137,7 @@ export function parseMaintenance(raw: unknown): MaintenanceState {
     if (!Number.isNaN(t)) until = new Date(t).toISOString()
   }
 
-  return { on: true, message, until }
+  return { on: true, mode, message, until }
 }
 
 /** The 1000-char ceiling matches the other admin free-text fields (lib/reason.ts). */
@@ -114,6 +157,11 @@ export function validateMaintenanceInput(
   }
   if (!r.on) return { ok: true, value: MAINTENANCE_OFF }
 
+  if (r.mode !== 'banner' && r.mode !== 'block') {
+    return { ok: false, message: 'Choose whether this is a banner or a full block.' }
+  }
+  const mode: MaintenanceMode = r.mode
+
   const rawMessage = typeof r.message === 'string' ? r.message.trim() : ''
   if (rawMessage.length > MAX_MESSAGE_LENGTH) {
     return { ok: false, message: `That message is too long (max ${MAX_MESSAGE_LENGTH} characters).` }
@@ -128,5 +176,6 @@ export function validateMaintenanceInput(
     until = new Date(t).toISOString()
   }
 
-  return { ok: true, value: { on: true, message: rawMessage || DEFAULT_MESSAGE, until } }
+  const fallback = mode === 'block' ? DEFAULT_MESSAGE : DEFAULT_BANNER_MESSAGE
+  return { ok: true, value: { on: true, mode, message: rawMessage || fallback, until } }
 }

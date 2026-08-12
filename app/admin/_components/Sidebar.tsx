@@ -67,6 +67,15 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Admin</span>
       </div>
 
+      {/* Only the nav list scrolls. The brand stays at the top and the footer (Switch
+          to BAM Portal, and the log out button) stays pinned at the bottom.
+          `.sidebar` is height:100vh with overflow:hidden, so on a short window the
+          overflow was CLIPPED rather than scrollable: measured at 1280x720, the content
+          was 896px tall and the log out button sat 150px below the visible area with no
+          way to reach it. A 1366x768 laptop is inside that range.
+          `minHeight: 0` is the load-bearing line -- without it a flex child refuses to
+          shrink below its content and never scrolls. */}
+      <div className="sidebar-nav" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
       {groups.map(g => (
         <div key={g.title}>
           <div className="nav-group-title">{g.title}</div>
@@ -82,8 +91,10 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
           })}
         </div>
       ))}
+      </div>
 
-      <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+      {/* flexShrink: 0 so the footer is never the thing that gets squeezed away. */}
+      <div style={{ paddingTop: 16, flexShrink: 0 }}>
         <div style={{ padding: '0 10px', marginBottom: 10 }}>
           <Link href="/portal/dashboard" onClick={onNavigate} style={{
             display: 'flex', alignItems: 'center', gap: 8,
