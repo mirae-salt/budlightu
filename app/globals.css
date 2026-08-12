@@ -214,9 +214,16 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 
 .blu-hero {
   position: relative;
-  height: calc(100vh - 30px);
-  min-height: 500px;
-  max-height: 800px;
+  /* Deliberately SHORTER than the window, so whatever comes next is already peeking in.
+     At calc(100vh - 30px) the hero filled the screen, the nav links landed on the bottom edge,
+     and the section below it was entirely out of sight: on a tall window the page looked like it
+     ended at the can. Leaving roughly a fifth of the viewport is what tells someone there is
+     more without them having to guess.
+     dvh second, so on a phone this is the height actually visible rather than the height the
+     page would have with the URL bar hidden. */
+  height: min(78vh, 760px);
+  height: min(78dvh, 760px);
+  min-height: 420px;
   overflow: hidden;
   display: flex;
   align-items: flex-end;
@@ -374,7 +381,14 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   gap: 4px;
   position: sticky;
   top: 0;
+  /* 100vh, then 100dvh where it is supported.
+     On a phone 100vh is the height the page WOULD have with the browser chrome hidden, so a
+     100vh sidebar puts its own footer -- the avatar, the notification bell, log out -- underneath
+     the URL bar, where it cannot be reached. dvh is the height actually visible right now.
+     Measured 2026-08-12: at 1280x800 with a 45px bar above the shell, this box ran to y=845 and
+     the account row sat 46px below the fold. */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 .sidebar-brand {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 type Notif = {
   id: string; type: string; title: string; body?: string
@@ -45,11 +46,36 @@ const PANEL_MAX_HEIGHT = 480
 /** Below this a panel is too short to be worth opening downward into. */
 const PANEL_MIN_HEIGHT = 200
 
+/**
+ * What is actually visible, which on a phone is not window.innerHeight.
+ *
+ * innerHeight is the layout viewport and includes the strip under the URL bar. visualViewport
+ * is what the person can see. Using the wrong one is how a panel measured as "fits" is rendered
+ * half under the browser chrome.
+ */
+export function currentViewport(): { width: number; height: number } {
+  if (typeof window === 'undefined') return { width: 1280, height: 800 }
+  const vv = window.visualViewport
+  return {
+    width: Math.round(vv?.width ?? window.innerWidth),
+    height: Math.round(vv?.height ?? window.innerHeight)
+  }
+}
+
+export type PanelPosition = {
+  left: number
+  width: number
+  maxHeight: number
+  /** Set when the panel opens downward. */
+  top?: number
+  /** Set when it opens upward. Anchoring by the bottom edge is load-bearing, see below. */
+  bottom?: number
+}
+
 export function placePanel(
   r: { top: number; bottom: number; left: number },
-  viewport: { width: number; height: number } =
-    typeof window === 'undefined' ? { width: 1280, height: 800 } : { width: window.innerWidth, height: window.innerHeight }
-): { top: number; left: number; width: number; maxHeight: number } {
+  viewport: { width: number; height: number } = currentViewport()
+): PanelPosition {
   const spaceBelow = viewport.height - r.bottom - PANEL_GAP * 2
   const spaceAbove = r.top - PANEL_GAP * 2
 
@@ -61,23 +87,30 @@ export function placePanel(
   // Never below the minimum: at that point the panel scrolls internally, which is readable,
   // where a 40px-tall panel is not.
   const maxHeight = Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, available))
-  const top = openDown
-    ? r.bottom + PANEL_GAP
-    : Math.max(PANEL_GAP, r.top - PANEL_GAP - maxHeight)
 
   const width = Math.min(PANEL_WIDTH, viewport.width - PANEL_GAP * 2)
   const left = Math.max(PANEL_GAP, Math.min(r.left, viewport.width - width - PANEL_GAP))
 
-  return { top, left, width, maxHeight }
+  if (openDown) return { top: r.bottom + PANEL_GAP, left, width, maxHeight }
+
+  // OPENING UPWARD ANCHORS THE BOTTOM EDGE, NOT THE TOP.
+  //
+  // The first attempt set `top = r.top - GAP - maxHeight`. maxHeight is a MAXIMUM, so a panel
+  // with four notifications in it is shorter than that and renders downward from `top`, leaving
+  // the gap between its bottom and the bell equal to however much shorter it was. Measured on
+  // 2026-08-12: the bell sat at y=715 and the panel ran 88 to 533, floating 180px above the
+  // thing it belongs to.
+  //
+  // Anchoring the bottom puts the panel against the bell whatever its content height, and it
+  // grows upward from there.
+  return { bottom: viewport.height - r.top + PANEL_GAP, left, width, maxHeight }
 }
 
 export function NotificationBell() {
   const [notifs, setNotifs] = useState<Notif[]>([])
   const [unread, setUnread] = useState(0)
   const [open, setOpen] = useState(false)
-  const [dropPos, setDropPos] = useState<
-    { top: number; left: number; width: number; maxHeight: number } | null
-  >(null)
+  const [dropPos, setDropPos] = useState<PanelPosition | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
@@ -90,6 +123,28 @@ export function NotificationBell() {
       })
       .catch(() => {})
   }
+
+  // document.body does not exist while this renders on the server, so the portal waits a tick.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  // Reposition while it is open. A phone's visible height changes when the URL bar slides away,
+  // and rotating the device changes both dimensions. Without this the panel keeps the placement
+  // it was given at the moment of the tap.
+  useEffect(() => {
+    if (!open) return
+    const reposition = () => {
+      if (btnRef.current) setDropPos(placePanel(btnRef.current.getBoundingClientRect()))
+    }
+    window.addEventListener('resize', reposition)
+    window.visualViewport?.addEventListener('resize', reposition)
+    window.visualViewport?.addEventListener('scroll', reposition)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.visualViewport?.removeEventListener('resize', reposition)
+      window.visualViewport?.removeEventListener('scroll', reposition)
+    }
+  }, [open])
 
   useEffect(() => {
     load()
@@ -154,9 +209,18 @@ export function NotificationBell() {
         )}
       </button>
 
-      {open && dropPos && (
+      {/* PORTALLED TO document.body, not left inside the sidebar.
+          .sidebar is overflow:hidden and, at mobile width, position:fixed. A panel rendered
+          inside it depends on none of that ever becoming a containing block, which is a property
+          nobody checks when they add a transition or a transform. Out here nothing above it can
+          clip it, whatever CSS lands on the sidebar later. */}
+      {open && dropPos && mounted && createPortal(
         <div style={{
-          position: 'fixed', top: dropPos.top, left: dropPos.left,
+          position: 'fixed', left: dropPos.left,
+          // One of these is set, never both. See placePanel: upward anchors the bottom so the
+          // panel touches the bell no matter how tall its contents turn out to be.
+          ...(dropPos.top !== undefined ? { top: dropPos.top } : {}),
+          ...(dropPos.bottom !== undefined ? { bottom: dropPos.bottom } : {}),
           width: dropPos.width, maxHeight: dropPos.maxHeight, overflowY: 'auto',
           background: 'var(--card-bg, #fff)', border: '1px solid var(--border)',
           borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
@@ -232,7 +296,8 @@ export function NotificationBell() {
               </div>
             ))
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

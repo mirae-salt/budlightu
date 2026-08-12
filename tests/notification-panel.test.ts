@@ -19,27 +19,46 @@ const BOTTOM_BELL = { top: 742, bottom: 770, left: 200 }
 /** Where it used to be. */
 const TOP_BELL = { top: 24, bottom: 52, left: 200 }
 
+/** Where the panel's box actually lands, given that only one of top/bottom is set. */
+function box(p: ReturnType<typeof placePanel>, viewportHeight: number) {
+  if (p.top !== undefined) return { top: p.top, bottom: p.top + p.maxHeight }
+  const bottom = viewportHeight - (p.bottom as number)
+  return { top: bottom - p.maxHeight, bottom }
+}
+
 describe('the panel stays on screen', () => {
   it('opens upward from the bottom of the sidebar', () => {
     const p = placePanel(BOTTOM_BELL, VIEW)
-    expect(p.top).toBeLessThan(BOTTOM_BELL.top)
-    // The actual bug: top + maxHeight used to be 1258 against an 800px window.
-    expect(p.top + p.maxHeight).toBeLessThanOrEqual(VIEW.height)
-    expect(p.top).toBeGreaterThanOrEqual(0)
+    expect(p.bottom).toBeDefined()
+    expect(p.top).toBeUndefined()
+    const b = box(p, VIEW.height)
+    // The first bug here: top + maxHeight used to be 1258 against an 800px window.
+    expect(b.bottom).toBeLessThanOrEqual(VIEW.height)
+    expect(b.top).toBeGreaterThanOrEqual(0)
+  })
+
+  it('sits against the bell rather than floating above it', () => {
+    // The SECOND bug. Anchoring by top with a maxHeight left the panel wherever its content
+    // ran out: the bell at y=715 with the panel ending at 533, 180px of nothing between them.
+    // Anchoring the bottom edge is what fixes it, so this asserts the bottom edge specifically.
+    const p = placePanel(BOTTOM_BELL, VIEW)
+    const gap = VIEW.height - (p.bottom as number)
+    expect(BOTTOM_BELL.top - gap).toBeLessThanOrEqual(10)
+    expect(BOTTOM_BELL.top - gap).toBeGreaterThanOrEqual(0)
   })
 
   it('still opens downward when there is room, which is what people expect', () => {
     const p = placePanel(TOP_BELL, VIEW)
     expect(p.top).toBeGreaterThan(TOP_BELL.bottom)
-    expect(p.top + p.maxHeight).toBeLessThanOrEqual(VIEW.height)
+    expect(box(p, VIEW.height).bottom).toBeLessThanOrEqual(VIEW.height)
   })
 
   it('fits inside a short laptop window either way', () => {
     // 1366x768 is inside the range that already clipped the log out button once.
     for (const r of [BOTTOM_BELL, TOP_BELL, { top: 400, bottom: 428, left: 200 }]) {
-      const p = placePanel(r, { width: 1366, height: 768 })
-      expect(p.top).toBeGreaterThanOrEqual(0)
-      expect(p.top + p.maxHeight).toBeLessThanOrEqual(768)
+      const b = box(placePanel(r, { width: 1366, height: 768 }), 768)
+      expect(b.top).toBeGreaterThanOrEqual(0)
+      expect(b.bottom).toBeLessThanOrEqual(768)
     }
   })
 
@@ -62,6 +81,13 @@ describe('the panel stays inside the left and right edges', () => {
     const p = placePanel({ top: 100, bottom: 128, left: 1240 }, VIEW)
     expect(p.left).toBeLessThan(1240)
     expect(p.left + p.width).toBeLessThanOrEqual(VIEW.width)
+  })
+
+  it('sets exactly one of top and bottom, never both', () => {
+    for (const r of [BOTTOM_BELL, TOP_BELL, { top: 400, bottom: 428, left: 200 }]) {
+      const p = placePanel(r, VIEW)
+      expect([p.top, p.bottom].filter(v => v !== undefined)).toHaveLength(1)
+    }
   })
 
   it('keeps the full width when there is room', () => {
