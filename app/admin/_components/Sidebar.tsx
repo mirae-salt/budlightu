@@ -10,22 +10,13 @@ import { browserClient } from '@/lib/supabase-browser'
 import { NotificationBell } from './TopBar'
 
 /**
- * `countKey` names a live queue count from /api/admin/nav-counts.
- *
- * Unmatched receipts and banking changes are empty most of the time, so in a flat list they
- * read as permanent parts of the program rather than "something needs you". With a count
- * they dim at zero and stand out when there is work.
- *
- * They are NOT hidden at zero. Nothing else in the app links to either page, so hiding them
- * would mean the only way back to a queue's history is typing the URL.
+ * Unmatched receipts and Banking changes used to live here with a live count that dimmed at
+ * zero. Dimming was not enough: they still held two of eleven slots for work that arrives a
+ * few times a term. They moved to the pages they belong to -- Unmatched onto Receipts,
+ * Banking changes onto BAMs -- as _components/QueueLink, which is loud when there is work and
+ * one quiet line when there is not. Nothing was hidden and nothing became unreachable.
  */
-type NavItem = {
-  href: string
-  label: string
-  icon: ReactNode
-  badge?: string
-  countKey?: 'unmatched' | 'banking'
-}
+type NavItem = { href: string; label: string; icon: ReactNode; badge?: string }
 type NavGroup = { title: string; items: NavItem[] }
 
 const groups: NavGroup[] = [
@@ -42,8 +33,6 @@ const groups: NavGroup[] = [
     items: [
       { href: '/admin/roster',    label: 'BAMs',       icon: <IconUsers /> },
       { href: '/admin/cohorts',   label: 'Cohorts',    icon: <IconLayers /> },
-      { href: '/admin/unmatched', label: 'Unmatched',  icon: <IconAlert />, countKey: 'unmatched' },
-      { href: '/admin/banking-requests', label: 'Banking changes', icon: <IconBank />, countKey: 'banking' },
       { href: '/admin/questions', label: 'Questions', icon: <IconInfo /> }
     ]
   },
@@ -61,25 +50,6 @@ const groups: NavGroup[] = [
 export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () => void }) {
   const path = usePathname()
   const [profile, setProfile] = useState<{ name: string; initial: string }>({ name: '', initial: '' })
-  // null means "not read yet, or could not be read". Rendered as no badge rather than as 0,
-  // because 0 is precisely the value that says nothing needs attention.
-  const [counts, setCounts] = useState<Record<string, number | null>>({})
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const res = await fetch('/api/admin/nav-counts')
-        const j = await res.json()
-        if (!cancelled && res.ok && j?.ok) setCounts(j.counts ?? {})
-      } catch {
-        // Leave the counts unknown. A sidebar badge is not worth an error message.
-      }
-    }
-    void load()
-    // Refreshed on navigation so approving the last banking request clears its badge
-    // without a reload.
-    return () => { cancelled = true }
-  }, [path])
   useEffect(() => {
     const sb = browserClient()
     sb.auth.getUser().then(({ data }) => {
@@ -93,11 +63,8 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
       <div className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
           <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
-          <div style={{ color: 'rgba(255,255,255,0.6)' }}>
-            <NotificationBell />
-          </div>
         </div>
         <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>Admin</span>
       </div>
@@ -116,22 +83,11 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
           <div className="nav-group-title">{g.title}</div>
           {g.items.map(it => {
             const active = it.href === '/admin' ? path === '/admin' : path.startsWith(it.href)
-            const live = it.countKey ? counts[it.countKey] : undefined
-            const waiting = typeof live === 'number' && live > 0
             return (
-              <Link
-                key={it.href}
-                href={it.href}
-                className={`nav-item ${active ? 'active' : ''}`}
-                onClick={onNavigate}
-                // Dimmed at zero, full strength when something is waiting. A queue with
-                // nothing in it should not compete with the pages used every day.
-                style={it.countKey && live === 0 && !active ? { opacity: 0.55 } : undefined}
-              >
+              <Link key={it.href} href={it.href} className={`nav-item ${active ? 'active' : ''}`} onClick={onNavigate}>
                 {it.icon}
                 <span>{it.label}</span>
-                {waiting && <span className="nav-badge">{live}</span>}
-                {it.badge && it.badge !== '0' && !it.countKey && <span className="nav-badge">{it.badge}</span>}
+                {it.badge && it.badge !== '0' && <span className="nav-badge">{it.badge}</span>}
               </Link>
             )
           })}
@@ -162,6 +118,12 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
           }}>{profile.initial}</div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.name}</div>
+          </div>
+          {/* The bell sits with the account, not the logo. It is about YOU -- what is
+              waiting for you to look at -- which is the same thing the avatar and the log
+              out button are about. Next to the wordmark it read as decoration. */}
+          <div style={{ color: 'rgba(255,255,255,0.45)', display: 'flex', flexShrink: 0 }}>
+            <NotificationBell />
           </div>
           <button onClick={async () => { const sb = browserClient(); await sb.auth.signOut(); window.location.href = '/portal/login' }} style={{
             background: 'transparent', border: 'none', cursor: 'pointer',

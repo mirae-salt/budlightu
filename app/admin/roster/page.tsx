@@ -1,4 +1,5 @@
 'use client'
+import { QueueLink } from '../_components/QueueLink'
 
 import { Fragment, useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
@@ -477,6 +478,15 @@ export default function Roster() {
   return (
     <>
       <TopBar crumbs={['Roster', 'BAMs']} />
+
+      {/* Moved here from the sidebar. A banking change is a change to one of these rows, and
+          it is the roster page that shows what it would change. */}
+      <QueueLink
+        href="/admin/banking-requests"
+        countKey="banking"
+        labelSome={n => `${n} banking change${n === 1 ? '' : 's'} waiting for approval`}
+        labelNone="No banking changes waiting. View request history"
+      />
 
       {/* Fixed toast: an inline badge beside the button was too easy to miss. */}
       <Toast notice={editMsg} onDismiss={() => setEditMsg(null)} />

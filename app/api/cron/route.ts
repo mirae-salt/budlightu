@@ -21,14 +21,31 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { runDailyDigest } from '../../../lib/run-daily-digest'
+import { runStudentReminders } from '../../../lib/run-student-reminders'
 import { handler as runAudit } from '../../../supabase/functions/scheduler-audit/index'
 import { handler as runGenerate } from '../../../supabase/functions/scheduler-generate/index'
 import { requireAdmin } from '../../../lib/admin-auth'
 import { envString } from '../../../lib/sanitize'
 
-/** Day of month each job is due. Receipts close on the 15th; invoices follow on the 16th. */
-const AUDIT_DAY = 15
-const GENERATE_DAY = 16
+/**
+ * Day of month each job is due.
+ *
+ * Receipts close on the 15th. The audit runs on the 16th, and invoices go to AP on the 17th,
+ * which is the date Robin asked for.
+ *
+ * THE GAP BETWEEN THEM IS THE POINT. The audit flags receipts it is not sure about, and
+ * clearing those is Robin's first touchpoint. Running both jobs on the same day would give
+ * her zero time to do it, so anything still undecided would be left out of that month's
+ * invoice and the reimbursement would be short, every month, by hand.
+ *
+ * Decided by Mirae on 2026-08-12. Robin's own answer was "check on the 17th, submit on the
+ * 17th"; moving the check a day earlier keeps her deadline and buys back the review window.
+ *
+ * If these are ever set to the SAME day, the branch below must be changed too: it is an
+ * else-if chain, so audit would run and generate would never fire.
+ */
+const AUDIT_DAY = 16
+const GENERATE_DAY = 17
 
 export const maxDuration = 300
 
@@ -83,6 +100,23 @@ export async function GET(req: NextRequest) {
     digest = { sent: false, reason: 'threw', questions: 0, pendingBanking: 0, error: e instanceof Error ? e.message : String(e) }
   }
 
+  // Reminders to students, on the same every-invocation footing as the digest and for the
+  // same reason: the day gate below is about the money cycle, and a reminder that only fires
+  // on the 16th is not a reminder. Which days it actually sends on is its own setting, and it
+  // is OFF until Robin approves the wording.
+  //
+  // Wrapped, because a reminder failing must never stop invoices from being generated.
+  let reminders: Awaited<ReturnType<typeof runStudentReminders>> | { ran: false; mode: 'off'; note: string; considered: 0; selected: 0; sent: 0; failed: 0; errors: string[] }
+  try {
+    reminders = await runStudentReminders(now)
+  } catch (e) {
+    console.error('[cron] student reminders threw:', e)
+    reminders = {
+      ran: false, mode: 'off', note: `threw: ${e instanceof Error ? e.message : String(e)}`,
+      considered: 0, selected: 0, sent: 0, failed: 0, errors: []
+    }
+  }
+
   let jobs: JobName[]
   if (forced === 'audit' || forced === 'generate') {
     jobs = [forced]
@@ -101,6 +135,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       ran: [],
       digest,
+      reminders,
       note: `nothing due on day ${day} (audit runs on the ${AUDIT_DAY}th, generate on the ${GENERATE_DAY}th, UTC)`,
       authorized_via: auth.via
     })
@@ -125,6 +160,7 @@ export async function GET(req: NextRequest) {
     ran: jobs,
     // Reported on both paths so a green cron log can never hide whether the digest ran.
     digest,
+    reminders,
     authorized_via: auth.via,
     results,
     ...(allOk ? {} : { message: 'One or more jobs reported errors. See results.' })

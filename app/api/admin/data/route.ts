@@ -210,7 +210,7 @@ export async function GET(req: Request) {
     // dashboard") was not true.
     case 'questions': {
       const { data, error } = await admin.from('portal_questions')
-        .select('id, question, submitted_at, bam_id, bams(first_name, last_name, email)')
+        .select('id, question, submitted_at, notified_at, bam_id, bams(first_name, last_name, email, school_id, cohorts(name))')
         .order('submitted_at', { ascending: false })
         .limit(200)
       if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })

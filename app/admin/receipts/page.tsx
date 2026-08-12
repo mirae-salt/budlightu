@@ -1,4 +1,5 @@
 'use client'
+import { QueueLink } from '../_components/QueueLink'
 
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
@@ -358,6 +359,15 @@ export default function ReceiptsQueue() {
   return (
     <>
       <TopBar crumbs={['Receipts', tab === 'queue' ? 'Review queue' : 'History']} />
+
+      {/* Moved here from the sidebar. An unmatched receipt is a receipt, and this is where
+          someone would look for it. See _components/QueueLink.tsx. */}
+      <QueueLink
+        href="/admin/unmatched"
+        countKey="unmatched"
+        labelSome={n => `${n} receipt${n === 1 ? '' : 's'} could not be matched to a BAM`}
+        labelNone="All receipts are matched to a BAM. View unmatched history"
+      />
 
       <div className="surface">
         <div className="surface-header">

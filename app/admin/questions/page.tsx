@@ -27,7 +27,21 @@ type DbQuestion = {
   question: string
   submitted_at: string
   bam_id: string | null
-  bams: { first_name: string | null; last_name: string | null; email: string | null } | null
+  notified_at: string | null
+  bams: {
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    school_id: string | null
+    cohorts?: { name: string } | { name: string }[] | null
+  } | null
+}
+
+/** cohorts comes back as an object or a one-element array depending on the join. */
+function cohortName(r: DbQuestion): string | null {
+  const c = r.bams?.cohorts
+  const one = Array.isArray(c) ? c[0] : c
+  return one?.name ?? null
 }
 
 export default function QuestionsPage() {
@@ -40,6 +54,9 @@ export default function QuestionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  // Filter by cohort, because that is the grouping Robin actually thinks in: a question from
+  // a summer BAM and one from a fall BAM are different conversations.
+  const [cohort, setCohort] = useState('all')
 
   useEffect(() => {
     let cancelled = false
@@ -75,14 +92,17 @@ export default function QuestionsPage() {
   // Matches the question text, the BAM's name and their email, which is everything shown
   // on a card. Searching for what you can see is the only rule worth having here.
   const q = query.trim().toLowerCase()
-  const visible = q === ''
-    ? rows
-    : rows.filter(r => {
-        const b = r.bams
-        const name = [b?.first_name, b?.last_name].filter(Boolean).join(' ')
-        return [r.question, name, b?.email ?? '']
-          .some(v => String(v).toLowerCase().includes(q))
-      })
+  const cohorts = [...new Set(rows.map(cohortName).filter((c): c is string => Boolean(c)))].sort()
+  const visible = rows.filter(r => {
+    if (cohort !== 'all' && cohortName(r) !== cohort) return false
+    if (q === '') return true
+    const b = r.bams
+    const name = [b?.first_name, b?.last_name].filter(Boolean).join(' ')
+    // Everything a card shows is searchable, including school and cohort. Searching for what
+    // you can see is the only rule worth having.
+    return [r.question, name, b?.email ?? '', b?.school_id ?? '', cohortName(r) ?? '']
+      .some(v => String(v).toLowerCase().includes(q))
+  })
 
   const who = (r: DbQuestion) => {
     const b = r.bams
@@ -132,20 +152,51 @@ export default function QuestionsPage() {
           </Link>
         </div>
 
-        {/* Search, because there is no answered/unanswered status to filter by yet: adding
-            one needs a column on portal_questions. Until then finding "the one about the
-            Halifax receipt" means reading every card. */}
-        {!loading && !error && rows.length > 3 && (
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search questions, names or emails"
-            style={{
-              width: '100%', boxSizing: 'border-box', marginBottom: 16,
-              padding: '10px 12px', fontSize: 13, fontFamily: 'inherit',
-              border: '1px solid rgba(0,0,0,0.15)', borderRadius: 8
-            }}
-          />
+        {/* Always rendered when there is anything to search. This was gated on
+            rows.length > 3, which meant that with one question on the page the search box did
+            not exist, and the reasonable conclusion was that it had never been built. */}
+        {!loading && !error && rows.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search questions, names, emails or schools"
+              style={{
+                flex: '1 1 220px', minWidth: 0, boxSizing: 'border-box',
+                padding: '10px 12px', fontSize: 13, fontFamily: 'inherit',
+                border: '1px solid rgba(0,0,0,0.15)', borderRadius: 8
+              }}
+            />
+            {cohorts.length > 1 && (
+              <select
+                value={cohort}
+                onChange={e => setCohort(e.target.value)}
+                style={{
+                  padding: '10px 12px', fontSize: 13, fontFamily: 'inherit',
+                  border: '1px solid rgba(0,0,0,0.15)', borderRadius: 8, background: '#fff'
+                }}
+              >
+                <option value="all">All cohorts</option>
+                {cohorts.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+            {(query.trim() !== '' || cohort !== 'all') && (
+              <button
+                onClick={() => { setQuery(''); setCohort('all') }}
+                className="btn-ghost"
+                style={{ fontSize: 13 }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* The count, so a filter that hides most of the page says so. */}
+        {!loading && !error && rows.length > 0 && (query.trim() !== '' || cohort !== 'all') && (
+          <p className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+            Showing {visible.length} of {rows.length}
+          </p>
         )}
 
         {loading && <p className="muted">Loading…</p>}
@@ -168,8 +219,7 @@ export default function QuestionsPage() {
 
         {!loading && !error && rows.length > 0 && visible.length === 0 && (
           <p className="muted" style={{ fontSize: 13 }}>
-            Nothing matches &ldquo;{query.trim()}&rdquo;. {rows.length} question
-            {rows.length === 1 ? '' : 's'} in total.
+            Nothing matches. {rows.length} question{rows.length === 1 ? '' : 's'} in total.
           </p>
         )}
 

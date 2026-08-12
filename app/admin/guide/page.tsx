@@ -102,16 +102,18 @@ function OpenItemsPanel() {
   // Kept in step with DESIGN-NOTES.md section 6 and the open-question sections in
   // CLAUDE.md. Last reviewed 2026-08-12. Items are removed when Robin answers, not when
   // the code changes: several of these are decisions, not tasks.
+  //
+  // SHORT ON PURPOSE. These were three or four sentences each, explaining the mechanism
+  // before getting to the question, and Mirae was right that nobody reads that. One question
+  // with the options named, and the consequence only where it changes the answer. If Robin
+  // needs the reasoning she will ask, and then she is asking about the thing that matters.
   const items = [
     {
       priority: 'high' as const,
-      title: 'Which month does a purchase after the 15th belong to?',
+      title: 'A receipt from Sept 20: which month?',
       detail:
-        'Receipts close on the 15th and there is no rollover, so a purchase made on the 20th ' +
-        'has nowhere to go inside that month. As built it lands in the NEXT cycle and comes out ' +
-        "of that month's $150. That makes the real spending window the 16th to the 15th, while " +
-        'every label says "September". Confirm: is the 16th-to-15th window what you intend? If ' +
-        'so we spell it out to the BAMs; if not, either the deadline or the period has to move.',
+        'Can they submit it with October receipts, or is October strictly October spending? ' +
+        "If it goes into October, it uses up October's $150.",
       owner: 'Robin',
       due: 'Before Sept 1',
     },
@@ -119,41 +121,34 @@ function OpenItemsPanel() {
       priority: 'high' as const,
       title: 'Terms and conditions body',
       detail:
-        'Everything in the portal T&C page today is our placeholder wording, including two lines ' +
-        'we wrote on Aug 12 that need your sign-off specifically: that a month runs from the 16th ' +
-        'to the 15th, and that a closed month will not accept receipts at all. Two sections ' +
-        '(Conduct and brand, Ending your participation) are still marked DRAFT on the page.',
+        'The T&C page is our placeholder wording. Send us yours. Two sections show a DRAFT badge.',
       owner: 'Robin',
       due: 'Before Sept 1',
     },
     {
-      priority: 'high' as const,
-      title: 'Check receipts on the 16th or the 17th?',
+      priority: 'medium' as const,
+      title: 'Low-spend warning: below how much?',
       detail:
-        'You said receipts due the 15th, checked on the 17th, invoices to AP on the 17th. The ' +
-        'system currently checks on the 15th and generates on the 16th. If both run on the 17th ' +
-        'there is no gap for you to review the receipts it flags, so anything undecided drops out ' +
-        "of that month's invoice and you fix it by hand. Suggested: it checks on the 16th, you " +
-        'clear anything flagged, invoices go to AP on the 17th as you asked.',
+        'Set to $75 as a placeholder. Below that a BAM gets a warning email, and twice in a row ' +
+        'flags them for reevaluation. Also: skip this the first month? Onboarding to the deadline ' +
+        'is only two weeks.',
       owner: 'Robin',
       due: 'Before Sept 15',
     },
     {
       priority: 'medium' as const,
-      title: 'Low-spend warning threshold',
+      title: 'Reminder emails to BAMs: approve the wording?',
       detail:
-        'Currently set to $75: a BAM who spends less than that in a month gets a warning email, ' +
-        'and two shortfalls in a row flags them for reevaluation. The $75 was a placeholder ' +
-        '("let us say 75 for now") and has never been confirmed. Also worth deciding whether the ' +
-        'first cycle needs an exception, since onboarding to deadline is only two weeks and a lot ' +
-        'of BAMs will fall short through no fault of their own.',
+        'Built and turned off. On the 10th and 14th it would email anyone who has not used their ' +
+        '$150 yet, with the amount left and the upload link. Read it on the Settings page and ' +
+        'turn it on, or tell us what to change.',
       owner: 'Robin',
-      due: 'Before Sept 15',
+      due: 'Before Sept 10',
     },
     {
       priority: 'medium' as const,
-      title: 'Float card info — who takes over from Jenna?',
-      detail: 'Jenna is leaving. Need to confirm who will manage the float card and ad-hoc expense tracking going forward.',
+      title: 'Float card: who takes over from Jenna?',
+      detail: 'Jenna is leaving. Who manages the float card and ad-hoc expenses?',
       owner: 'Robin',
       due: 'ASAP',
     },
@@ -161,8 +156,7 @@ function OpenItemsPanel() {
       priority: 'low' as const,
       title: 'Sending address allowlist with IT',
       detail:
-        'Ticket sent Aug 12: add noreply@budlightu.com to the safe-sender list for ' +
-        'accounts.payable@ilovesalt.com, so invoices are not quarantined. Until it is in place ' +
+        'Ticket sent Aug 12: allow noreply@budlightu.com to reach accounts.payable. Until then ' +
         'invoices go to Guneet, who forwards them. Waiting on IT.',
       owner: 'Mirae',
       due: 'Before Sept 17',

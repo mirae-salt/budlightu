@@ -41,6 +41,13 @@ type NotifyState = {
   degraded: boolean
 }
 
+type ReminderState = {
+  mode: 'off' | 'draft' | 'live'
+  days: number[]
+  degraded: boolean
+  preview: { subject: string; html: string } | null
+}
+
 type InvoiceEmail = {
   to: string
   cc: string[]
@@ -63,15 +70,21 @@ export default function SettingsPage() {
   const [savingMode, setSavingMode] = useState(false)
   const [modeMsg, setModeMsg] = useState<string | null>(null)
 
+  const [reminders, setReminders] = useState<ReminderState | null>(null)
+  const [showPreview, setShowPreview] = useState(false)
+  const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [savingReminders, setSavingReminders] = useState(false)
+
   const [recipientText, setRecipientText] = useState('')
   const [savingRecipients, setSavingRecipients] = useState(false)
   const [recipientMsg, setRecipientMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function load() {
     try {
-      const [nRes, iRes] = await Promise.all([
+      const [nRes, iRes, rRes] = await Promise.all([
         fetch('/api/admin/question-notify'),
-        fetch('/api/admin/settings')
+        fetch('/api/admin/settings'),
+        fetch('/api/admin/student-reminders')
       ])
       const n = await nRes.json()
       if (!nRes.ok || !n?.ok) {
@@ -89,6 +102,16 @@ export default function SettingsPage() {
 
       const i = await iRes.json()
       if (iRes.ok && i?.ok) setInvoice(i.invoiceEmail)
+
+      const r = await rRes.json()
+      if (rRes.ok && r?.ok) {
+        setReminders({
+          mode: r.settings?.mode ?? 'off',
+          days: Array.isArray(r.settings?.days) ? r.settings.days : [],
+          degraded: Boolean(r.degraded),
+          preview: r.preview ?? null
+        })
+      }
     } catch (e) {
       setLoadError((e as Error).message)
     }
@@ -119,6 +142,36 @@ export default function SettingsPage() {
       setModeMsg((e as Error).message)
     } finally {
       setSavingMode(false)
+    }
+  }
+
+  async function saveReminders(mode: 'off' | 'draft' | 'live') {
+    setSavingReminders(true)
+    setReminderMsg(null)
+    try {
+      const res = await fetch('/api/admin/student-reminders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, days: reminders?.days ?? [10, 14] })
+      })
+      const j = await res.json()
+      if (!res.ok || !j?.ok) {
+        setReminderMsg({ ok: false, text: j?.message ?? 'Not saved.' })
+      } else {
+        setReminders(prev => (prev ? { ...prev, mode: j.settings.mode, degraded: false } : prev))
+        setReminderMsg({
+          ok: true,
+          text: j.settings.mode === 'live'
+            ? 'Saved. Reminders will be emailed to BAMs on the days listed.'
+            : j.settings.mode === 'draft'
+              ? 'Saved. Nothing will be emailed. The system will record who it would have emailed.'
+              : 'Saved. No reminders will be sent.'
+        })
+      }
+    } catch (e) {
+      setReminderMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setSavingReminders(false)
     }
   }
 
@@ -314,6 +367,92 @@ export default function SettingsPage() {
         </p>
       </section>
 
+      {/* ---------------- Reminders to BAMs ---------------- */}
+      <section style={sectionStyle}>
+        <h2 style={h2Style}>Reminders to BAMs</h2>
+        <p style={pStyle}>
+          A reminder to anyone who has not used their $150 yet, sent on the{' '}
+          {(reminders?.days ?? [10, 14]).join(' and the ')} of the month. It shows how much they
+          have left and links to the upload page. Nobody who has already hit the cap gets one.
+        </p>
+
+        {reminders?.degraded && (
+          <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 12px' }}>
+            The current setting could not be read, so this is showing off. Nothing is being sent.
+          </p>
+        )}
+
+        <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+          {([
+            ['off', 'Off', 'Nothing is sent. This is where it is now.'],
+            ['draft', 'Record only, do not send', 'The system works out who would get one and records it, but no email leaves. Good for one cycle before turning it on.'],
+            ['live', 'Send them', 'BAMs are emailed on the days above.']
+          ] as const).map(([mode, label, detail]) => (
+            <label
+              key={mode}
+              style={{
+                display: 'flex', gap: 10, alignItems: 'flex-start',
+                border: `1px solid ${reminders?.mode === mode ? '#0073cf' : '#e5e7eb'}`,
+                background: reminders?.mode === mode ? '#f0f7ff' : '#fff',
+                borderRadius: 8, padding: '12px 14px', cursor: savingReminders ? 'wait' : 'pointer'
+              }}
+            >
+              <input
+                type="radio"
+                name="reminder-mode"
+                checked={reminders?.mode === mode}
+                disabled={savingReminders || !reminders}
+                onChange={() => void saveReminders(mode)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <span style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{label}</span>
+                <span style={{ display: 'block', fontSize: 13, color: '#6b7280', marginTop: 2 }}>{detail}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {reminderMsg && (
+          <p style={{ fontSize: 13, color: reminderMsg.ok ? '#166534' : '#991b1b', margin: '0 0 12px' }}>
+            {reminderMsg.text}
+          </p>
+        )}
+
+        {/* Read it before turning it on. This is the same function the cron uses, so what is
+            shown here is what sends. */}
+        <button
+          onClick={() => setShowPreview(v => !v)}
+          style={{
+            background: '#fff', border: '1px solid #d1d5db', borderRadius: 8,
+            padding: '9px 16px', fontSize: 14, fontWeight: 600, color: '#1a1a2e', cursor: 'pointer'
+          }}
+        >
+          {showPreview ? 'Hide the email' : 'Read the email a BAM would get'}
+        </button>
+
+        {showPreview && reminders?.preview && (
+          <div style={{ marginTop: 14 }}>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 6px' }}>
+              Subject: <strong style={{ color: '#1a1a2e' }}>{reminders.preview.subject}</strong>
+            </p>
+            <div
+              style={{
+                border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff',
+                maxHeight: 420, overflow: 'auto'
+              }}
+              // The real HTML, not a description of it. It comes from our own pure function
+              // with no student data in it, so there is nothing here to escape.
+              dangerouslySetInnerHTML={{ __html: reminders.preview.html }}
+            />
+            <p style={{ fontSize: 12, color: '#9ca3af', margin: '8px 0 0', lineHeight: 1.6 }}>
+              Example figures. The real email uses each BAM&apos;s own numbers. To change the
+              wording, tell Mirae what it should say.
+            </p>
+          </div>
+        )}
+      </section>
+
       {/* ---------------- Invoice email ---------------- */}
       <section style={sectionStyle}>
         <h2 style={h2Style}>Invoice email</h2>
@@ -347,9 +486,9 @@ export default function SettingsPage() {
               border: '1px solid #fde68a', borderRadius: 8, padding: 12,
               margin: '12px 0 0', lineHeight: 1.6
             }}>
-              Not editable here yet. These addresses are set in the hosting config and are
-              also read by the invoice sender directly, so changing them is a change to the
-              payment path rather than a setting. Ask Mirae and it takes a minute.
+              To change any of these, ask Mirae. They are not editable here because these are
+              the addresses real invoices are sent to, and a typo would send someone&apos;s pay
+              to the wrong inbox.
             </p>
           </>
         ) : (

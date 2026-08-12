@@ -1,0 +1,95 @@
+/**
+ * A link to a review queue, shown on the page that queue belongs to.
+ *
+ * WHY THESE LEFT THE SIDEBAR
+ * --------------------------
+ * Unmatched receipts and pending banking changes each had a permanent nav entry, and both are
+ * empty almost all of the time. Dimming them helped and was not enough: they still occupied
+ * two of eleven slots and read as parts of the program rather than as occasional work.
+ *
+ * They are not gone, they moved to where they are already relevant. Unmatched receipts are
+ * receipts, so the link lives on the Receipts page. A banking change is a change to a roster
+ * row, so it lives on the BAMs page. That is also where someone would look for them.
+ *
+ * REACHABLE AT ZERO, ON PURPOSE
+ * -----------------------------
+ * At zero this renders as one quiet line rather than disappearing. A queue that vanishes when
+ * empty is a queue whose history can only be reached by typing the URL, and "nothing here
+ * now" is different information from "this does not exist". Being on the page it belongs to
+ * is what makes one quiet line affordable, where a permanent sidebar row was not.
+ *
+ * A count that cannot be read shows no number at all. Rendering 0 for a failed read is the
+ * one wrong answer, because 0 is exactly what says nothing needs attention.
+ */
+'use client'
+
+import Link from 'next/link'
+import { useEffect, useState } from 'react'
+
+export function QueueLink({
+  href,
+  countKey,
+  labelSome,
+  labelNone
+}: {
+  href: string
+  countKey: 'unmatched' | 'banking'
+  /** Shown when there is work. Receives the count, e.g. "3 receipts need matching". */
+  labelSome: (n: number) => string
+  /** Shown when the queue is empty. */
+  labelNone: string
+}) {
+  const [count, setCount] = useState<number | null | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/nav-counts')
+      .then(r => r.json())
+      .then(j => {
+        if (cancelled) return
+        // undefined stays undefined (still loading / never answered), null means unreadable.
+        if (j?.ok) setCount(j.counts?.[countKey] ?? null)
+        else setCount(null)
+      })
+      .catch(() => { if (!cancelled) setCount(null) })
+    return () => { cancelled = true }
+  }, [countKey])
+
+  // Nothing at all until the count is known. A box that says "0 waiting" and then changes to
+  // "3 waiting" a moment later trains people to not read it.
+  if (count === undefined) return null
+
+  const waiting = typeof count === 'number' && count > 0
+
+  if (!waiting) {
+    return (
+      <Link
+        href={href}
+        className="muted"
+        style={{ fontSize: 12, textDecoration: 'none', display: 'inline-block', marginBottom: 16 }}
+      >
+        {labelNone}
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      href={href}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16,
+        padding: '11px 14px', borderRadius: 10, textDecoration: 'none',
+        background: 'rgba(234,179,8,0.10)', border: '1px solid rgba(234,179,8,0.35)',
+        color: '#854d0e', fontSize: 13, fontWeight: 600
+      }}
+    >
+      <span style={{
+        background: '#a16207', color: '#fff', borderRadius: 999,
+        minWidth: 20, height: 20, display: 'inline-flex', alignItems: 'center',
+        justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: '0 6px'
+      }}>{count}</span>
+      <span>{labelSome(count)}</span>
+      <span style={{ marginLeft: 'auto', fontWeight: 400 }}>Review</span>
+    </Link>
+  )
+}
