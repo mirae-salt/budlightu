@@ -165,3 +165,43 @@ describe('P1-28 · lookupBank is EXACT, never a substring match', () => {
     expect(lookupBank(undefined)).toBeNull()
   })
 })
+
+describe('every bank the dropdown offers survives the round trip', () => {
+  // THE INVARIANT THAT WAS MISSING. Every bank <select> in the product uses
+  // `displayName` as the option value, and the server then validates it with
+  // lookupBank. Nothing checked that those two agreed, so four of the offered options
+  // did not: three were refused outright ("not in our lookup. Please contact your
+  // program manager", to a student who had picked from our own list), and Alterna Bank
+  // silently resolved to Alterna Savings -- institution 842 for a bank whose number is
+  // 608. A student's deposit block would have named one and routed to the other.
+  //
+  // It went unnoticed from July because the failing four are the entries whose
+  // displayName is not simply their normalized form: parentheses, an apostrophe, or a
+  // word normalizeBankName strips.
+  it.each(BANK_SEED.map(b => [b.displayName, b.institutionNo] as const))(
+    '%s resolves to %s',
+    (displayName, institutionNo) => {
+      const found = lookupBank(displayName)
+      expect(found, `${displayName} is offered in the dropdown but lookupBank refuses it`).not.toBeNull()
+      expect(found?.institutionNo).toBe(institutionNo)
+    }
+  )
+
+  it('the four that used to fail, named so a regression is obvious', () => {
+    expect(lookupBank('EQ Bank (Equitable Bank)')?.institutionNo).toBe('623')
+    expect(lookupBank('SCU (Steinbach Credit Union)')?.institutionNo).toBe('879')
+    expect(lookupBank("President's Choice Financial")?.institutionNo).toBe('320')
+    // The dangerous one: an exact displayName must beat an alias pointing elsewhere.
+    expect(lookupBank('Alterna Bank')?.institutionNo).toBe('608')
+    expect(lookupBank('Alterna Savings')?.institutionNo).toBe('842')
+  })
+
+  it('the shorthand aliases still work', () => {
+    // The displayName match is added in front of these, not instead of them.
+    expect(lookupBank('eq')?.institutionNo).toBe('623')
+    expect(lookupBank('equitable')?.institutionNo).toBe('623')
+    expect(lookupBank('steinbach')?.institutionNo).toBe('879')
+    expect(lookupBank('alterna')?.institutionNo).toBe('842')
+    expect(lookupBank('td')?.institutionNo).toBe('004')
+  })
+})

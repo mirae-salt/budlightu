@@ -188,6 +188,29 @@ export function normalizeBankName(raw: string): string {
  */
 export function lookupBank(rawName: string, seed: BankLookup[] = BANK_SEED): BankLookup | null {
   if (typeof rawName !== 'string') return null
+
+  // EXACT displayName FIRST, and this ordering is load-bearing.
+  //
+  // Every bank <select> in the product sends `displayName` -- it is the option's value.
+  // lookupBank only understood `normalized` and the alias map, and normalizeBankName
+  // strips words like "bank" and "financial" and does nothing with parentheses, so four
+  // of the offered options did not survive the round trip:
+  //
+  //   EQ Bank (Equitable Bank)      -> "eq (equitable )"      -> no match, refused
+  //   SCU (Steinbach Credit Union)  -> "scu (steinbach )"     -> no match, refused
+  //   President's Choice Financial  -> "president's choice"   -> no match, refused
+  //   Alterna Bank                  -> "alterna"              -> alias -> Alterna Savings
+  //
+  // The first three refused a student who had picked a bank from our own dropdown
+  // ("not in our lookup. Please contact your program manager"). The fourth is worse: it
+  // silently returned institution 842 for a bank whose number is 608, so the deposit
+  // block would have named Alterna Bank and routed to Alterna Savings.
+  //
+  // Matching displayName before the alias map is what fixes Alterna specifically: its
+  // own entry wins over an alias pointing at a different institution.
+  const exact = seed.find(b => b.displayName === rawName.trim())
+  if (exact) return exact
+
   const norm = normalizeBankName(rawName)
   if (!norm) return null
 
