@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useRouter } from 'next/navigation'
 
 type Notif = {
   id: string; type: string; title: string; body?: string
@@ -19,15 +20,27 @@ function timeAgo(iso: string): string {
   return `${days}d ago`
 }
 
-const TYPE_ICONS: Record<string, string> = {
-  receipt_review: '⚠',
-  ocr_failed: '✖',
-  shortfall: '▼',
-  invoice_draft: '✉',
-  support_question: '❓',
-  receipt_uploaded: '↑',
-  banking_change_request: '🏦',
+/**
+ * A dot coloured by what the notification is about.
+ *
+ * This was a mix of text glyphs and emoji: an outline warning triangle next to a full-colour
+ * bank emoji next to a question mark, at four apparent weights. They read as different icon
+ * families because they were, and an emoji missing from the system font renders as a box.
+ *
+ * Colour carries the meaning instead. Amber for something waiting on a decision, red for
+ * something that failed, blue for information.
+ */
+const TYPE_TONE: Record<string, string> = {
+  receipt_review: '#d97706',
+  banking_change_request: '#d97706',
+  support_question: '#d97706',
+  ocr_failed: '#dc2626',
+  invoice_blocked: '#dc2626',
+  shortfall: '#dc2626',
+  invoice_draft: '#0073cf',
+  receipt_uploaded: '#0073cf',
 }
+const TYPE_TONE_DEFAULT = '#9ca3af'
 
 /**
  * Where the notification panel goes.
@@ -123,6 +136,12 @@ export function NotificationBell() {
       })
       .catch(() => {})
   }
+
+  const router = useRouter()
+  /** Read ones are hidden by default. See the toggle at the foot of the panel. */
+  const [showRead, setShowRead] = useState(false)
+  const readCount = notifs.filter(n => n.read).length
+  const visible = showRead ? notifs : notifs.filter(n => !n.read)
 
   // document.body does not exist while this renders on the server, so the portal waits a tick.
   const [mounted, setMounted] = useState(false)
@@ -222,13 +241,36 @@ export function NotificationBell() {
           ...(dropPos.top !== undefined ? { top: dropPos.top } : {}),
           ...(dropPos.bottom !== undefined ? { bottom: dropPos.bottom } : {}),
           width: dropPos.width, maxHeight: dropPos.maxHeight, overflowY: 'auto',
-          background: 'var(--card-bg, #fff)', border: '1px solid var(--border)',
-          borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+          background: '#fff',
+          borderRadius: 14,
+          /*
+           * A 1px ring and THREE layered shadows, replacing `border: 1px solid var(--border)`
+           * with a single 0 8px 32px blur.
+           *
+           * Two things were wrong with that. var(--border) is a pale grey that disappears against
+           * the light page and is invisible against the navy sidebar, so the panel had no edge on
+           * either side of itself. And one wide soft blur reads as fog rather than as height: the
+           * panel looked like it was dissolving into the page instead of sitting above it.
+           *
+           * The ring is drawn as a shadow with 1px spread rather than a border so it does not take
+           * part in layout, and it holds its contrast over both backgrounds. The shadows are tight,
+           * medium and wide, which is the layering every design system converges on for overlay
+           * elevation: the tight one defines the edge, the wide one places it above the page.
+           */
+          boxShadow: [
+            '0 0 0 1px rgba(15,23,42,0.10)',
+            '0 1px 2px rgba(15,23,42,0.06)',
+            '0 8px 16px -6px rgba(15,23,42,0.10)',
+            '0 24px 48px -16px rgba(15,23,42,0.22)'
+          ].join(', '),
           zIndex: 1000
         }}>
+          {/* Sticky, so the title and Mark all read stay reachable while the list scrolls. The
+              border underneath doubles as the standard cue that there is content out of view. */}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '14px 16px 10px', borderBottom: '1px solid var(--border)'
+            padding: '14px 16px 10px', borderBottom: '1px solid rgba(15,23,42,0.08)',
+            position: 'sticky', top: 0, background: '#fff', zIndex: 1
           }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)' }}>
               Notifications {unread > 0 && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--midgray)' }}>({unread} new)</span>}
@@ -243,17 +285,22 @@ export function NotificationBell() {
             )}
           </div>
 
-          {notifs.length === 0 ? (
+          {visible.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
-              No notifications yet
+              {notifs.length === 0
+                ? 'No notifications yet'
+                : showRead ? 'No notifications yet' : 'Nothing new. You are caught up.'}
             </div>
           ) : (
-            notifs.map(n => (
+            visible.map(n => (
               <div
                 key={n.id}
                 onClick={() => {
                   if (!n.read) markRead(n.id)
-                  if (n.link) window.location.href = n.link
+                  // router.push, not window.location.href. A full reload threw away the whole
+                  // admin bundle and the page state to move between two admin screens, so a
+                  // notification took a second and a half to follow.
+                  if (n.link) router.push(n.link)
                   setOpen(false)
                 }}
                 style={{
@@ -265,9 +312,16 @@ export function NotificationBell() {
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.02)')}
                 onMouseLeave={e => (e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(0,136,206,0.04)')}
               >
-                <span style={{ fontSize: 16, width: 24, textAlign: 'center', flexShrink: 0, paddingTop: 2 }}>
-                  {TYPE_ICONS[n.type] ?? '•'}
-                </span>
+                <span
+                  aria-hidden
+                  style={{
+                    width: 8, height: 8, borderRadius: 999, flexShrink: 0, marginTop: 6,
+                    background: TYPE_TONE[n.type] ?? TYPE_TONE_DEFAULT,
+                    // A read item keeps its colour but loses its weight, so the list still tells
+                    // you what each row was about without competing with what is unread.
+                    opacity: n.read ? 0.4 : 1
+                  }}
+                />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontSize: 13, fontWeight: n.read ? 400 : 600, color: 'var(--bl-navy)',
@@ -295,6 +349,28 @@ export function NotificationBell() {
                 )}
               </div>
             ))
+          )}
+
+          {/* Read notifications leave the list, they are not deleted.
+              Mirae asked for them to disappear once read, which is right: this is a queue of what
+              needs attention, and a two-day-old item that was already dealt with sitting at the
+              top of it is what made the panel not worth opening. But throwing them away would
+              lose the only record that an alert ever fired, so they move behind this instead. */}
+          {readCount > 0 && (
+            <button
+              onClick={() => setShowRead(v => !v)}
+              style={{
+                display: 'block', width: '100%', textAlign: 'center',
+                padding: '10px 16px', background: 'rgba(15,23,42,0.02)',
+                border: 'none', borderTop: '1px solid rgba(15,23,42,0.06)',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                color: 'var(--bl-blue, #0073cf)'
+              }}
+            >
+              {showRead
+                ? 'Hide read'
+                : `Show ${readCount} already read`}
+            </button>
           )}
         </div>,
         document.body
