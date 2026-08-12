@@ -1,0 +1,59 @@
+/**
+ * When "the 15th" is over.
+ *
+ * WHY IT IS NOT MIDNIGHT
+ * ----------------------
+ * Robin raised the case this exists for: a BC ambassador submits at 11:30pm their time
+ * on the 15th. That is 2:30am on the 16th in Toronto, and 06:30 UTC. The old test was
+ * `now.getUTCDate() > 15`, so that person was marked late having submitted well inside
+ * their own 15th -- and the label actually flipped at 5pm Pacific ON the 15th, because
+ * by then it was already the 16th in UTC.
+ *
+ * The deadline is announced as "the 15th" with no timezone, to students spread across
+ * Canada. So it ends when the 15th ends for the westernmost of them.
+ *
+ * WHY UTC WITH SLACK, RATHER THAN A TIMEZONE LIBRARY
+ * -------------------------------------------------
+ * Midnight in BC is 07:00 UTC in summer and 08:00 UTC in winter, because the program
+ * runs September to April and crosses the end of daylight saving. Rather than convert
+ * time zones to track that one hour, the cutoff is set at the later of the two. That
+ * makes it exact in winter and an hour generous in summer.
+ *
+ * The point is the direction of the error: this can only ever give a student MORE time,
+ * never less. Any drift lands on the side of the person who might otherwise lose $150.
+ * There is no zone conversion, no DST table, and nothing to be subtly wrong about.
+ *
+ * THIS IS A LABEL, NOT A GATE
+ * Nothing here rejects a submission. The server still accepts the current or previous
+ * month (lib/period.ts). A student an hour late should not lose $150, and the program is
+ * soft everywhere else -- a shortfall is a warning, not a cutoff. What actually decides
+ * whether a receipt lands in a month's invoice is whether it is in the database when the
+ * audit job runs.
+ */
+
+/** The day students are told to submit by. */
+export const DEADLINE_DAY = 15
+
+/**
+ * The UTC hour on the FOLLOWING day at which the deadline is considered past.
+ *
+ * 8 = 08:00 UTC on the 16th, which is midnight in BC in winter and 1:00am in summer.
+ * Robin's 2:30am-Eastern example is 06:30 UTC, comfortably inside it.
+ *
+ * This is the one number to move if the cutoff should change. Raising it gives more
+ * grace; lowering it below 8 starts cutting into somebody's 15th out west.
+ */
+export const DEADLINE_CUTOFF_UTC_HOUR = 8
+
+/**
+ * Has the deadline passed?
+ *
+ * False through the whole of the 15th and the small hours of the 16th, which is what
+ * keeps a late-evening Pacific submission on time.
+ */
+export function isPastDeadline(now: Date = new Date()): boolean {
+  const day = now.getUTCDate()
+  if (day <= DEADLINE_DAY) return false
+  if (day === DEADLINE_DAY + 1) return now.getUTCHours() >= DEADLINE_CUTOFF_UTC_HOUR
+  return true
+}

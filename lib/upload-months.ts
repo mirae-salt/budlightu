@@ -10,6 +10,7 @@
  * cases as the server rule.
  */
 import { PROGRAM_START_MONTH, PROGRAM_START_YEAR, PROGRAM_MONTHS } from './program'
+import { isPastDeadline } from './deadline'
 
 export type MonthOption = { value: string; label: string; shortLabel: string; tag?: string; isCurrent?: boolean; isSubmittable?: boolean }
 
@@ -42,7 +43,6 @@ export function monthValue(year: number, month0: number): string {
  * being offered and then rejected.
  */
 export function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolean, now: Date = new Date()): MonthOption[] {
-  const deadlineDay = 15
   const curYear = now.getUTCFullYear()
   const curMonth = now.getUTCMonth()
 
@@ -84,7 +84,10 @@ export function buildMonthOptions(cohort: CohortWindow | null, isTestBam: boolea
       if (!inWindow) tag = 'outside your program'
       else tag = monthStartUtc > thisMonthUtc ? 'not open yet' : 'closed'
     }
-    else if (isCurrent && now.getUTCDate() > deadlineDay) tag = 'past deadline'
+    // Was `now.getUTCDate() > 15`, which told a BC student they were past the deadline
+    // from 5pm their own time ON the 15th, because by then it was the 16th in UTC. The
+    // rule now lives in lib/deadline.ts and is stated in Eastern time.
+    else if (isCurrent && isPastDeadline(now)) tag = 'past deadline'
     else if (monthStartUtc < thisMonthUtc) tag = 'late, still accepted'
 
     const monthName = new Date(monthStartUtc).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
