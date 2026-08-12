@@ -119,9 +119,16 @@ export default function MyInvoices() {
           <p className="subtle">Loading...</p>
         ) : invoices.length === 0 ? (
           <div className="empty-state">
-            No invoices yet. Invoices are generated on the 15th of each month after receipt review.
+            No invoices yet. Receipts close on the 15th and invoices are generated the day after.
           </div>
         ) : (
+          /* A 480px table inside a 375px phone makes the whole PAGE scroll sideways,
+             which is the most common way a mobile layout breaks. The wrapper confines
+             that scroll to the table. globals.css sets
+             `table.admin-table { min-width: 600px }`, so every one of these needs a
+             wrapper; /portal/account already had its own and this was the one that did
+             not. */
+          <div className="table-scroll">
           <table className="admin-table" style={{ minWidth: 480 }}>
             <thead>
               <tr>
@@ -187,6 +194,7 @@ export default function MyInvoices() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>
