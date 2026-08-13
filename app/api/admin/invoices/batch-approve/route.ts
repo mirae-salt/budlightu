@@ -140,9 +140,22 @@ export async function POST(req: NextRequest) {
 
     // Approval is recorded only after the AP send actually succeeded, and only
     // while the row is still 'draft' (a live send already set it to 'sent').
+    //
+    // AND ONLY WHEN THE COHORT IS LIVE.
+    //
+    // A dryrun send returns ok:true without emailing anything (sendApEmail:139). This block then
+    // moved the row to 'approved', and the select at the top of this route only picks up 'draft', so
+    // re-running after flipping the cohort to live returned processed: 0. Those invoices could then
+    // only be sent through app/api/admin/send-ap, a different file with its own body builder and CC
+    // assembly, which means the three invoices somebody rehearsed were the three that went out
+    // through untested code. A fire drill that marks everyone as already evacuated.
+    //
+    // Leaving them 'draft' makes the rehearsal repeatable through the identical entry point, which is
+    // the whole point of a rehearsal.
+    const isLive = cohort.send_mode === 'live'
     let approved = false
     let approveError: string | undefined
-    if (ap.ok) {
+    if (ap.ok && isLive) {
       const { data: updated, error: updErr } = await admin.from('invoices')
         .update({ status: 'approved', approved_at: new Date().toISOString() })
         .eq('id', inv.id)
@@ -156,6 +169,10 @@ export async function POST(req: NextRequest) {
       id: inv.id,
       invoice_number: inv.invoice_number,
       approved,
+      // `approved: false` on its own reads as a failure. This says WHY it is false: the cohort is
+      // not live, so nothing was emailed and the row was deliberately left in 'draft' so the same
+      // run can be repeated for real.
+      ...(isLive ? {} : { rehearsal: true, mode: cohort.send_mode }),
       pdf_key: pdf.pdfKey,
       ...(pdf.warning ? { warnings: [pdf.warning] } : {}),
       ap: approveError ? { ok: ap.ok, error: [ap.error, approveError].filter(Boolean).join(' | ') } : ap,
@@ -165,10 +182,14 @@ export async function POST(req: NextRequest) {
   }
 
   const failures = results.filter(r => r.blocked || !r.ap?.ok || !r.sharepoint?.ok || (!r.bam?.skipped && !r.bam?.ok))
+  const rehearsed = results.filter(r => (r as { rehearsal?: boolean }).rehearsal).length
   return NextResponse.json({
     ok: failures.length === 0,
     processed: results.length,
     failures: failures.length,
+    // How many were left in 'draft' on purpose, so the caller can say so instead of implying the run
+    // finished the job. Zero on a live cohort.
+    rehearsed,
     retry_safe: true,
     results
   })

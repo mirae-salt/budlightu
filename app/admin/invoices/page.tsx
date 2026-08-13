@@ -215,8 +215,19 @@ export default function InvoiceBatch() {
       if (!res.ok || json.ok === false) {
         reportBatch('error', json.message || `Batch approve failed (${json.failures ?? '?'} of ${json.processed ?? '?'} failed)`)
       } else {
-        reportBatch('ok', `Batch approve: ${json.processed ?? 0} invoice(s) processed.`)
-        setSelected(new Set())
+        // "N invoice(s) processed" was true and useless on a dryrun cohort: nothing was emailed and
+        // the rows are still drafts. Say which it was, or the operator reasonably concludes the batch
+        // is done and moves on.
+        if (json.rehearsed > 0) {
+          reportBatch(
+            'ok',
+            `Rehearsal: ${json.rehearsed} of ${json.processed ?? 0} checked and left as drafts. ` +
+            'No email was sent. Set the cohort to live and run this again to send them.'
+          )
+        } else {
+          reportBatch('ok', `Batch approve: ${json.processed ?? 0} invoice(s) sent and approved.`)
+          setSelected(new Set())
+        }
       }
     } catch {
       reportBatch('error', 'Network error: batch approve not sent')
