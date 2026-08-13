@@ -218,14 +218,24 @@ export default function InvoiceBatch() {
         // "N invoice(s) processed" was true and useless on a dryrun cohort: nothing was emailed and
         // the rows are still drafts. Say which it was, or the operator reasonably concludes the batch
         // is done and moves on.
+        // Said out loud rather than left to the results array. SharePoint archiving is skipped
+        // while Salt IT has not issued Graph credentials, which is no longer counted as a
+        // failure (it used to make every batch report failed). "Not a failure" must not turn
+        // into "nobody mentioned it": until those credentials land, the only copy of the
+        // invoice is the one in Supabase.
+        const archiveNote = json.archiveSkipped > 0
+          ? ` No SharePoint copy was made for ${json.archiveSkipped} of them: archiving is not set up yet. The PDFs are stored here and downloadable.`
+          : ''
+
         if (json.rehearsed > 0) {
           reportBatch(
             'ok',
             `Rehearsal: ${json.rehearsed} of ${json.processed ?? 0} checked and left as drafts. ` +
-            'No email was sent. Set the cohort to live and run this again to send them.'
+            'No email was sent. Set the cohort to live and run this again to send them.' +
+            archiveNote
           )
         } else {
-          reportBatch('ok', `Batch approve: ${json.processed ?? 0} invoice(s) sent and approved.`)
+          reportBatch('ok', `Batch approve: ${json.processed ?? 0} invoice(s) sent and approved.${archiveNote}`)
           setSelected(new Set())
         }
       }

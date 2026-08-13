@@ -181,7 +181,19 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const failures = results.filter(r => r.blocked || !r.ap?.ok || !r.sharepoint?.ok || (!r.bam?.skipped && !r.bam?.ok))
+  // A SKIPPED step is not a failed one. This already treated the BAM copy that way; SharePoint
+  // needed the same treatment, because "Salt IT has not issued Graph credentials" was being
+  // counted as a failed invoice on a run where the PDF, the ledger and the AP step all
+  // succeeded. See archiveToSharePoint: absent credentials skip, wrong credentials still fail.
+  const failures = results.filter(r =>
+    r.blocked ||
+    !r.ap?.ok ||
+    (!r.sharepoint?.skipped && !r.sharepoint?.ok) ||
+    (!r.bam?.skipped && !r.bam?.ok)
+  )
+  // Counted separately so the caller can say "archived nowhere" out loud instead of it being
+  // absent from a success message.
+  const archiveSkipped = results.filter(r => r.sharepoint?.skipped).length
   const rehearsed = results.filter(r => (r as { rehearsal?: boolean }).rehearsal).length
   return NextResponse.json({
     ok: failures.length === 0,
@@ -190,6 +202,9 @@ export async function POST(req: NextRequest) {
     // How many were left in 'draft' on purpose, so the caller can say so instead of implying the run
     // finished the job. Zero on a live cohort.
     rehearsed,
+    // How many got no SharePoint copy because archiving is not set up. Not a failure, but not
+    // nothing either: the invoice exists only in Supabase until IT issues Graph credentials.
+    archiveSkipped,
     retry_safe: true,
     results
   })

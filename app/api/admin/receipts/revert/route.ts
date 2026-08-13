@@ -143,6 +143,44 @@ export async function POST(req: NextRequest) {
   // Recompute the ledger from what is still approved for this BAM/period.
   const ledger = await recomputeLedger(admin, receipt)
 
+  /*
+   * REBUILD THE DRAFT INVOICE FROM THE RECOMPUTED LEDGER.
+   *
+   * This was missing, and it is why "Batch approve failed (1 of 1 failed)" on 2026-08-13.
+   * `decide` rebuilds the draft after it moves the ledger; this route moved the ledger and left
+   * the document alone. So an approved receipt produced a draft carrying $58.45, reverting it
+   * reset the ledger to $0, and the draft still said $58.45. Batch approve then refused with
+   * "reimbursement on invoice does not match reimbursement_ledger.paid_cad", which is P0-D
+   * working exactly as intended: it caught a document that disagreed with the money.
+   *
+   * But the operator had no way out. The error says "regenerate the invoice from the ledger"
+   * and nothing in the UI does that, so touchpoint 2 was stuck until somebody edited the
+   * database. A guard you cannot clear is an outage.
+   *
+   * Only drafts are touched: upsertDraftInvoice's update is `.eq('status','draft')`, so an
+   * invoice already approved or sent is left alone and reported instead.
+   *
+   * Not fatal. The receipt IS reopened and the ledger IS correct at this point; a failure here
+   * means the stale draft survives, which is the state we were already in and which batch
+   * approve still refuses to send.
+   */
+  let invoiceRebuilt: boolean | null = null
+  let invoiceError: string | undefined
+  if (ledger.ok) {
+    try {
+      const { upsertDraftInvoice } = await import('@/lib/draft-invoice')
+      const res = await upsertDraftInvoice(admin, receipt.bam_id, receipt.cohort_id, receipt.period)
+      invoiceRebuilt = res.ok
+      if (!res.ok) invoiceError = res.reason
+    } catch (e) {
+      invoiceRebuilt = false
+      invoiceError = e instanceof Error ? e.message : String(e)
+    }
+    if (!invoiceRebuilt) {
+      console.error('[receipts/revert] draft invoice not rebuilt:', invoiceError)
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     receipt_id,
@@ -151,9 +189,19 @@ export async function POST(req: NextRequest) {
     ledger_recomputed: ledger.ok,
     ledger_paid_cad: ledger.ok ? ledger.paidCad : null,
     ledger_error: ledger.ok ? null : ledger.error,
+    invoice_rebuilt: invoiceRebuilt,
+    ...(invoiceError ? { invoice_error: invoiceError } : {}),
     ...(ledger.ok
       ? {}
-      : { warning: 'Receipt reopened, but the reimbursement ledger could not be recomputed. Tell Mirae before invoices are generated.' })
+      : { warning: 'Receipt reopened, but the reimbursement ledger could not be recomputed. Tell Mirae before invoices are generated.' }),
+    ...(invoiceRebuilt === false
+      ? {
+          warning:
+            'Receipt reopened and the ledger is correct, but this month\'s draft invoice still ' +
+            'shows the old amount. Batch approval will refuse it until it is regenerated: ' +
+            `${invoiceError ?? 'reason not reported'}`
+        }
+      : {})
   })
 }
 

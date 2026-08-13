@@ -67,6 +67,36 @@ export async function handler(req: { invoice_id: string }) {
   if (!pdf.ok) return { ok: false, error: pdf.error }
   const bytes = pdf.bytes
 
+  /*
+   * NOT CONFIGURED IS NOT THE SAME AS BROKEN.
+   *
+   * Salt IT has never issued the Graph credentials (ticket open since 2026-08-12), so
+   * getGraphToken() returned null, this returned `graph auth failed`, and batch-approve counted
+   * that as a failed invoice. Result on 2026-08-13: "Batch approve failed (1 of 1 failed)" on a
+   * run where the PDF rendered, the ledger reconciled and the AP step succeeded. On 9/17 that
+   * would have been 58 of 58, and the one number Robin looks at would have said the batch
+   * failed while everything that decides whether people get paid had worked.
+   *
+   * The invoice PDF is ALREADY durably stored: ensureInvoicePdf above wrote it to the Supabase
+   * `invoices` bucket and recorded pdf_key. SharePoint is Salt's own filing copy, which is why
+   * the 2026-07-20 gate dropped the SharePoint nightly backup as redundant. A filing copy that
+   * cannot be made must not block a payment that can.
+   *
+   * So: credentials ABSENT is a skip, reported and visible. Credentials PRESENT but rejected is
+   * still a failure, because that means something is configured wrong and somebody should fix
+   * it rather than discover it in an audit.
+   */
+  if (!graphConfigured()) {
+    return {
+      ok: true,
+      skipped: true,
+      reason:
+        'SharePoint archiving is not configured (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET). ' +
+        'The invoice PDF is stored in Supabase and recorded on the invoice; only the SharePoint ' +
+        'copy is missing.'
+    }
+  }
+
   const token = await getGraphToken()
   if (!token) return { ok: false, error: 'graph auth failed' }
 
@@ -135,6 +165,17 @@ export async function handler(req: { invoice_id: string }) {
   }
 
   return { ok: true, sharepoint_url: webUrl, ...(pdf.warning ? { warning: pdf.warning } : {}) }
+}
+
+/**
+ * Are all three Graph credentials present and usable after sanitizing?
+ *
+ * Deliberately the same `msEnv` the token call uses, so "configured" here means exactly what
+ * getGraphToken will find. Checking the raw env instead would call a BOM'd tenant id
+ * configured, and then the skip and the failure would disagree about the same variable.
+ */
+function graphConfigured(): boolean {
+  return Boolean(msEnv('MS_TENANT_ID') && msEnv('MS_CLIENT_ID') && msEnv('MS_CLIENT_SECRET'))
 }
 
 async function getGraphToken(): Promise<string | null> {
