@@ -291,7 +291,10 @@ export async function POST(req: NextRequest) {
     title: `Support question from ${bamName}`,
     body: question.trim().slice(0, 120),
     bam_id: bamId ?? undefined,
-    link: '/admin/questions'
+    // Carries the question id so the notification lands ON the question rather than on a list of
+    // them. The page reads ?q=, switches to All so an answered one is not filtered away, and
+    // highlights that card. Falls back to the bare list if the insert did not return an id.
+    link: questionId ? `/admin/questions?q=${questionId}` : '/admin/questions'
   })
   if (!notif.ok) {
     console.error('[portal/support] admin notification not recorded:', notif.error)

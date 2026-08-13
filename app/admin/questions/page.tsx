@@ -86,6 +86,13 @@ export default function QuestionsPage() {
   const [replyText, setReplyText] = useState('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  /**
+   * A question id from ?q=, set by the notification link.
+   *
+   * Read from window.location in an effect rather than with useSearchParams, which forces this page
+   * into a Suspense boundary at build time for a value only used after mount.
+   */
+  const [focusId, setFocusId] = useState<string | null>(null)
 
   /** Re-read the list. Called after answering so the card shows what the server stored. */
   async function reload() {
@@ -156,6 +163,24 @@ export default function QuestionsPage() {
       setBusyId(null)
     }
   }
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('q')
+    if (id) {
+      setFocusId(id)
+      // All, not Open: a notification about a question somebody already answered would otherwise
+      // arrive at a list that has filtered it out, which reads as the link being broken.
+      setStatus('all')
+    }
+  }, [])
+
+  // Scroll to it once the rows are in. Waits for the row to exist rather than firing on mount, or it
+  // scrolls to nothing while the list is still loading.
+  useEffect(() => {
+    if (!focusId || loading) return
+    const el = document.getElementById(`q-${focusId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusId, loading, rows.length])
 
   useEffect(() => {
     let cancelled = false
@@ -306,6 +331,27 @@ export default function QuestionsPage() {
           </p>
         )}
 
+        {focusId && visible.some(r => r.id === focusId) && (
+          <p style={{ fontSize: 12, color: 'var(--bl-blue)', marginTop: -8, marginBottom: 12 }}>
+            Showing the question from your notification.{' '}
+            <button
+              onClick={() => setFocusId(null)}
+              style={{
+                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                fontSize: 12, color: 'var(--midgray)', textDecoration: 'underline'
+              }}
+            >
+              Clear
+            </button>
+          </p>
+        )}
+
+        {focusId && !loading && !visible.some(r => r.id === focusId) && (
+          <p className="muted" style={{ fontSize: 12, marginTop: -8, marginBottom: 12 }}>
+            The question from that notification is no longer here. It may have been deleted.
+          </p>
+        )}
+
         {actionMsg && (
           <p style={{
             fontSize: 13, marginBottom: 12,
@@ -346,8 +392,13 @@ export default function QuestionsPage() {
             {visible.map(r => {
               const w = who(r)
               return (
-                <div key={r.id} style={{
+                <div key={r.id} id={`q-${r.id}`} style={{
                   padding: '14px 16px', borderRadius: 10,
+                  // The one the notification pointed at. Outline rather than a different background,
+                  // so it does not fight the Waiting / Answered colouring that means something.
+                  ...(focusId === r.id
+                    ? { boxShadow: '0 0 0 2px var(--bl-blue, #0073cf)', scrollMarginTop: 80 }
+                    : {}),
                   // An answered card recedes. Left unstyled they were all identical, which is
                   // why there was no way to tell what still needed attention.
                   border: r.answered_at ? '1px solid rgba(0,0,0,0.06)' : '1px solid rgba(0,163,224,0.35)',

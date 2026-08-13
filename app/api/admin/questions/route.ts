@@ -127,7 +127,23 @@ export async function PUT(req: NextRequest) {
     const err = await sendEmail({
       to: bamEmail,
       replyTo: auth.email ?? undefined,
-      subject: 'Re: your Bud Light U question',
+      /*
+       * Says what happened, and which one.
+       *
+       * Was 'Re: your Bud Light U question'. "Re:" makes it look like a thread the student started in
+       * their own inbox, and it does not say the thing worth knowing: that an answer arrived. A
+       * student with three open threads also could not tell which one it was about.
+       *
+       * The snippet is their own words, trimmed to fit a subject line and stripped of newlines so a
+       * multi-line question does not break the header.
+       */
+      subject: (() => {
+        const snippet = quoted.replace(/\s+/g, ' ').trim()
+        const short = snippet.length > 42 ? `${snippet.slice(0, 42).trimEnd()}...` : snippet
+        return short
+          ? `Answered: ${short}`
+          : 'Your Bud Light U question has been answered'
+      })(),
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
           <p style="font-size: 15px; color: #1a1a2e; margin: 0 0 16px;">Hi ${escapeHtml(bamName)},</p>
