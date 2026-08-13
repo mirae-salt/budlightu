@@ -18,6 +18,8 @@ import { NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
 import { devBypassBam } from '../../../../lib/dev-bam'
+import { alertAdminsAboutQuestion } from '../../../../lib/question-alert'
+import { appBaseUrl } from '../../../../lib/app-url'
 
 export async function GET() {
   const devBypass = isDevBypass()
@@ -172,9 +174,56 @@ export async function POST(req: Request) {
     console.error('[portal/questions POST] could not reopen the thread:', reopenErr.message)
   }
 
+  /*
+   * TELL SOMEBODY. This is what was missing, reported by Mirae: a student replied in a thread
+   * and no email arrived.
+   *
+   * Reopening the thread put it back in the Open tab and the sidebar count, and that was the
+   * ONLY signal. Worse, `notified_at` was still stamped from the original question, and the
+   * daily digest selects on `notified_at is null`, so the follow-up was excluded from the
+   * immediate email AND from the digest. A student could reply and wait indefinitely while the
+   * system considered the thread already dealt with.
+   *
+   * Same function the new-question route calls, so the frequency setting, the recipient list,
+   * the digest handover and the admin bell all behave identically. It clears notified_at when
+   * nobody was emailed now, which is the specific line that gets this into the digest.
+   *
+   * The message is saved before this runs and a failed alert does not undo it, so the worst
+   * case is what we already had rather than losing the student's words.
+   */
+  const { data: ctx } = await db
+    .from('bams')
+    .select('first_name, last_name, email, school_id, cohorts(name)')
+    .eq('id', bamId)
+    .limit(1)
+  const who = (ctx ?? [])[0] as {
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    school_id: string | null
+    cohorts?: { name: string } | { name: string }[] | null
+  } | undefined
+  const cohortRel = Array.isArray(who?.cohorts) ? who?.cohorts[0] : who?.cohorts
+
+  const alert = await alertAdminsAboutQuestion(db, {
+    kind: 'followup',
+    questionId,
+    bamId,
+    bamName: [who?.first_name, who?.last_name].filter(Boolean).join(' ').trim() || 'a BAM',
+    bamEmail: who?.email ?? '',
+    bamSchool: who?.school_id ?? null,
+    bamCohort: cohortRel?.name ?? null,
+    message: text,
+    appUrl: appBaseUrl()
+  })
+
   return NextResponse.json({
     ok: true,
     message: (made ?? [])[0] ?? null,
-    reopened: !reopenErr
+    reopened: !reopenErr,
+    // Reported rather than assumed. `emailed: false` with no error is the normal case when
+    // every admin is on the daily digest.
+    delivered: { email: alert.emailed, notification: alert.notified, recipients: alert.recipients },
+    ...(alert.emailError ? { emailError: alert.emailError } : {})
   })
 }

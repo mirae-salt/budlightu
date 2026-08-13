@@ -97,7 +97,13 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestResu
     // second run today finds nothing, and a failed send leaves rows for tomorrow.
     const { data: qRows, error: qErr } = await db
       .from('portal_questions')
-      .select('id, question, submitted_at, bams(first_name, last_name, email)')
+      // The messages come along so a FOLLOW-UP shows what the student actually just said.
+      // `question` is the text of the thread's first message and never changes, so a digest
+      // built from it quoted a question Robin had already answered, with its original date,
+      // for a thread she was being asked to look at because something NEW arrived. Follow-ups
+      // only started reaching this digest on 2026-08-13 (they were excluded entirely before),
+      // so this would have been wrong from the first one.
+      .select('id, question, submitted_at, bams(first_name, last_name, email), portal_question_messages(author, body, created_at)')
       .is('notified_at', null)
       .order('submitted_at', { ascending: true })
     if (qErr) {
@@ -106,10 +112,21 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestResu
       questions = (qRows ?? []).map((r: Record<string, unknown>) => {
         const b = (Array.isArray(r.bams) ? r.bams[0] : r.bams) as
           { first_name?: string | null; last_name?: string | null; email?: string | null } | null
+
+        // The student's most recent message. The join does not guarantee an order.
+        const msgs = (Array.isArray(r.portal_question_messages) ? r.portal_question_messages : []) as
+          Array<{ author?: string; body?: string; created_at?: string }>
+        const lastFromBam = msgs
+          .filter(m => m.author === 'bam' && typeof m.created_at === 'string')
+          .sort((a, b2) => String(a.created_at).localeCompare(String(b2.created_at)))
+          .at(-1)
+
+        // Falls back to `question` for a thread that predates migration 0027, or if the
+        // messages could not be read. Never shows nothing.
         return {
           id: String(r.id),
-          question: String(r.question ?? ''),
-          submitted_at: String(r.submitted_at),
+          question: String(lastFromBam?.body ?? r.question ?? ''),
+          submitted_at: String(lastFromBam?.created_at ?? r.submitted_at),
           bamName: name(b),
           bamEmail: b?.email ?? null
         }

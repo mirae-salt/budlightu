@@ -46,6 +46,7 @@ import { ensureInvoicePdf } from '../../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../../lib/bam-cc'
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../../lib/invoice-ledger'
 import { notifyBam } from '../../../../lib/notify-bam'
+import { handler as sendBamCopy } from '../../../../supabase/functions/sendBamCopy/index'
 
 /*
  * The AP recipient and CC list are no longer module constants read from the environment.
@@ -118,7 +119,7 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
     // NOTE: keep this as ONE string literal. supabase-js infers the row type from
     // the literal; a concatenated expression degrades it to GenericStringError and
     // every field access below becomes a type error.
-    .select('*, payload_json, bams(first_name, last_name, email, email_verified_at, consent_ap_cc), cohorts(po_number, program_label, send_mode)')
+    .select('*, payload_json, bams(first_name, last_name, email, email_verified_at, consent_ap_cc), cohorts(po_number, program_label, send_mode, bam_copy_mode)')
     .eq('id', invoiceId)
     .single()
 
@@ -150,7 +151,14 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
       consent_ap_cc: boolean | null
     }
   }).bams
-  const cohort = (inv as { cohorts?: { po_number: string | null; program_label: string; send_mode: string } }).cohorts
+  const cohort = (inv as {
+    cohorts?: {
+      po_number: string | null
+      program_label: string
+      send_mode: string
+      bam_copy_mode: 'off' | 'draft' | 'live'
+    }
+  }).cohorts
   if (!bam) return blocked('bam not found for invoice')
   if (!cohort) return blocked('cohort not found for invoice')
   if (!cohort.po_number) {
@@ -305,6 +313,44 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
         error: `SENT, but invoices.status update failed: ${statusErr.message} — fix manually before any retry`,
         ...(warnings.length ? { warnings } : {})
       }
+    }
+  }
+
+  /*
+   * THE STUDENT'S OWN COPY OF THE INVOICE.
+   *
+   * Mirae, 2026-08-13: the student should get the invoice itself when it goes out, not just a
+   * notification saying it did. That was already true of batch approval, which calls
+   * sendBamCopy, and NOT true of this route, which is the "Send AP" button. All this route did
+   * was CC the student on the email addressed to accounts payable, and only when they had
+   * separately consented to that. So which document a student received depended on which
+   * button Robin pressed.
+   *
+   * Exactly the call batch-approve makes, with the same mode, so there is one behaviour and not
+   * two. sendBamCopy holds all the safety itself: it refuses when the student has never
+   * verified their email (P0-4, banking details in the PDF), and it only sends for real when
+   * the cohort is on bam_copy_mode=live. Today that is `draft`, so this records the intent and
+   * emails nobody until somebody flips it.
+   *
+   * A FAILED COPY MUST NOT FAIL THE AP SEND. The AP email is already gone at this point and the
+   * student being paid does not depend on their copy arriving, so this is a warning on the
+   * result, never an error.
+   */
+  if (!cohort.bam_copy_mode || cohort.bam_copy_mode === 'off') {
+    warnings.push('No copy was sent to the BAM: this cohort has BAM copies turned off.')
+  } else {
+    try {
+      const copy = await sendBamCopy({ invoice_id: invoiceId, mode: cohort.bam_copy_mode })
+      if (!copy.ok) {
+        warnings.push(`No copy was sent to the BAM: ${copy.error}`)
+      } else if (cohort.bam_copy_mode !== 'live') {
+        warnings.push(
+          `The BAM copy was recorded but not emailed, because this cohort is on ` +
+          `bam_copy_mode="${cohort.bam_copy_mode}".`
+        )
+      }
+    } catch (e) {
+      warnings.push(`No copy was sent to the BAM: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
