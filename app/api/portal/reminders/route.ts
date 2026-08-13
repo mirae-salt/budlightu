@@ -16,12 +16,37 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
-import { getSessionUser } from '../../../../lib/admin-auth'
+import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
+
+/**
+ * In dev only, and only with the explicit opt-in flag, resolve to a TEST-cohort BAM.
+ *
+ * Same pattern and the same two gates as /api/portal/support. Without it the student view cannot
+ * be looked at at all: every portal page renders, but every portal API 401s, so the one control
+ * on the account page is invisible in dev and the only way to see it is to receive an OTP code in
+ * a real inbox. A student-facing control nobody on the team can open is a control nobody checks.
+ *
+ * is_test only. Never a real student's row.
+ */
+async function devBypassBam(db: ReturnType<typeof serviceClient>) {
+  const { data } = await db
+    .from('bams')
+    .select('id, wants_reminders')
+    .eq('is_test', true)
+    .eq('status', 'active')
+    .limit(1)
+  return (data ?? [])[0] as { id: string; wants_reminders: boolean | null } | undefined
+}
 
 export async function GET() {
-  const session = await getSessionUser()
-  if (!session.ok) {
-    return NextResponse.json({ ok: false, message: session.message }, { status: session.status })
+  const devBypass = isDevBypass()
+
+  let session: Awaited<ReturnType<typeof getSessionUser>> | null = null
+  if (!devBypass) {
+    session = await getSessionUser()
+    if (!session.ok) {
+      return NextResponse.json({ ok: false, message: session.message }, { status: session.status })
+    }
   }
 
   let db
@@ -31,10 +56,18 @@ export async function GET() {
     return NextResponse.json({ ok: false, message: 'Server is not configured.' }, { status: 503 })
   }
 
+  if (devBypass) {
+    const row = await devBypassBam(db)
+    if (!row) return NextResponse.json({ ok: true, applicable: false, wants: true })
+    return NextResponse.json({
+      ok: true, applicable: true, wants: row.wants_reminders !== false, devBypass: true
+    })
+  }
+
   const { data, error } = await db
     .from('bams')
     .select('id, wants_reminders')
-    .eq('auth_user_id', session.user.id)
+    .eq('auth_user_id', session!.ok ? session!.user.id : '')
     .limit(1)
 
   if (error) {
@@ -57,9 +90,14 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await getSessionUser()
-  if (!session.ok) {
-    return NextResponse.json({ ok: false, message: session.message }, { status: session.status })
+  const devBypass = isDevBypass()
+
+  let session: Awaited<ReturnType<typeof getSessionUser>> | null = null
+  if (!devBypass) {
+    session = await getSessionUser()
+    if (!session.ok) {
+      return NextResponse.json({ ok: false, message: session.message }, { status: session.status })
+    }
   }
 
   let body: unknown
@@ -82,12 +120,17 @@ export async function PUT(req: NextRequest) {
   }
 
   // Scoped to THEIR auth_user_id, not to an id from the request body. A row id in a payload is
-  // how one student ends up changing another student's settings.
-  const { data: saved, error } = await db
-    .from('bams')
-    .update({ wants_reminders: wants })
-    .eq('auth_user_id', session.user.id)
-    .select('wants_reminders')
+  // how one student ends up changing another student's settings. The dev path is scoped to a
+  // single is_test row by id for the same reason.
+  let query = db.from('bams').update({ wants_reminders: wants })
+  if (devBypass) {
+    const row = await devBypassBam(db)
+    if (!row) return NextResponse.json({ ok: false, message: 'No test BAM to update.' }, { status: 404 })
+    query = query.eq('id', row.id)
+  } else {
+    query = query.eq('auth_user_id', session!.ok ? session!.user.id : '')
+  }
+  const { data: saved, error } = await query.select('wants_reminders')
 
   if (error) {
     console.error('[portal/reminders PUT] write failed:', error.message)

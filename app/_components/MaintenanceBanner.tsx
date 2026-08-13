@@ -93,6 +93,22 @@ export function MaintenanceBanner() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <strong>{state?.message}</strong>
         {until && <span style={{ marginLeft: 6, opacity: 0.85 }}>Expected back by {until}.</span>}
+        {/*
+         * THE DISCLAIMER, and why it is here rather than a real block.
+         *
+         * Banner mode leaves the portal fully working: this is a client-side notice, so every API
+         * behind it is still live and an upload during maintenance may well go through. It may
+         * also not. Without this line the banner says "we are working on it" while the page still
+         * offers an Upload button, and a student who uses it and loses the file was told nothing.
+         *
+         * Saying so is the honest version of a limitation we are choosing to keep. Blocking
+         * submissions for real would mean failing every portal API closed, which turns a Supabase
+         * hiccup into a portal outage. Warning is the cheaper trade, but only if we actually warn.
+         */}
+        <span style={{ display: 'block', marginTop: 4, opacity: 0.9, fontWeight: 400 }}>
+          You can still use the portal, but anything you submit right now may not be saved. If it
+          matters, wait until this notice is gone and submit again.
+        </span>
       </div>
       <button
         onClick={() => setDismissed(true)}

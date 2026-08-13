@@ -76,7 +76,7 @@ export default function MaintenancePage() {
           : (j.maintenance.on
               ? (j.maintenance.mode === 'block'
                   ? 'Blocking is ON. BAMs see the notice instead of the portal; you and other admins are unaffected.'
-                  : 'Banner is ON. Everything keeps working; BAMs just see a strip at the top.')
+                  : 'Banner is ON. Everything keeps working. BAMs see a strip telling them anything they submit now may not be saved.')
               : 'Maintenance is OFF. No notice is showing.')
       })
     } catch (e) {
@@ -151,7 +151,8 @@ export default function MaintenancePage() {
                 <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontWeight: 400 }}>
                   <input type="radio" name="mode" checked={mode === 'banner'} onChange={() => setMode('banner')} style={{ width: 'auto', marginTop: 3 }} />
                   <span style={{ fontSize: 13 }}>
-                    <strong>Banner</strong>: a strip at the top. Everything keeps working.
+                    <strong>Banner</strong>: a strip at the top. Everything keeps working, and
+                    the strip tells BAMs that anything they submit right now may not be saved.
                     <span className="muted" style={{ display: 'block', fontSize: 11 }}>
                       For &ldquo;maintenance tonight at 8pm&rdquo;. This is the one you will use most.
                     </span>
