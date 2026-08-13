@@ -234,18 +234,26 @@ export default function UploadPage() {
                 >
                   Different month?
                 </button>
-              ) : (
-                /* No other month can be chosen, which is the normal case. State the rule once
-                   instead of offering a button that opens nine greyed-out ones, and give somewhere
-                   to go, because "you cannot" with no next step is a dead end. */
-                <span style={{ fontSize: 12, color: 'var(--midgray)', lineHeight: 1.5 }}>
-                  Receipts are due by the 15th, so this is the only month you can submit for.{' '}
-                  <Link href="/portal/support" style={{ color: 'var(--bl-blue)' }}>
-                    Ask about another month
-                  </Link>
-                </span>
-              )}
+              ) : null}
             </div>
+
+            {/*
+              OUTSIDE the row above. It started inside it, where the "Different month?" button used to
+              sit: a short button fits in a flex row, a two-line sentence does not, and it squeezed the
+              label column until "Submitting for" broke across two lines.
+
+              Shown only when there is genuinely no other month to pick, which is the normal case.
+              buildMonthOptions makes exactly one month submittable, so offering a button that opens
+              nine greyed-out ones answered nothing. Says the rule once and gives somewhere to go,
+              because "you cannot" with no next step is a dead end that becomes Robin's inbox.
+            */}
+            {!showPastMonths && !hasOtherSubmittable && (
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, margin: '8px 0 0' }}>
+                Receipts are due by the 15th, so this is the only month you can submit for.{' '}
+                <Link href="/portal/support">Ask about another month</Link>
+              </p>
+            )}
+
             {showPastMonths && (
               <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                 {/* A month the server will not accept is disabled with the reason,
