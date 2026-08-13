@@ -23,6 +23,15 @@ export default function UploadPage() {
     monthOptions.find(o => o.isSubmittable) ??
     monthOptions[0]
   const pastMonths = monthOptions.filter(o => o.value !== currentMonth.value)
+  /**
+   * Is there any OTHER month they could actually pick?
+   *
+   * Almost always no. buildMonthOptions makes exactly one month submittable, the current one and
+   * only before its deadline, so "Different month?" opened a list of nine greyed-out buttons and
+   * answered nothing. The button is only offered when this is true; otherwise the rule is stated
+   * once, in a sentence, with somewhere to go if that is a problem.
+   */
+  const hasOtherSubmittable = pastMonths.some(o => o.isSubmittable)
   const [selectedPeriod, setSelectedPeriod] = useState(currentMonth.value)
   const [showPastMonths, setShowPastMonths] = useState(false)
   const [files, setFiles] = useState<File[]>([])
@@ -203,7 +212,16 @@ export default function UploadPage() {
                   </div>
                 )}
               </div>
-              {!showPastMonths ? (
+              {showPastMonths ? (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ fontSize: 12, padding: '6px 14px' }}
+                  onClick={() => { setSelectedPeriod(currentMonth.value); setShowPastMonths(false) }}
+                >
+                  Back to {currentMonth.shortLabel}
+                </button>
+              ) : hasOtherSubmittable ? (
                 <button
                   type="button"
                   style={{
@@ -217,14 +235,15 @@ export default function UploadPage() {
                   Different month?
                 </button>
               ) : (
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ fontSize: 12, padding: '6px 14px' }}
-                  onClick={() => { setSelectedPeriod(currentMonth.value); setShowPastMonths(false) }}
-                >
-                  Back to {currentMonth.shortLabel}
-                </button>
+                /* No other month can be chosen, which is the normal case. State the rule once
+                   instead of offering a button that opens nine greyed-out ones, and give somewhere
+                   to go, because "you cannot" with no next step is a dead end. */
+                <span style={{ fontSize: 12, color: 'var(--midgray)', lineHeight: 1.5 }}>
+                  Receipts are due by the 15th, so this is the only month you can submit for.{' '}
+                  <Link href="/portal/support" style={{ color: 'var(--bl-blue)' }}>
+                    Ask about another month
+                  </Link>
+                </span>
               )}
             </div>
             {showPastMonths && (
