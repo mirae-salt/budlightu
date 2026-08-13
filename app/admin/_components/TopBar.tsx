@@ -7,6 +7,20 @@ import { useRouter } from 'next/navigation'
 type Notif = {
   id: string; type: string; title: string; body?: string
   link?: string; read: boolean; created_at: string
+  bam_id?: string | null
+  /** Joined in /api/admin/data. Object or one-element array depending on the join. */
+  bams?: { first_name: string | null; last_name: string | null; school_id: string | null }
+    | Array<{ first_name: string | null; last_name: string | null; school_id: string | null }>
+    | null
+}
+
+/** Who the notification is about, when it is about somebody. */
+function subjectOf(n: Notif): string | null {
+  const b = Array.isArray(n.bams) ? n.bams[0] : n.bams
+  if (!b) return null
+  const name = [b.first_name, b.last_name].filter(Boolean).join(' ').trim()
+  if (!name) return null
+  return b.school_id ? `${name} (${b.school_id})` : name
 }
 
 function timeAgo(iso: string): string {
@@ -179,21 +193,39 @@ export function NotificationBell() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const markAllRead = () => {
-    fetch('/api/admin/notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'mark_all_read' })
-    }).then(() => { load() })
+  /**
+   * Both of these used `.then(() => load())` and never looked at the response.
+   *
+   * The server side is fine: mark_read returns 200 with updated:1 and the unread count drops,
+   * measured 2026-08-12. But an unchecked fetch means a 400 or a 500 produces exactly the same
+   * visible result as success, which is nothing, and "I clicked it and it did not work" then has
+   * no evidence attached to it either way. The response is checked now and a failure says so.
+   */
+  const [markError, setMarkError] = useState<string | null>(null)
+
+  async function postMark(body: object): Promise<boolean> {
+    setMarkError(null)
+    try {
+      const res = await fetch('/api/admin/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok || !j?.ok) {
+        setMarkError(j?.message ?? `Could not update (${res.status})`)
+        return false
+      }
+      await load()
+      return true
+    } catch (e) {
+      setMarkError((e as Error).message)
+      return false
+    }
   }
 
-  const markRead = (id: string) => {
-    fetch('/api/admin/notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'mark_read', ids: [id] })
-    }).then(() => { load() })
-  }
+  const markAllRead = () => { void postMark({ action: 'mark_all_read' }) }
+  const markRead = (id: string) => postMark({ action: 'mark_read', ids: [id] })
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -211,7 +243,9 @@ export function NotificationBell() {
         }}
         title="Notifications"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {/* 17, not 20. The log out glyph beside it is 15 and the avatar is 28, so a 20px bell
+            was the largest thing in the account row and read as the primary action there. */}
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
@@ -285,6 +319,15 @@ export function NotificationBell() {
             )}
           </div>
 
+          {markError && (
+            <div style={{
+              padding: '10px 16px', fontSize: 12, color: '#991b1b',
+              background: 'rgba(220,38,38,0.06)', borderBottom: '1px solid rgba(15,23,42,0.06)'
+            }}>
+              {markError}
+            </div>
+          )}
+
           {visible.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
               {notifs.length === 0
@@ -295,11 +338,12 @@ export function NotificationBell() {
             visible.map(n => (
               <div
                 key={n.id}
-                onClick={() => {
-                  if (!n.read) markRead(n.id)
+                onClick={async () => {
+                  // AWAITED. Firing the write and navigating in the same tick let the navigation
+                  // cut the request short, so the notification was still unread on the way back.
+                  if (!n.read) await markRead(n.id)
                   // router.push, not window.location.href. A full reload threw away the whole
-                  // admin bundle and the page state to move between two admin screens, so a
-                  // notification took a second and a half to follow.
+                  // admin bundle and the page state to move between two admin screens.
                   if (n.link) router.push(n.link)
                   setOpen(false)
                 }}
@@ -329,6 +373,17 @@ export function NotificationBell() {
                   }}>
                     {n.title}
                   </div>
+                  {/* The name first, then the detail. "Shortfall detected / $58.45 spent, under
+                      the $75.00 soft floor" named an amount and no person, so the only way to act
+                      on it was to go and work out who it was. */}
+                  {subjectOf(n) && (
+                    <div style={{
+                      fontSize: 12, color: 'var(--bl-navy)', fontWeight: 500, marginTop: 2,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                    }}>
+                      {subjectOf(n)}
+                    </div>
+                  )}
                   {n.body && (
                     <div style={{
                       fontSize: 12, color: 'var(--midgray)', marginTop: 2,

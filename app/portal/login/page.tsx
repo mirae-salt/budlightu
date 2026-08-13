@@ -285,7 +285,9 @@ export default function LoginPage() {
           color: var(--midgray); cursor: pointer; text-decoration: underline;
           text-underline-offset: 3px;
         }
-        .link-btn:hover { color: var(--bl-navy); }
+        /* Neutral near-black, not var(--bl-navy): navy is a dark BLUE, and on hover it read as
+           the link turning blue. Darkening the text is the whole intended effect. */
+        .link-btn:hover { color: #111827; }
         .resend-btn {
           font-size: 13px; padding: 8px 18px; background: var(--bl-silver);
           border: 1.5px solid var(--stone); border-radius: 8px;

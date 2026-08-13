@@ -362,7 +362,11 @@ export async function GET(req: Request) {
     case 'notifications': {
       const unreadOnly = url.searchParams.get('unread') === 'true'
       let q = admin.from('admin_notifications')
-        .select('id, type, title, body, link, read, created_at, bam_id')
+        // The BAM's name, joined here rather than baked into each notification's title at
+        // creation time. "Shortfall detected / $58.45 spent" told Robin an amount and not who it
+        // was about, and there are seven places that create notifications. One join fixes all of
+        // them, and it stays correct if somebody's name is later corrected on the roster.
+        .select('id, type, title, body, link, read, created_at, bam_id, bams(first_name, last_name, school_id)')
         .order('created_at', { ascending: false })
         .limit(50)
       if (unreadOnly) q = q.eq('read', false)
