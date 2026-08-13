@@ -709,7 +709,19 @@ export default function Roster() {
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', margin: '4px 0 8px' }}>
               <input type="checkbox" checked={addForm.isTest} onChange={e => setAddForm(f => ({ ...f, isTest: e.target.checked }))} />
               Test account
-              <span style={{ fontSize: 11, color: 'var(--midgray)' }}>-- excluded from reports and AP sends</span>
+              {/*
+                Was: "excluded from reports and AP sends". That was false. Grepped 2026-08-13:
+                scheduler-generate, send-ap and batch-approve contain no read of `is_test` at all, and
+                the dashboard queries in api/admin/data filter on status only. A test row IS invoiced
+                and IS counted in the totals. roster/route.ts:197 says so in a comment.
+
+                It mattered because that label is the reason somebody would tick this box on a
+                live-cohort row, believing it made the row harmless.
+              */}
+              <span style={{ fontSize: 11, color: 'var(--midgray)' }}>
+                -- shows a TEST badge and can upload after the deadline. Still invoiced and still
+                counted in totals, so keep it in the TEST cohort.
+              </span>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
