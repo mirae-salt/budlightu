@@ -35,7 +35,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { handler as sendAp }      from '../../../../../supabase/functions/sendApEmail/index'
 import { handler as sendBamCopy } from '../../../../../supabase/functions/sendBamCopy/index'
-import { handler as archive }     from '../../../../../supabase/functions/archiveToSharePoint/index'
+/*
+ * NO SHAREPOINT ARCHIVE STEP. Mirae, 2026-08-13: "sharepoint 안쓸거야".
+ *
+ * It was a third send target here and it never once succeeded: Salt IT never issued the Graph
+ * credentials, so it returned "graph auth failed" and batch approve counted a fully working
+ * invoice as failed. On 9/17 that would have been 58 of 58.
+ *
+ * The invoice PDF is archived: ensureInvoicePdf below writes it to the Supabase `invoices`
+ * bucket and records `pdf_key`, which is the copy AP receives and the copy /admin/invoices
+ * offers as Download and Download ZIP. SharePoint was a second filing location, not the
+ * archive.
+ *
+ * Deleted rather than left dormant behind a flag, which is what was done to the Microsoft
+ * Graph email implementation for the same reason (see sendApEmail's header). `git log` has it
+ * if it is ever wanted back.
+ */
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../../../lib/invoice-ledger'
 import type { InvoicePayload } from '../../../../../lib/invoice-payload'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
@@ -52,7 +67,6 @@ interface BatchItemResult {
   pdf_key?: string | null
   warnings?: string[]
   ap?: StepResult
-  sharepoint?: StepResult
   bam?: StepResult
 }
 
@@ -133,7 +147,6 @@ export async function POST(req: NextRequest) {
     }
 
     const ap = await step(() => sendAp({ invoice_id: inv.id, mode: cohort.send_mode }))
-    const sharepoint = await step(() => archive({ invoice_id: inv.id }))
     const bam = cohort.bam_copy_mode === 'off'
       ? { ok: true, skipped: true }
       : await step(() => sendBamCopy({ invoice_id: inv.id, mode: cohort.bam_copy_mode }))
@@ -176,24 +189,16 @@ export async function POST(req: NextRequest) {
       pdf_key: pdf.pdfKey,
       ...(pdf.warning ? { warnings: [pdf.warning] } : {}),
       ap: approveError ? { ok: ap.ok, error: [ap.error, approveError].filter(Boolean).join(' | ') } : ap,
-      sharepoint,
       bam
     })
   }
 
-  // A SKIPPED step is not a failed one. This already treated the BAM copy that way; SharePoint
-  // needed the same treatment, because "Salt IT has not issued Graph credentials" was being
-  // counted as a failed invoice on a run where the PDF, the ledger and the AP step all
-  // succeeded. See archiveToSharePoint: absent credentials skip, wrong credentials still fail.
+  // A SKIPPED step is not a failed one: the BAM copy is off by cohort setting, not broken.
   const failures = results.filter(r =>
     r.blocked ||
     !r.ap?.ok ||
-    (!r.sharepoint?.skipped && !r.sharepoint?.ok) ||
     (!r.bam?.skipped && !r.bam?.ok)
   )
-  // Counted separately so the caller can say "archived nowhere" out loud instead of it being
-  // absent from a success message.
-  const archiveSkipped = results.filter(r => r.sharepoint?.skipped).length
   const rehearsed = results.filter(r => (r as { rehearsal?: boolean }).rehearsal).length
   return NextResponse.json({
     ok: failures.length === 0,
@@ -202,9 +207,6 @@ export async function POST(req: NextRequest) {
     // How many were left in 'draft' on purpose, so the caller can say so instead of implying the run
     // finished the job. Zero on a live cohort.
     rehearsed,
-    // How many got no SharePoint copy because archiving is not set up. Not a failure, but not
-    // nothing either: the invoice exists only in Supabase until IT issues Graph credentials.
-    archiveSkipped,
     retry_safe: true,
     results
   })
