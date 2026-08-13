@@ -223,7 +223,24 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 
 /* ── BLU Home Page ───────────────────────────────────────── */
-.blu-home { margin: -24px -32px -60px; }
+/*
+ * The negative margins cancel .portal-main's padding so the hero runs edge to edge.
+ *
+ * They do NOT give the element any height, so when the hero plus the timeline came to less than the
+ * window, .portal-shell's own --bl-silver background showed underneath as a light band while the navy
+ * sidebar carried on beside it. Reported three times; the first two times I adjusted the hero's
+ * height, which was the wrong element: the hero was fine, the page under it was showing through.
+ *
+ * The dark background lives here now and this box is at least as tall as the viewport, so there is
+ * nothing left to show through. dvh second, so on a phone it is the height actually visible rather
+ * than the height the page would have with the URL bar hidden.
+ */
+.blu-home {
+  margin: -24px -32px -60px;
+  background: var(--bl-navy);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
 
 .blu-hero {
   position: relative;

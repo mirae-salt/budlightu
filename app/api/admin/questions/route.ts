@@ -67,7 +67,9 @@ export async function PUT(req: NextRequest) {
   // and marking answered is not worth doing if the row does not exist.
   const { data: rows, error: readErr } = await db
     .from('portal_questions')
-    .select('id, question, answered_at, bams(first_name, last_name, email)')
+    // Messages come along so the email can quote what they ACTUALLY last said. Quoting the original
+    // question in reply to a third follow-up reads as not having read it.
+    .select('id, question, answered_at, bams(first_name, last_name, email), portal_question_messages(author, body, created_at)')
     .eq('id', id)
     .limit(1)
   if (readErr) {
@@ -81,6 +83,7 @@ export async function PUT(req: NextRequest) {
     id: string
     question: string
     answered_at: string | null
+    portal_question_messages?: Array<{ author: string; body: string; created_at: string }>
     bams?: { first_name: string | null; last_name: string | null; email: string | null }
       | Array<{ first_name: string | null; last_name: string | null; email: string | null }>
       | null
@@ -88,6 +91,16 @@ export async function PUT(req: NextRequest) {
   if (!row) {
     return NextResponse.json({ ok: false, message: 'That question no longer exists.' }, { status: 404 })
   }
+
+  // The student's most recent message, falling back to the original question for a thread that
+  // predates migration 0027 or whose messages could not be read.
+  const msgs = (row as { portal_question_messages?: Array<{ author: string; body: string; created_at: string }> })
+    .portal_question_messages ?? []
+  const lastFromBam = [...msgs]
+    .filter(m => m.author === 'bam')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .at(-1)
+  const quoted = lastFromBam?.body ?? row.question
 
   const bam = Array.isArray(row.bams) ? row.bams[0] : row.bams
   const bamEmail = (bam?.email ?? '').trim()
@@ -120,8 +133,8 @@ export async function PUT(req: NextRequest) {
           <p style="font-size: 15px; color: #1a1a2e; margin: 0 0 16px;">Hi ${escapeHtml(bamName)},</p>
           <div style="font-size: 14px; color: #374151; line-height: 1.7; white-space: pre-wrap; margin: 0 0 20px;">${escapeHtml(answerText)}</div>
           <div style="border-left: 3px solid #e5e7eb; padding: 4px 0 4px 14px; margin: 0 0 20px;">
-            <p style="font-size: 12px; color: #9ca3af; margin: 0 0 6px;">You asked:</p>
-            <div style="font-size: 13px; color: #6b7280; white-space: pre-wrap; line-height: 1.6;">${escapeHtml(row.question)}</div>
+            <p style="font-size: 12px; color: #9ca3af; margin: 0 0 6px;">You wrote:</p>
+            <div style="font-size: 13px; color: #6b7280; white-space: pre-wrap; line-height: 1.6;">${escapeHtml(quoted)}</div>
           </div>
           <!--
             A BUTTON, not a link inside a sentence. Mirae: 바로가기로 해야지. A student who has more
@@ -148,8 +161,8 @@ export async function PUT(req: NextRequest) {
         '',
         answerText,
         '',
-        'You asked:',
-        row.question,
+        'You wrote:',
+        quoted,
         '',
         `Ask a follow-up: ${base}/portal/support`,
         'Replying straight to this email reaches us too.',
@@ -171,6 +184,31 @@ export async function PUT(req: NextRequest) {
       )
     }
     emailed = true
+  }
+
+  // APPEND the reply as a message, then stamp the thread.
+  //
+  // `portal_questions.answer` is one column, so a second reply used to overwrite the first and the
+  // conversation had no history. Migration 0027 added portal_question_messages; the column is still
+  // written because other code and the reply email read it, but the messages are the record.
+  if (answerText) {
+    const { error: msgErr } = await db.from('portal_question_messages').insert({
+      question_id: id,
+      author: 'admin',
+      author_user_id: auth.devBypass ? null : auth.userId,
+      body: answerText
+    })
+    if (msgErr) {
+      // The email already went out at this point, so say so rather than implying nothing happened.
+      console.error('[admin/questions PUT] message insert failed:', msgErr.message)
+      return NextResponse.json(
+        {
+          ok: false,
+          message: `The reply was SENT but could not be added to the thread: ${msgErr.message}. Do not send it again.`
+        },
+        { status: 500 }
+      )
+    }
   }
 
   const { data: saved, error } = await db
