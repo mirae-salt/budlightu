@@ -188,8 +188,8 @@ export default function QuestionsPage() {
             Support questions
           </h2>
           <p className="muted" style={{ fontSize: 13 }}>
-            Everything BAMs have sent from the portal Support page. Reply by email to the
-            address shown.
+            Everything BAMs have sent from the portal Support page. Replying here emails them and
+            records it.
           </p>
         </div>
 
@@ -334,25 +334,38 @@ export default function QuestionsPage() {
                   background: r.answered_at ? 'rgba(0,0,0,0.015)' : 'rgba(0,163,224,0.04)',
                   opacity: r.answered_at ? 0.85 : 1
                 }}>
+                  {/* Status word first, same vocabulary the student sees on their own thread, so the
+                      two screens describe the same state in the same words. Name and address are
+                      metadata: quieter than the question, which is the thing being read. */}
                   <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                    gap: 12, marginBottom: 8, flexWrap: 'wrap'
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    gap: 12, marginBottom: 10, flexWrap: 'wrap'
                   }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)' }}>
-                      {w.name}
-                      {w.email && (
-                        <a href={`mailto:${w.email}`} style={{ fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
-                          {w.email}
-                        </a>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span style={{
+                        display: 'inline-block', padding: '2px 9px', borderRadius: 999,
+                        fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+                        background: r.answered_at ? 'rgba(34,197,94,0.12)' : 'rgba(0,163,224,0.14)',
+                        color: r.answered_at ? '#166534' : '#0369a1'
+                      }}>
+                        {r.answered_at ? 'Answered' : 'Waiting'}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--bl-navy)' }}>
+                        {w.name}
+                      </span>
+                      {cohortName(r) && (
+                        <span className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                          {cohortName(r)}
+                        </span>
                       )}
                     </div>
-                    <div className="muted" style={{ fontSize: 12 }}>
+                    <div className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
                       {new Date(r.submitted_at).toLocaleString('en-US', {
                         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
                       })}
                     </div>
                   </div>
-                  <div style={{ fontSize: 14, color: '#1a1a2e', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                  <div style={{ fontSize: 15, color: '#1a1a2e', whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>
                     {r.question}
                   </div>
 
@@ -412,6 +425,7 @@ export default function QuestionsPage() {
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                       {!r.answered_at && (
                         <>
+                          {/* ONE primary action. Reply is what this page is for. */}
                           <button
                             className="btn-navy"
                             disabled={busyId === r.id}
@@ -420,15 +434,25 @@ export default function QuestionsPage() {
                           >
                             Reply
                           </button>
-                          {/* For when the reply already went out of Outlook. Without this the
-                              only way to close a question is to retype the answer. */}
+                          {/*
+                            Secondary, and deliberately quieter: a bordered button the same size and
+                            weight as Reply made the two look like equal choices, and the longer label
+                            made the escape hatch the widest thing on the card.
+                            Shortened to "Mark answered" with the explanation as a tooltip. It exists
+                            for when the reply already went out of Outlook; without it the only way to
+                            close a question is to retype the answer.
+                          */}
                           <button
-                            className="btn-ghost"
                             disabled={busyId === r.id}
                             onClick={() => void answer(r.id, '')}
-                            style={{ fontSize: 13 }}
+                            title="Use this if you already replied from your own email. Records it as answered without sending anything."
+                            style={{
+                              fontSize: 13, background: 'none', border: 'none', padding: '6px 4px',
+                              color: 'var(--midgray)', cursor: 'pointer', textDecoration: 'underline',
+                              textUnderlineOffset: 3
+                            }}
                           >
-                            {busyId === r.id ? 'Saving...' : 'Mark answered without sending'}
+                            {busyId === r.id ? 'Saving...' : 'Mark answered'}
                           </button>
                         </>
                       )}
@@ -449,13 +473,22 @@ export default function QuestionsPage() {
                           </button>
                         </>
                       )}
+                      {/*
+                        Was an <a className="btn-ghost">, which rendered as underlined text inside a
+                        stray outline: .btn-ghost is written for <button> and the global anchor
+                        underline won. It is a tertiary action, so it is now plainly a link and sits
+                        on the right, away from the two that change state.
+                      */}
                       {w.email && (
                         <a
                           href={`mailto:${w.email}?subject=${encodeURIComponent('Re: your Bud Light U question')}`}
-                          className="btn-ghost"
-                          style={{ fontSize: 13, textDecoration: 'none', alignSelf: 'center' }}
+                          style={{
+                            fontSize: 12, color: 'var(--midgray)', alignSelf: 'center',
+                            marginLeft: 'auto', whiteSpace: 'nowrap'
+                          }}
+                          title={w.email}
                         >
-                          Open in email
+                          Open in my email
                         </a>
                       )}
                     </div>
