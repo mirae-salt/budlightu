@@ -9,9 +9,10 @@
  * env vars are the real problem: changing who gets an email meant a Vercel edit and a
  * redeploy, which meant asking Mirae, which meant it did not happen.
  *
- * So: support-question recipients now live in the database and Robin edits them here.
  * Invoice email routing is shown but still comes from env (it is read in a Supabase Edge
- * Function too, so moving it is a change to the money path, not a settings change).
+ * Function too, so moving it is a change to the money path, not a settings change). Making it
+ * editable here is the next task: Mirae's point is that Robin is the admin and owns that risk,
+ * and "ask Mirae" stops working the day Mirae leaves.
  *
  * WHAT IS PER-ADMIN AND WHAT IS SHARED
  * ------------------------------------
@@ -20,7 +21,13 @@
  * other rows are text, not controls. One person quietly muting another person's alerts
  * about a student waiting for an answer is the bug this was rewritten to prevent.
  *
- * The extra-recipient list IS shared, and says so.
+ * WHAT WAS REMOVED
+ * ----------------
+ * A shared "copy someone who is not an admin" list. Mirae asked twice what it was for, which is
+ * the answer: a setting whose owner cannot tell what it does is not a setting, it is a thing to
+ * get wrong. Every admin already controls their own frequency, and a non-admin who needs to see
+ * questions can be made an admin. lib/question-notify.ts still READS extraRecipients so a value
+ * stored before this keeps working, but nothing can write one.
  */
 'use client'
 
@@ -37,7 +44,6 @@ type NotifyState = {
   mine: QuestionNotifyMode
   admins: AdminRow[]
   adminsError: string | null
-  extraRecipients: string[]
   degraded: boolean
 }
 
@@ -75,10 +81,6 @@ export default function SettingsPage() {
   const [reminderMsg, setReminderMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [savingReminders, setSavingReminders] = useState(false)
 
-  const [recipientText, setRecipientText] = useState('')
-  const [savingRecipients, setSavingRecipients] = useState(false)
-  const [recipientMsg, setRecipientMsg] = useState<{ ok: boolean; text: string } | null>(null)
-
   async function load() {
     try {
       const [nRes, iRes, rRes] = await Promise.all([
@@ -94,10 +96,8 @@ export default function SettingsPage() {
           mine: n.setting?.mode ?? 'each',
           admins: Array.isArray(n.admins) ? n.admins : [],
           adminsError: n.adminsError ?? null,
-          extraRecipients: Array.isArray(n.extraRecipients) ? n.extraRecipients : [],
           degraded: Boolean(n.degraded)
         })
-        setRecipientText((Array.isArray(n.extraRecipients) ? n.extraRecipients : []).join('\n'))
       }
 
       const i = await iRes.json()
@@ -175,40 +175,7 @@ export default function SettingsPage() {
     }
   }
 
-  async function saveRecipients() {
-    setSavingRecipients(true)
-    setRecipientMsg(null)
-    try {
-      const res = await fetch('/api/admin/question-notify', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extraRecipients: recipientText })
-      })
-      const j = await res.json()
-      if (!res.ok || !j?.ok) {
-        setRecipientMsg({ ok: false, text: j?.message ?? 'Not saved.' })
-      } else {
-        const list: string[] = Array.isArray(j.extraRecipients) ? j.extraRecipients : []
-        setRecipientText(list.join('\n'))
-        setNotify(prev => (prev ? { ...prev, extraRecipients: list } : prev))
-        setRecipientMsg({
-          ok: true,
-          text: list.length === 0
-            ? 'Saved. No extra recipients, so only admins are emailed.'
-            : `Saved. ${list.length} extra ${list.length === 1 ? 'recipient' : 'recipients'}.`
-        })
-      }
-    } catch (e) {
-      setRecipientMsg({ ok: false, text: (e as Error).message })
-    } finally {
-      setSavingRecipients(false)
-    }
-  }
-
   const eachAdmins = (notify?.admins ?? []).filter(a => a.mode === 'each')
-  const dirty = notify
-    ? recipientText.trim() !== notify.extraRecipients.join('\n').trim()
-    : false
 
   return (
     <div style={{ maxWidth: 780, padding: '32px 24px 64px' }}>
@@ -322,48 +289,11 @@ export default function SettingsPage() {
           <Link href="/admin/team" style={linkStyle}>Team page</Link>.
         </p>
 
-        <h3 style={{ ...h3Style, marginTop: 28 }}>Copy someone who is not an admin</h3>
-        <p style={{ ...pStyle, marginBottom: 10 }}>
-          One address per line. They get every question. This list is shared, so a change
-          here affects what everyone on it receives.
-        </p>
-        <textarea
-          value={recipientText}
-          onChange={e => setRecipientText(e.target.value)}
-          rows={3}
-          placeholder="someone@ilovesalt.com"
-          spellCheck={false}
-          style={{
-            width: '100%', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit',
-            padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 8, resize: 'vertical'
-          }}
-        />
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => void saveRecipients()}
-            disabled={savingRecipients || !dirty}
-            style={{
-              background: dirty ? '#0073cf' : '#e5e7eb',
-              color: dirty ? '#fff' : '#9ca3af',
-              border: 'none', borderRadius: 8, padding: '9px 16px',
-              fontSize: 14, fontWeight: 600, cursor: dirty && !savingRecipients ? 'pointer' : 'default'
-            }}
-          >
-            {savingRecipients ? 'Saving...' : 'Save list'}
-          </button>
-          {recipientMsg && (
-            <span style={{ fontSize: 13, color: recipientMsg.ok ? '#166534' : '#991b1b' }}>
-              {recipientMsg.text}
-            </span>
-          )}
-        </div>
-        <p style={{ fontSize: 12, color: '#9ca3af', margin: '10px 0 0', lineHeight: 1.6 }}>
+        <p style={{ fontSize: 12, color: '#9ca3af', margin: '18px 0 0', lineHeight: 1.6 }}>
           Right now a new question emails{' '}
-          {eachAdmins.length + (notify?.extraRecipients.length ?? 0) === 0
-            ? 'nobody. It will only appear on the Questions page.'
-            : `${eachAdmins.length + (notify?.extraRecipients.length ?? 0)} ${
-                eachAdmins.length + (notify?.extraRecipients.length ?? 0) === 1 ? 'person' : 'people'
-              }.`}
+          {eachAdmins.length === 0
+            ? 'nobody. Questions only appear on the Questions page.'
+            : `${eachAdmins.length} ${eachAdmins.length === 1 ? 'person' : 'people'}.`}
         </p>
       </section>
 

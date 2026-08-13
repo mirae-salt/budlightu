@@ -23,8 +23,6 @@ import {
   modeFor,
   hasOwnSetting,
   withModeFor,
-  withExtraRecipients,
-  parseRecipientList,
   normalizeAdminEmail
 } from '../../../../lib/question-notify'
 import { getRole, isAdminRole } from '../../../../lib/auth-claims'
@@ -82,7 +80,6 @@ export async function GET() {
       setting: { mode: 'each' },
       isOwn: false,
       admins: [],
-      extraRecipients: [],
       degraded: true,
       message: error.message
     })
@@ -102,7 +99,6 @@ export async function GET() {
     // Who else receives these, and anyone added who is not an admin.
     admins: admins.rows,
     adminsError: admins.error,
-    extraRecipients: settings.extraRecipients ?? [],
     degraded: false
   })
 }
@@ -122,16 +118,11 @@ export async function PUT(req: NextRequest) {
   //   { mode }            -> only the caller's own frequency
   //   { extraRecipients } -> only the shared extra-recipient list
   // A payload carrying both is refused rather than guessed at.
-  const b = (body ?? {}) as Record<string, unknown>
-  const wantsRecipients = b.extraRecipients !== undefined
-  const wantsMode = b.mode !== undefined
-  if (wantsRecipients && wantsMode) {
-    return NextResponse.json(
-      { ok: false, message: 'Send one change at a time.' },
-      { status: 400 }
-    )
-  }
-  if (wantsRecipients) return putRecipients(auth, b)
+  // The extraRecipients writer was removed on 2026-08-12. Mirae asked twice what that setting was
+  // for, which is the answer: a setting whose owner cannot tell what it does is not a setting.
+  // Every admin controls their own frequency, and a non-admin who needs to see questions can be
+  // made an admin. parseQuestionNotify still READS the field so a value stored before this keeps
+  // working; nothing can write a new one.
 
   const parsed = validateQuestionNotify(body)
   if (!parsed.ok) {
@@ -225,122 +216,4 @@ export async function PUT(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, setting: { mode: storedMine } })
-}
-
-/**
- * Replaces the extra-recipient list: people who should be copied on every question but are
- * not admins, so they have no page of their own to set a frequency on.
- *
- * This exists because recipients used to be the SUPPORT_NOTIFY_EMAIL env var. Changing who
- * gets a support question meant a Vercel env edit and a redeploy, which meant asking Mirae,
- * which meant it did not happen. It is Robin's program; the list is hers.
- *
- * Admins are NOT in this list and cannot be removed from it. Their own frequency stays
- * their own -- one person quietly muting another person's alerts is the bug this whole file
- * was rewritten to prevent.
- */
-async function putRecipients(
-  auth: Extract<Awaited<ReturnType<typeof requireAdmin>>, { ok: true }>,
-  body: Record<string, unknown>
-) {
-  const raw = body.extraRecipients
-  // Accepts a list or the textarea's raw text, and validates the same way either way.
-  const asText = Array.isArray(raw)
-    ? raw.map(v => String(v ?? '')).join(',')
-    : String(raw ?? '')
-  const parsed = parseRecipientList(asText)
-  if (!parsed.ok) {
-    return NextResponse.json(
-      {
-        ok: false,
-        message: `Not a valid email address: ${parsed.bad.join(', ')}. Nothing was changed.`
-      },
-      { status: 400 }
-    )
-  }
-
-  let db
-  try {
-    db = serviceClient()
-  } catch {
-    return NextResponse.json({ ok: false, message: 'Server is not configured.' }, { status: 503 })
-  }
-
-  const { data: current, error: readErr } = await db
-    .from('policy').select('value_json').eq('key', QUESTION_NOTIFY_KEY).limit(1)
-  if (readErr) {
-    console.error('[question-notify recipients] read-before-write failed:', readErr.message)
-    return NextResponse.json(
-      { ok: false, message: `Could not read the current settings, so nothing was changed: ${readErr.message}` },
-      { status: 500 }
-    )
-  }
-  const existing = parseQuestionNotify(((current ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
-  const next = withExtraRecipients(existing, parsed.emails)
-
-  const { data: saved, error } = await db
-    .from('policy')
-    .upsert(
-      {
-        key: QUESTION_NOTIFY_KEY,
-        value_json: next,
-        updated_at: new Date().toISOString(),
-        updated_by: auth.devBypass ? null : auth.userId
-      },
-      { onConflict: 'key' }
-    )
-    .select('value_json')
-
-  if (error) {
-    console.error('[question-notify recipients] write failed:', error.message)
-    return NextResponse.json(
-      { ok: false, message: `The list was not changed: ${error.message}` },
-      { status: 500 }
-    )
-  }
-
-  // Read back. "Saved" without reading is how a removed recipient keeps getting mail, or
-  // an added one never starts.
-  const stored = parseQuestionNotify(((saved ?? [])[0] as { value_json?: unknown } | undefined)?.value_json)
-  const storedList = stored.extraRecipients ?? []
-  if (storedList.join(',') !== parsed.emails.join(',')) {
-    console.error(
-      '[question-notify recipients] read-back mismatch: wanted',
-      parsed.emails.join(','), 'stored', storedList.join(',')
-    )
-    return NextResponse.json(
-      { ok: false, message: 'The list did not save. Reload the page to see what is actually stored.' },
-      { status: 500 }
-    )
-  }
-  // Nobody's own frequency may have moved. Same check as the mode path, for the same reason.
-  for (const [email, mode] of Object.entries(existing.byEmail)) {
-    if (stored.byEmail[email] !== mode) {
-      console.error(`[question-notify recipients] would have changed ${email} from ${mode}`)
-      return NextResponse.json(
-        { ok: false, message: 'That change would have altered an admin setting, so it was rejected. Tell Mirae.' },
-        { status: 500 }
-      )
-    }
-  }
-
-  const { error: auditErr } = await db.from('audit_log').insert({
-    actor_id: auth.devBypass ? null : auth.userId,
-    actor_role: auth.role,
-    entity: 'policy',
-    entity_id: null,
-    action: 'question_recipients_changed',
-    before_json: { extraRecipients: existing.extraRecipients ?? [] },
-    after_json: { extraRecipients: storedList }
-  })
-  if (auditErr) {
-    console.error('[question-notify recipients] audit_log insert failed:', auditErr.message)
-    return NextResponse.json({
-      ok: true,
-      extraRecipients: storedList,
-      warning: 'The list was saved, but the audit log entry could not be written.'
-    })
-  }
-
-  return NextResponse.json({ ok: true, extraRecipients: storedList })
 }
