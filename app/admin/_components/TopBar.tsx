@@ -152,6 +152,8 @@ export function NotificationBell() {
   }
 
   const router = useRouter()
+  /** The portalled panel. Needed by the outside-click check, which cannot use `ref` any more. */
+  const panelRef = useRef<HTMLDivElement | null>(null)
   /** Read ones are hidden by default. See the toggle at the foot of the panel. */
   const [showRead, setShowRead] = useState(false)
   const readCount = notifs.filter(n => n.read).length
@@ -185,9 +187,24 @@ export function NotificationBell() {
     return () => clearInterval(interval)
   }, [])
 
+  /**
+   * Close on a click outside. Has to check the PANEL as well as the bell.
+   *
+   * The panel was moved into a portal on document.body to stop the sidebar clipping it. That made it
+   * stop being a DOM descendant of `ref`, so `!ref.current.contains(e.target)` was true for clicks
+   * INSIDE the panel: mousedown closed it, the panel unmounted, and the click never reached the
+   * item's onClick. So notifications did not navigate and did not mark themselves read, and the two
+   * fixes I had already made to that handler could not run at all.
+   *
+   * Reported three times before I stopped guessing and read this function. `contains` on a portalled
+   * child is the thing to check first whenever a dropdown stops responding.
+   */
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      const inBell = ref.current?.contains(t)
+      const inPanel = panelRef.current?.contains(t)
+      if (!inBell && !inPanel) setOpen(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -268,7 +285,7 @@ export function NotificationBell() {
           nobody checks when they add a transition or a transform. Out here nothing above it can
           clip it, whatever CSS lands on the sidebar later. */}
       {open && dropPos && mounted && createPortal(
-        <div style={{
+        <div ref={panelRef} style={{
           position: 'fixed', left: dropPos.left,
           // One of these is set, never both. See placePanel: upward anchors the bottom so the
           // panel touches the bell no matter how tall its contents turn out to be.
