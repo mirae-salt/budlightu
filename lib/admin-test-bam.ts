@@ -49,6 +49,52 @@ export function chooseTestCohort(cohorts: CohortChoice[]): CohortChoice | null {
   return matches.length === 1 ? matches[0] : null
 }
 
+/**
+ * May a row with this `is_test` value sit in this cohort? Returns the refusal, or null.
+ *
+ * WHY THIS IS A FUNCTION AND NOT THREE COPIES OF AN `if`
+ * -----------------------------------------------------
+ * Three routes can put a BAM in a cohort, and on 2026-08-13 only ONE of them checked:
+ *
+ *   PATCH /api/admin/roster         checked  (edit an existing row)
+ *   POST  /api/admin/roster         did not  (add a new row, audit finding 12)
+ *   POST  /api/admin/cohorts/member did not  (move between cohorts, audit finding 13,
+ *                                             and the screen the September cutover uses)
+ *
+ * GO-LIVE.md said the roster refused both. It did not. A rule spread across call sites is a
+ * rule that is true wherever somebody remembered it, so it lives here now and the routes ask.
+ *
+ * FAILS CLOSED when the cohort cannot be read. The PATCH version was
+ * `if (target && !isTestCohortName(...))`, so a cohort that came back as zero rows skipped the
+ * check entirely (audit finding 20). "I could not check" is not "it is fine".
+ *
+ * Only ONE direction is refused: a TEST row into a live cohort, because `is_test` does not stop
+ * invoice generation, so that row gets a real invoice addressed to AP. A real BAM in a TEST
+ * cohort is not blocked here; that is not a money error and blocking it would break the way
+ * test cohorts are populated today.
+ */
+export function testRowCohortProblem(input: {
+  /** The row's is_test AFTER the edit being attempted. */
+  isTest: boolean
+  /** The target cohort's name, or null/undefined when the row could not be read. */
+  cohortName: string | null | undefined
+  /** False when the cohort lookup returned nothing. */
+  cohortFound: boolean
+}): string | null {
+  if (!input.isTest) return null
+
+  if (!input.cohortFound) {
+    return 'That cohort could not be read, so this test account was not moved. ' +
+      'Reload the page and try again.'
+  }
+  if (isTestCohortName(input.cohortName ?? null)) return null
+
+  return `A test account cannot sit in "${input.cohortName ?? 'that cohort'}", which is a live cohort. ` +
+    'Test rows are still picked up by the monthly invoice run, so this one would ' +
+    'get a real invoice addressed to AP. Move it to a cohort named TEST, or ' +
+    'untick "Test account" first if this is a real BAM.'
+}
+
 export const NO_TEST_COHORT_WARNING =
   'Admin access was granted, but no test BAM account was created because there is no cohort named TEST. ' +
   'Create one on the Cohorts page, then remove and re-add this admin to give them a test account.'

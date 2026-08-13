@@ -30,7 +30,7 @@ import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
 import { parseBankName, parseSchoolId, parseCohortId } from '../../../../lib/admin-input'
 import { lookupBank } from '../../../../lib/banks'
-import { isTestCohortName } from '../../../../lib/admin-test-bam'
+import { testRowCohortProblem } from '../../../../lib/admin-test-bam'
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
 import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
@@ -228,18 +228,15 @@ export async function PATCH(req: NextRequest) {
         )
       }
       const target = (cRows ?? [])[0] as { name: string | null } | undefined
-      if (target && !isTestCohortName(target.name)) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message:
-              `A test account cannot sit in "${target.name}", which is a live cohort. ` +
-              'Test rows are still picked up by the monthly invoice run, so this one would ' +
-              'get a real invoice addressed to AP. Move it to a cohort named TEST, or ' +
-              'untick "Test account" first if this is a real BAM.'
-          },
-          { status: 409 }
-        )
+      // The shared rule (lib/admin-test-bam.ts). It used to be `if (target && ...)` here, which
+      // skipped the check when the cohort read back as zero rows: audit finding 20.
+      const problem = testRowCohortProblem({
+        isTest: willBeTest,
+        cohortName: target?.name,
+        cohortFound: Boolean(target)
+      })
+      if (problem) {
+        return NextResponse.json({ ok: false, message: problem }, { status: 409 })
       }
     }
   }
@@ -444,6 +441,19 @@ export async function POST(req: NextRequest) {
   }
   if (!cohortRows || cohortRows.length !== 1) {
     return NextResponse.json({ ok: false, message: 'That cohort does not exist. Reload the page.' }, { status: 404 })
+  }
+
+  // AUDIT FINDING 12. The cohort's name was already being read here, purely for the existence
+  // check above, and then never looked at. So this route would happily CREATE a test account in
+  // a live cohort while PATCH refused to move one there, and GO-LIVE.md claimed both were
+  // covered. Same rule, same message, one function.
+  const newRowProblem = testRowCohortProblem({
+    isTest,
+    cohortName: (cohortRows[0] as { name: string | null }).name,
+    cohortFound: true
+  })
+  if (newRowProblem) {
+    return NextResponse.json({ ok: false, message: newRowProblem }, { status: 409 })
   }
 
   // Pre-check the duplicate so the admin gets a sentence instead of

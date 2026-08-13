@@ -26,8 +26,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
+import { testRowCohortProblem } from '../../../../../lib/admin-test-bam'
 
-const READBACK = 'id, first_name, last_name, email, status, cohort_id'
+// `is_test` is in here because of audit finding 13: this route never read it, so it moved test
+// accounts into live cohorts and walked straight around the guard on the roster screen. It is
+// also the screen the September cutover uses to move the real roster in.
+const READBACK = 'id, first_name, last_name, email, status, cohort_id, is_test'
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
@@ -54,6 +58,16 @@ export async function POST(req: NextRequest) {
     .from('bams').select(READBACK).eq('id', bam_id).maybeSingle()
   if (bErr) return NextResponse.json({ ok: false, message: `Could not read that BAM: ${bErr.message}` }, { status: 500 })
   if (!before) return NextResponse.json({ ok: false, message: 'No roster row matched that id.' }, { status: 404 })
+
+  // AUDIT FINDING 13. A test account in a live cohort is picked up by the monthly invoice run
+  // like anybody else, so it gets a real invoice addressed to AP. The roster screen has refused
+  // this since it was written; this one did not, and this is the screen the cutover uses.
+  const problem = testRowCohortProblem({
+    isTest: before.is_test === true,
+    cohortName: cohort.name,
+    cohortFound: true
+  })
+  if (problem) return NextResponse.json({ ok: false, message: problem }, { status: 409 })
 
   const { data: rows, error } = await admin
     .from('bams').update({ cohort_id }).eq('id', bam_id).select(READBACK)

@@ -142,13 +142,21 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
     caps.set(r.bam_id, Number(r.spendable_cap_cad ?? r.entitlement_cad ?? 150))
   }
 
-  // Who was already reminded for this period. Checked here so the common case does not rely
-  // on catching a unique-violation, though the index is still what guarantees it.
+  // Who was already reminded for this period, IN THIS MODE.
+  //
+  // The `.eq('mode', ...)` is the fix for audit finding 6 and it is the half that matters. The
+  // unique index (0029) is the guarantee, but this query is what actually decides who gets
+  // skipped, and without the mode predicate a draft run marked everybody as done: the live run
+  // then sent zero emails and reported success. Running the rehearsal the Settings page
+  // recommends was what broke the real run.
+  //
+  // Checked here so the common case does not rely on catching a unique-violation.
   const { data: sentRows, error: sentErr } = await db
     .from('student_reminders')
     .select('bam_id')
     .eq('period', period)
     .eq('kind', 'deadline')
+    .eq('mode', settings.mode)
   if (sentErr) {
     console.error('[student-reminders] prior reminders unreadable:', sentErr.message)
     return {
