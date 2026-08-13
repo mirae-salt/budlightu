@@ -225,8 +225,10 @@ export default function QuestionsPage() {
             not exist, and the reasonable conclusion was that it had never been built. */}
         {!loading && !error && rows.length > 0 && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            {/* Open first. An answered question is history; an open one is work. */}
-            <div style={{ display: 'flex', gap: 0 }}>
+            {/* Open first. An answered question is history; an open one is work.
+                gap 6, not 0: these are three separate bordered buttons, so butting them together
+                read as crammed rather than as one segmented control. */}
+            <div style={{ display: 'flex', gap: 6 }}>
               {([
                 ['open', openCount > 0 ? `Open (${openCount})` : 'Open'],
                 ['answered', 'Answered'],
