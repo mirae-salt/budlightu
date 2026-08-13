@@ -39,14 +39,23 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { sendEmail } from '../../../../lib/send-email'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../../lib/invoice-numbering'
 import type { InvoicePayload } from '../../../../lib/invoice-payload'
-import { addressProblem, cleanAddress, envAddressOr, envAddressListOr } from '../../../../lib/sanitize'
+import { addressProblem, cleanAddress } from '../../../../lib/sanitize'
+import { resolveApAddresses } from '../../../../lib/ap-addresses'
 import { claimSend, markSendFailed, markSendSucceeded } from '../../../../lib/send-guard'
 import { ensureInvoicePdf } from '../../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../../lib/bam-cc'
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../../lib/invoice-ledger'
+import { notifyBam } from '../../../../lib/notify-bam'
 
-const AP_TO = envAddressOr('AP_EMAIL', 'accounts.payable@ilovesalt.com')
-const AP_CC = envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com,nb@ilovesalt.com')
+/*
+ * The AP recipient and CC list are no longer module constants read from the environment.
+ *
+ * They come from lib/ap-addresses.ts, which reads the `policy` row Robin can edit on
+ * /admin/settings and falls back to the same env vars and the same defaults that used to be
+ * on these two lines. Module scope was also wrong for a value someone can change while the
+ * process is alive: it was captured once per cold start, so an edit took effect whenever
+ * Vercel happened to recycle the lambda.
+ */
 
 interface SendOutcome {
   invoice_id: string
@@ -161,16 +170,27 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   }
 
   // --- P1-18: sanitize + validate every address before it reaches a header ---
-  const recipient = testEmail ? cleanAddress(testEmail) : AP_TO
-  const recipientProblem = addressProblem(testEmail ? 'test_email' : 'AP_EMAIL', recipient)
+  // Resolved per send, policy first. resolveApAddresses refuses rather than guessing when the
+  // setting is unreadable, and its error is surfaced as a block, not swallowed.
+  let apTo = ''
+  let apCc: string[] = []
+  if (!testEmail) {
+    const resolved = await resolveApAddresses(admin)
+    if (!resolved.ok) return blocked(resolved.error)
+    apTo = resolved.to
+    apCc = resolved.cc
+  }
+
+  const recipient = testEmail ? cleanAddress(testEmail) : apTo
+  const recipientProblem = addressProblem(testEmail ? 'test_email' : 'AP recipient', recipient)
   if (recipientProblem) return blocked(recipientProblem)
 
   const ccList: string[] = []
   let ccNote: string | undefined
   if (!testEmail) {
-    for (const [i, raw] of AP_CC.entries()) {
+    for (const [i, raw] of apCc.entries()) {
       const addr = cleanAddress(raw)
-      const problem = addressProblem(`AP_CC_EMAILS[${i}]`, addr)
+      const problem = addressProblem(`CC ${i + 1}`, addr)
       if (problem) return blocked(problem)
       ccList.push(addr)
     }
@@ -287,6 +307,23 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
       }
     }
   }
+
+  // The student's status board. "Did my invoice actually go out" is the question the portal
+  // bell exists to answer without anyone having to ask Robin.
+  //
+  // Below the test-send return on purpose: a test send goes to the tester, and telling a
+  // student their invoice reached accounts payable when it did not is worse than telling them
+  // nothing. Below markSendSucceeded for the same reason -- this records what happened, so it
+  // must not run where the send did not.
+  const notified = await notifyBam({
+    bam_id: inv.bam_id,
+    type: 'invoice_sent',
+    title: `Your ${monthLong} invoice was sent for payment`,
+    body: `Invoice ${inv.invoice_number}`,
+    link: '/portal/invoices',
+    period: inv.period
+  })
+  if (!notified.ok) warnings.push(`portal notification not recorded: ${notified.error}`)
 
   return {
     invoice_id: invoiceId,

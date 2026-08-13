@@ -9,10 +9,12 @@
  * env vars are the real problem: changing who gets an email meant a Vercel edit and a
  * redeploy, which meant asking Mirae, which meant it did not happen.
  *
- * Invoice email routing is shown but still comes from env (it is read in a Supabase Edge
- * Function too, so moving it is a change to the money path, not a settings change). Making it
- * editable here is the next task: Mirae's point is that Robin is the admin and owns that risk,
- * and "ask Mirae" stops working the day Mirae leaves.
+ * Invoice email routing is EDITABLE here as of 2026-08-13. It reads through
+ * lib/ap-addresses.ts: the `policy` row first, the environment as the fallback, so the Edge
+ * Function keeps working before the row exists. Mirae's point was that Robin is the admin and
+ * owns that risk, and "ask Mirae" stops working the day Mirae leaves. The write is super-admin
+ * only, refuses a malformed address instead of storing it, reads the row back through the same
+ * resolver the senders use, and writes an audit entry with both sides.
  *
  * WHAT IS PER-ADMIN AND WHAT IS SHARED
  * ------------------------------------
@@ -55,10 +57,13 @@ type ReminderState = {
 }
 
 type InvoiceEmail = {
-  to: string
+  /** Null when the setting could not be resolved. The problems array says why. */
+  to: string | null
   cc: string[]
   from: string | null
   replyTo: string | null
+  /** 'policy' means somebody set it here, 'env' means it is still the deployed default. */
+  source: 'policy' | 'env' | null
   problems: string[]
 }
 
@@ -75,6 +80,14 @@ export default function SettingsPage() {
 
   const [savingMode, setSavingMode] = useState(false)
   const [modeMsg, setModeMsg] = useState<string | null>(null)
+
+  // The AP address editor. Kept as raw text while it is being typed, so a half-finished
+  // address is never handed to the validator and reported as broken mid-keystroke.
+  const [editingAp, setEditingAp] = useState(false)
+  const [apTo, setApTo] = useState('')
+  const [apCc, setApCc] = useState('')
+  const [savingAp, setSavingAp] = useState(false)
+  const [apMsg, setApMsg] = useState<{ ok: boolean; text: string; problems?: string[] } | null>(null)
 
   const [reminders, setReminders] = useState<ReminderState | null>(null)
   const [showPreview, setShowPreview] = useState(false)
@@ -118,6 +131,45 @@ export default function SettingsPage() {
   }
 
   useEffect(() => { void load() }, [])
+
+  /**
+   * Save the AP addresses.
+   *
+   * Reads the response. An unchecked fetch here would make a refused write look exactly like a
+   * successful one, which on this particular form means believing the invoice address changed
+   * when it did not. The server validates, refuses a bad address and reads the row back, so
+   * everything below is reporting what it said rather than assuming.
+   */
+  async function saveApAddresses() {
+    setSavingAp(true)
+    setApMsg(null)
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: apTo, cc: apCc })
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok || !j?.ok) {
+        setApMsg({
+          ok: false,
+          text: j?.message ?? `That did not save (${res.status}).`,
+          problems: Array.isArray(j?.problems) ? j.problems : undefined
+        })
+        return
+      }
+      // The values the SERVER read back, not the ones that were typed.
+      setInvoice(prev => prev ? { ...prev, ...j.invoiceEmail } : prev)
+      setEditingAp(false)
+      setApMsg(null)
+      // Reload so From and Replies to come back too; the PUT only returns what it changed.
+      await load()
+    } catch (e) {
+      setApMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setSavingAp(false)
+    }
+  }
 
   async function saveMode(mode: QuestionNotifyMode) {
     setSavingMode(true)
@@ -393,34 +445,128 @@ export default function SettingsPage() {
 
         {invoice ? (
           <>
-            <dl style={{ margin: 0, fontSize: 13, color: '#374151', lineHeight: 1.9 }}>
-              <Row label="To" value={invoice.to} />
-              <Row label="CC" value={invoice.cc.join(', ') || 'nobody'} />
-              {invoice.from && <Row label="From" value={invoice.from} />}
-              {invoice.replyTo && <Row label="Replies to" value={invoice.replyTo} />}
-            </dl>
+            {!editingAp ? (
+              <>
+                <dl style={{ margin: 0, fontSize: 13, color: '#374151', lineHeight: 1.9 }}>
+                  <Row label="To" value={invoice.to ?? 'not set'} />
+                  <Row label="CC" value={invoice.cc.join(', ') || 'nobody'} />
+                  {invoice.from && <Row label="From" value={invoice.from} />}
+                  {invoice.replyTo && <Row label="Replies to" value={invoice.replyTo} />}
+                </dl>
 
-            {invoice.problems.length > 0 && (
-              <div style={{
-                background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8,
-                padding: 12, fontSize: 13, color: '#991b1b', marginTop: 12, lineHeight: 1.6
-              }}>
-                <strong>These addresses will not send:</strong>
-                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                  {invoice.problems.map(p => <li key={p}>{p}</li>)}
-                </ul>
+                {invoice.problems.length > 0 && (
+                  <div style={{
+                    background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8,
+                    padding: 12, fontSize: 13, color: '#991b1b', marginTop: 12, lineHeight: 1.6
+                  }}>
+                    <strong>These addresses will not send:</strong>
+                    <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                      {invoice.problems.map(p => <li key={p}>{p}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {/* The warning stays. It is the reason to be careful, not a reason to be
+                    unable to act, and "ask Mirae" was the part that stops working. */}
+                <p style={{
+                  fontSize: 12, color: '#92400e', background: '#fffbeb',
+                  border: '1px solid #fde68a', borderRadius: 8, padding: 12,
+                  margin: '12px 0 0', lineHeight: 1.6
+                }}>
+                  These are the addresses real invoices are sent to. A typo here sends
+                  someone&apos;s pay to the wrong inbox, and the send still reports success, so
+                  check the spelling before you save.
+                </p>
+
+                <button
+                  onClick={() => {
+                    setApTo(invoice.to ?? '')
+                    setApCc(invoice.cc.join(', '))
+                    setApMsg(null)
+                    setEditingAp(true)
+                  }}
+                  style={{
+                    marginTop: 12, background: '#fff', border: '1px solid #d1d5db',
+                    borderRadius: 8, padding: '9px 16px', fontSize: 14, fontWeight: 600,
+                    color: '#1a1a2e', cursor: 'pointer'
+                  }}
+                >
+                  Change these addresses
+                </button>
+                {invoice.source === 'env' && (
+                  <p style={{ fontSize: 12, color: '#9ca3af', margin: '8px 0 0' }}>
+                    Currently the deployed default. Saving here replaces it, and takes effect on
+                    the next send with no redeploy.
+                  </p>
+                )}
+              </>
+            ) : (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>
+                  To
+                  <input
+                    value={apTo}
+                    onChange={e => setApTo(e.target.value)}
+                    placeholder="accounts.payable@ilovesalt.com"
+                    style={apInputStyle}
+                  />
+                </label>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>
+                  CC
+                  <input
+                    value={apCc}
+                    onChange={e => setApCc(e.target.value)}
+                    placeholder="robin.graham@ilovesalt.com, nb@ilovesalt.com"
+                    style={apInputStyle}
+                  />
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: '#6b7280', marginTop: 4 }}>
+                    Separate several with commas. Leave empty to copy nobody. The BAM is copied
+                    on their own invoice automatically and does not go here.
+                  </span>
+                </label>
+
+                {apMsg && (
+                  <div style={{
+                    background: apMsg.ok ? '#ecfdf5' : '#fef2f2',
+                    border: `1px solid ${apMsg.ok ? '#a7f3d0' : '#fecaca'}`,
+                    borderRadius: 8, padding: 12, fontSize: 13,
+                    color: apMsg.ok ? '#065f46' : '#991b1b', lineHeight: 1.6
+                  }}>
+                    {apMsg.text}
+                    {apMsg.problems && apMsg.problems.length > 0 && (
+                      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                        {apMsg.problems.map(p => <li key={p}>{p}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => void saveApAddresses()}
+                    disabled={savingAp}
+                    style={{
+                      background: '#0073cf', border: '1px solid #0073cf', borderRadius: 8,
+                      padding: '9px 16px', fontSize: 14, fontWeight: 600, color: '#fff',
+                      cursor: savingAp ? 'wait' : 'pointer'
+                    }}
+                  >
+                    {savingAp ? 'Saving...' : 'Save addresses'}
+                  </button>
+                  <button
+                    onClick={() => { setEditingAp(false); setApMsg(null) }}
+                    disabled={savingAp}
+                    style={{
+                      background: '#fff', border: '1px solid #d1d5db', borderRadius: 8,
+                      padding: '9px 16px', fontSize: 14, fontWeight: 600, color: '#1a1a2e',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
-
-            <p style={{
-              fontSize: 12, color: '#92400e', background: '#fffbeb',
-              border: '1px solid #fde68a', borderRadius: 8, padding: 12,
-              margin: '12px 0 0', lineHeight: 1.6
-            }}>
-              To change any of these, ask Mirae. They are not editable here because these are
-              the addresses real invoices are sent to, and a typo would send someone&apos;s pay
-              to the wrong inbox.
-            </p>
           </>
         ) : (
           <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Loading...</p>
@@ -480,4 +626,17 @@ const pStyle: React.CSSProperties = {
 
 const linkStyle: React.CSSProperties = {
   color: '#0073cf', textDecoration: 'none', fontWeight: 500
+}
+
+/**
+ * The AP address inputs.
+ *
+ * `width: 100%` with `boxSizing: border-box`: without the second one the padding is added to
+ * the 100% and the field overflows the card it sits in, which is the layout mistake this
+ * codebase made three times in one session.
+ */
+const apInputStyle: React.CSSProperties = {
+  display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 6,
+  border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 12px',
+  fontSize: 14, fontWeight: 400, color: '#1a1a2e', background: '#fff'
 }

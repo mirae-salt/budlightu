@@ -12,6 +12,7 @@ import { serviceClient } from '../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from './send-email'
 import { appBaseUrl } from './app-url'
 import { envAddressListOr } from './sanitize'
+import { resolveApAddresses } from './ap-addresses'
 import {
   QUESTION_NOTIFY_KEY,
   parseQuestionNotify,
@@ -124,9 +125,24 @@ export async function runDailyDigest(now: Date = new Date()): Promise<DigestResu
 
   // Banking reminders still need a recipient even when nobody chose the daily digest for
   // questions, so fall back to the AP CC list rather than dropping them.
-  const to = digestRecipients.length > 0
-    ? digestRecipients
-    : envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com')
+  //
+  // Through the resolver, so this follows the list Robin edits on Settings instead of the env
+  // var she cannot see. Only reached when nobody selected the digest; if the resolver refuses
+  // (unreadable setting) this keeps the env list rather than dropping the reminder, because
+  // unlike an AP send the wrong recipient here is a colleague, and silence is the worse
+  // failure: the pending-banking reminder is the thing stopping an invoice going to a stale
+  // account.
+  let fallbackTo: string[] = []
+  if (digestRecipients.length === 0) {
+    const resolved = await resolveApAddresses(db)
+    fallbackTo = resolved.ok && resolved.cc.length > 0
+      ? resolved.cc
+      : envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com')
+    if (!resolved.ok) {
+      console.error('[daily-digest] AP address setting unreadable, using env list:', resolved.error)
+    }
+  }
+  const to = digestRecipients.length > 0 ? digestRecipients : fallbackTo
   const result = await sendEmail({
     to,
     subject: digestSubject(input),

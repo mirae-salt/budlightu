@@ -71,10 +71,39 @@ export function ReminderToggle() {
 
   return (
     <div className="surface" style={{ marginTop: 24, padding: 20 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Reminder emails</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Notifications</h2>
       <p className="subtle" style={{ fontSize: 13, margin: '0 0 14px', lineHeight: 1.6 }}>
-        Before the 15th we can email you if we have not received any receipts from you that
-        month. Nothing else about your reimbursement changes either way.
+        The bell in the sidebar shows what has happened to your receipts and invoices. These
+        arrive there whether or not you change anything below.
+      </p>
+
+      {/* WHY THESE HAVE NO SWITCH.
+          They are records of decisions about money: a receipt accepted, an invoice sent for
+          payment. A student who had turned those off would have no way of knowing what was
+          decided, and the first person to find that out would be the one who was not paid.
+          The reminder underneath is different, and that difference is the reason it is the one
+          thing here with a checkbox. */}
+      <ul style={{
+        listStyle: 'none', padding: 0, margin: '0 0 18px',
+        fontSize: 13, lineHeight: 1.7, color: 'var(--midgray)'
+      }}>
+        {[
+          ['Receipt accepted', 'in the portal'],
+          ['Receipt not accepted', 'in the portal and by email'],
+          ['Invoice sent for payment', 'in the portal'],
+          ['Spending under the monthly minimum', 'in the portal and by email'],
+          ['An answer to a question you asked', 'in the portal and by email'],
+        ].map(([what, where]) => (
+          <li key={what} style={{ display: 'flex', gap: 8 }}>
+            <span aria-hidden style={{ color: 'var(--bl-blue, #0073cf)' }}>&middot;</span>
+            <span><strong style={{ color: 'var(--bl-navy)', fontWeight: 600 }}>{what}</strong>, {where}</span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="subtle" style={{ fontSize: 13, margin: '0 0 10px', lineHeight: 1.6 }}>
+        Before the 15th we can also email you if we have not received any receipts from you that
+        month. That one is up to you. Nothing about your reimbursement changes either way.
       </p>
 
       <label style={{

@@ -36,19 +36,26 @@
  */
 import { serviceClient } from '../_shared/supabase-admin'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../lib/invoice-numbering'
-import { addressProblem, cleanAddress, envAddressOr, envAddressListOr } from '../../../lib/sanitize'
+import { addressProblem, cleanAddress } from '../../../lib/sanitize'
+import { resolveApAddresses } from '../../../lib/ap-addresses'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
 import { lookupReimbursement, payloadLedgerMismatch } from '../../../lib/invoice-ledger'
 import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../lib/bam-cc'
 import { sendEmail } from '../../../lib/send-email'
+import { notifyBam } from '../../../lib/notify-bam'
 import type { InvoicePayload } from '../../../lib/invoice-payload'
 
 export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live' }) {
   const db = serviceClient()
 
-  const AP_TO = envAddressOr('AP_EMAIL', 'accounts.payable@ilovesalt.com')
-  const AP_CC = envAddressListOr('AP_CC_EMAILS', 'robin.graham@ilovesalt.com,nb@ilovesalt.com')
+  // Policy first, environment as the fallback, resolved per call. See lib/ap-addresses.ts for
+  // why the env read stays: this function deploys separately and can run before the policy row
+  // exists. It refuses rather than guessing when the setting is present but unreadable.
+  const apAddr = await resolveApAddresses(db)
+  if (!apAddr.ok) return { ok: false, error: apAddr.error }
+  const AP_TO = apAddr.to
+  const AP_CC = apAddr.cc
 
   // Look up invoice + BAM + cohort + PDF
   const { data: inv, error: invErr } = await db.from('invoices').select('*, bams(*), cohorts(*)').eq('id', req.invoice_id).single()
@@ -77,13 +84,13 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   if (mismatch) return { ok: false, error: mismatch }
 
   // P1-18: sanitize/validate every address and URL segment.
-  const toProblem = addressProblem('AP_EMAIL', AP_TO)
+  const toProblem = addressProblem('AP recipient', AP_TO)
   if (toProblem) return { ok: false, error: toProblem }
 
   const ccList: string[] = []
   for (const [i, raw] of AP_CC.entries()) {
     const addr = cleanAddress(raw)
-    const problem = addressProblem(`AP_CC_EMAILS[${i}]`, addr)
+    const problem = addressProblem(`CC ${i + 1}`, addr)
     if (problem) return { ok: false, error: problem }
     ccList.push(addr)
   }
@@ -167,9 +174,21 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
     .update({ status: 'sent', sent_at: new Date().toISOString() })
     .eq('id', req.invoice_id)
 
+  // The student's status board, same entry the other sender writes. Below the dryrun return
+  // on purpose: a rehearsal must not tell a student their invoice went out.
+  const notified = await notifyBam({
+    bam_id: inv.bam_id,
+    type: 'invoice_sent',
+    title: `Your ${monthLong} invoice was sent for payment`,
+    body: `Invoice ${inv.invoice_number}`,
+    link: '/portal/invoices',
+    period: inv.period
+  })
+
   const warning = [
     marked.error,
     statusErr ? `invoices.status update failed: ${statusErr.message}` : null,
+    notified.ok ? null : `portal notification not recorded: ${notified.error}`,
     pdf.warning,
     ccNote
   ].filter(Boolean).join(' | ')

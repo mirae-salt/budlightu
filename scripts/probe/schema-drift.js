@@ -64,14 +64,22 @@ async function main() {
 
   info(`checking ${wanted.size} column references across ${byTable.size} tables`)
   let checked = 0
+  let broken = 0
   for (const [table, cols] of byTable) {
     for (const col of cols) {
       const { error } = await db.from(table).select(col).limit(1)
       checked++
-      if (error) fail(`${table}.${col} -> ${error.message}   (${wanted.get(`${table}.${col}`)})`)
+      if (error) {
+        broken++
+        fail(`${table}.${col} -> ${error.message}   (${wanted.get(`${table}.${col}`)})`)
+      }
     }
   }
-  pass(`${checked} column references resolve against the live database`)
+  // Counted, not assumed. This line used to print "N column references resolve" underneath a
+  // list of failures, because it ran unconditionally: the verdict was right and the summary
+  // directly above it contradicted it. A probe that argues with itself is one nobody reads.
+  if (broken === 0) pass(`${checked} column references resolve against the live database`)
+  else fail(`${broken} of ${checked} column references do NOT resolve`)
   info('does not cover columns built dynamically or inside RPC bodies')
   verdict('schema drift')
 }

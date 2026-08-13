@@ -6,6 +6,7 @@ import { browserClient } from '@/lib/supabase-browser'
 import { getRole, isAdminRole } from '@/lib/auth-claims'
 import { shouldShowMaintenance, type MaintenanceState } from '@/lib/maintenance'
 import { MaintenanceBanner } from '../_components/MaintenanceBanner'
+import { PortalNotificationBell } from './_components/PortalNotificationBell'
 
 /* ── Inline SVG icons (must be above const usage for HMR) ── */
 const ip = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, strokeWidth: 1.75 }
@@ -228,6 +229,21 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     </div>
                   </>
                 )}
+                {/* Beside the account, matching the admin sidebar: it is about YOU, like the
+                    avatar and the log out button next to it.
+
+                    The row is 260px of sidebar less 14px of padding either side less 10px
+                    either side of this row = 212px. Avatar 28, bell 29, log out 25 and three
+                    8px gaps come to 106, leaving the name 106px, and the name is the one
+                    element with minWidth:0 and an ellipsis, so it is the one that gives. */}
+                {/* NOT gated on `loggedIn`. That is a second, client-side answer to a question
+                    the server already answers, and it was wrong in a way that mattered: under
+                    the dev bypass there is no session, so the bell never rendered and nobody
+                    testing locally would ever have seen it. The bell asks the API and removes
+                    itself when the API says this viewer has no notifications of their own. */}
+                <div style={{ color: 'rgba(255,255,255,0.45)', display: 'flex', flexShrink: 0 }}>
+                  <PortalNotificationBell />
+                </div>
                 <button onClick={logout} title="Log out" style={{
                   background: 'transparent', border: 'none', cursor: 'pointer',
                   color: 'rgba(255,255,255,0.35)', padding: 4, display: 'flex', flexShrink: 0

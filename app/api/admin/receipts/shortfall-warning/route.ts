@@ -17,6 +17,7 @@ import { sendEmail } from '../../../../../lib/send-email'
 import { DEFAULT_POLICY, shortfallWarnBelow } from '../../../../../lib/policy'
 import { requireAdmin } from '../../../../../lib/admin-auth'
 import { cleanEnvValue } from '../../../../../lib/sanitize'
+import { notifyBam } from '../../../../../lib/notify-bam'
 
 /**
  * True when the caller presented the internal secret. Both sides are sanitized:
@@ -99,5 +100,28 @@ export async function POST(req: NextRequest) {
     text: `Hi ${bam.first_name},\n\nYour Bud Light receipt for ${monthLabel} shows $${total.toFixed(2)}, below the $${SOFT_FLOOR} soft floor. Your reimbursement will be $${total.toFixed(2)} instead of the full $150. Upload additional receipts before the deadline if you have them.\n\n- Bud Light U`
   })
 
-  return NextResponse.json({ ok: result.sent, provider: result.provider, error: result.error })
+  // The in-app half of the same warning, written whether or not the email landed. That is the
+  // point of having two channels: a provider failure should not be the difference between the
+  // student knowing and not knowing. It records that a shortfall was detected, not that an
+  // email was delivered, so it makes no claim the send result contradicts.
+  //
+  // NOT DEDUPED, and neither is the email above it: both fire once per approved low receipt,
+  // so three small receipts in a month produce three of each. That is audit finding 10, still
+  // open, and this inherits it rather than papering over half of it.
+  const notified = await notifyBam({
+    bam_id: receipt.bam_id,
+    type: 'shortfall',
+    title: `${monthLabel} spending is under the minimum`,
+    body: `$${total.toFixed(2)} so far, below $${SOFT_FLOOR}. You can still upload more receipts before the deadline.`,
+    link: '/portal/upload',
+    period: receipt.period
+  })
+
+  return NextResponse.json({
+    ok: result.sent,
+    provider: result.provider,
+    error: result.error,
+    in_app: notified.ok,
+    ...(notified.ok ? {} : { in_app_error: notified.error })
+  })
 }

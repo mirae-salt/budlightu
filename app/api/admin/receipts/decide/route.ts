@@ -36,6 +36,7 @@ import { sendEmail } from '../../../../../lib/send-email'
 import { appBaseUrl } from '../../../../../lib/app-url'
 import { parseNonNegativeMoney } from '../../../../../lib/money'
 import { flagShortfall } from '../../../../../lib/shortfall-warning'
+import { notifyBam } from '../../../../../lib/notify-bam'
 import { cleanEnvValue } from '../../../../../lib/sanitize'
 import {
   planReceiptCorrection,
@@ -494,10 +495,54 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  /*
+   * The student's status board.
+   *
+   * A rejection already emailed them. An APPROVAL had no student-facing signal at all: the only
+   * way to find out a receipt had been accepted was to ask. That is the question the bell exists
+   * to answer, so both decisions write an entry.
+   *
+   * In-app only. Per the channel rule a record belongs in both places, and the email half is
+   * already there for a rejection; adding a new approval EMAIL would start outbound mail to 58
+   * students that nobody has approved and no switch controls, which is not a decision to make
+   * inside a bug-fix. Flagged for Robin rather than shipped.
+   *
+   * Awaited, and the outcome is reported. A dropped notification here means a student is told
+   * nothing, and the whole point of notify-bam returning `ok` is that this cannot pass silently.
+   */
+  const notifMonth = new Date(receipt.period + 'T00:00:00')
+    .toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const inApp = await notifyBam(
+    decision === 'approved'
+      ? {
+          bam_id: receipt.bam_id,
+          type: 'receipt_approved',
+          title: `Receipt accepted for ${notifMonth}`,
+          // The LEDGER figure, read back above from the row that decides what is paid, not this
+          // receipt's own total. The month is capped, so one receipt's amount is not what they
+          // get, and a number that later turns out lower is worse than no number.
+          body: ledgerPaid !== null
+            ? `Your ${notifMonth} reimbursement is now $${ledgerPaid.toFixed(2)}.`
+            : undefined,
+          link: '/portal/upload',
+          period: receipt.period
+        }
+      : {
+          bam_id: receipt.bam_id,
+          type: 'receipt_rejected',
+          title: `Receipt not accepted for ${notifMonth}`,
+          body: reason,
+          link: '/portal/upload',
+          period: receipt.period
+        }
+  )
+
   return NextResponse.json({
     ok: true,
     status: decision,
     stored_total: storedTotal,
+    bam_notified_in_app: inApp.ok,
+    ...(inApp.ok ? {} : { bam_in_app_error: inApp.error }),
     override_applied: overrideApplied,
     // What the server decided, so the page reports the recorded amount rather than
     // its own preview, and so a disagreement between the ticks and a typed amount is

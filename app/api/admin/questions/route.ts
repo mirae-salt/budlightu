@@ -23,6 +23,7 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { sendEmail } from '../../../../lib/send-email'
 import { appBaseUrl } from '../../../../lib/app-url'
+import { notifyBam } from '../../../../lib/notify-bam'
 
 function escapeHtml(v: string): string {
   return String(v ?? '')
@@ -69,7 +70,7 @@ export async function PUT(req: NextRequest) {
     .from('portal_questions')
     // Messages come along so the email can quote what they ACTUALLY last said. Quoting the original
     // question in reply to a third follow-up reads as not having read it.
-    .select('id, question, answered_at, bams(first_name, last_name, email), portal_question_messages(author, body, created_at)')
+    .select('id, bam_id, question, answered_at, bams(first_name, last_name, email), portal_question_messages(author, body, created_at)')
     .eq('id', id)
     .limit(1)
   if (readErr) {
@@ -81,6 +82,8 @@ export async function PUT(req: NextRequest) {
   }
   const row = (rows ?? [])[0] as {
     id: string
+    /** Null on a question submitted before the dev bypass resolved a BAM (see lib/dev-bam.ts). */
+    bam_id: string | null
     question: string
     answered_at: string | null
     portal_question_messages?: Array<{ author: string; body: string; created_at: string }>
@@ -277,7 +280,38 @@ export async function PUT(req: NextRequest) {
   })
   if (auditErr) console.error('[admin/questions PUT] audit_log insert failed:', auditErr.message)
 
-  return NextResponse.json({ ok: true, emailed, answeredAt: stored.answered_at })
+  /*
+   * The bell entry, ONLY when a reply was actually written and sent.
+   *
+   * The other branch of this route is "I already answered this in Outlook, mark it done", where
+   * `answered_at` is a person's claim rather than a system fact (CLAUDE.md says so). A bell entry
+   * saying "your question was answered" on that branch would point a student at a thread with
+   * nothing new in it, which is the errand this whole design is written to avoid.
+   *
+   * Below the send: the send failing already returned 502 above, so reaching here means the
+   * answer left. The bell is a record of something that happened, not an intention.
+   */
+  let inApp: { ok: boolean; error?: string } = { ok: false, error: 'no reply text' }
+  const bamId = row.bam_id
+  if (answerText && bamId) {
+    inApp = await notifyBam({
+      bam_id: bamId,
+      type: 'question_answered',
+      title: 'Your question was answered',
+      // The answer itself, trimmed. The panel shows one line, and a student who can read the
+      // gist there does not have to open anything at all.
+      body: answerText.replace(/\s+/g, ' ').trim().slice(0, 140),
+      link: '/portal/support'
+    })
+    if (!inApp.ok) console.error('[admin/questions PUT] bell notification failed:', inApp.error)
+  }
+
+  return NextResponse.json({
+    ok: true,
+    emailed,
+    answeredAt: stored.answered_at,
+    inApp: inApp.ok
+  })
 }
 
 /** Puts a question back in the open list. No email either way. */
