@@ -285,9 +285,18 @@ export default function LoginPage() {
           color: var(--midgray); cursor: pointer; text-decoration: underline;
           text-underline-offset: 3px;
         }
-        /* Neutral near-black, not var(--bl-navy): navy is a dark BLUE, and on hover it read as
-           the link turning blue. Darkening the text is the whole intended effect. */
-        .link-btn:hover { color: #111827; }
+        /*
+         * The background reset is the load-bearing half of this rule.
+         *
+         * globals.css has a GLOBAL button:hover rule that sets background to bl-blue-dark on every
+         * button element. .link-btn cleared its background in the base rule but declared only color
+         * on hover, so the background fell through to the global one and a plain text link grew a
+         * blue block behind it. Specificity was never the problem: this selector already wins, it
+         * just was not saying anything about background.
+         *
+         * Darkening the text is the whole intended effect.
+         */
+        .link-btn:hover { color: #111827; background: none; }
         .resend-btn {
           font-size: 13px; padding: 8px 18px; background: var(--bl-silver);
           border: 1.5px solid var(--stone); border-radius: 8px;

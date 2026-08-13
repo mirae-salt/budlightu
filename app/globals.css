@@ -93,6 +93,19 @@ button, .btn {
   letter-spacing: 0.04em;
 }
 button:hover, .btn:hover { background: var(--bl-blue-dark); }
+/*
+ * ^ That rule is a bug generator, and these three are the fix for the buttons it caught.
+ *
+ * It matches every `button` ELEMENT, so any button whose base rule sets a transparent background
+ * and then says nothing about hover gets filled with blue-dark. A plain text link grows a blue
+ * block behind it. Found on the login page's "Different email" (fixed in that file), and these two
+ * have the same shape.
+ *
+ * Not fixed by narrowing the global rule, because every filled button in the app depends on it.
+ * Inline-styled buttons are already safe: an inline `background` beats a stylesheet :hover.
+ */
+.chart-tab:hover { background: rgba(0,0,0,0.04); }
+.admin-hamburger:hover { background: var(--bl-silver); }
 button:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-ghost { background: transparent; color: var(--bl-navy); border: 1.5px solid var(--stone); text-transform: none; letter-spacing: normal; }
 .btn-ghost:hover { background: var(--bl-silver); border-color: var(--bl-blue); }
