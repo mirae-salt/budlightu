@@ -17,12 +17,16 @@
 
 import { useEffect, useState } from 'react'
 
+type Message = { id: string; author: 'bam' | 'admin'; body: string; created_at: string }
+
 type Row = {
   id: string
   question: string
   answer: string | null
   answered_at: string | null
   submitted_at: string
+  /** Every message, oldest first. Migration 0027; the server sorts. */
+  messages?: Message[]
 }
 
 function when(iso: string): string {
@@ -41,6 +45,38 @@ export function QuestionHistory({
 }) {
   const [rows, setRows] = useState<Row[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  /** Bumped locally so a sent follow-up appears without waiting for the parent. */
+  const [localKey, setLocalKey] = useState(0)
+
+  async function sendFollowUp(questionId: string) {
+    setBusy(true)
+    setSendError(null)
+    try {
+      const res = await fetch('/api/portal/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: questionId, body: replyText })
+      })
+      const j = await res.json()
+      if (!res.ok || !j?.ok) {
+        setSendError(j?.message ?? 'That did not send.')
+        return
+      }
+      setReplyingTo(null)
+      setReplyText('')
+      // Refetch rather than pushing the local message in: the thread also reopened server-side, and
+      // the badge has to reflect that.
+      setLocalKey(k => k + 1)
+    } catch (e) {
+      setSendError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -58,7 +94,7 @@ export function QuestionHistory({
       })
       .catch(e => { if (!cancelled) setError((e as Error).message) })
     return () => { cancelled = true }
-  }, [refreshKey])
+  }, [refreshKey, localKey])
 
   if (error) {
     return (
@@ -121,39 +157,87 @@ export function QuestionHistory({
               <span className="subtle" style={{ fontSize: 12 }}>Asked {when(r.submitted_at)}</span>
             </div>
 
-            <div style={{
-              fontSize: 14, color: '#1a1a2e', whiteSpace: 'pre-wrap', lineHeight: 1.6
-            }}>
-              {r.question}
-            </div>
+            {/*
+              THE THREAD. This used to be one question with one answer under it, which meant a
+              follow-up appeared as a brand new unrelated card and a second reply overwrote the first.
+              Messages carry their own author and time (migration 0027), so a conversation reads as one.
 
-            {r.answer ? (
-              <div style={{
-                marginTop: 12, padding: '12px 14px', borderRadius: 8,
-                background: '#fff', borderLeft: '3px solid var(--bl-blue, #0073cf)'
-              }}>
-                <div className="subtle" style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                  Bud Light U replied
-                  {r.answered_at && (
-                    <span style={{ fontWeight: 400 }}> · {when(r.answered_at)}</span>
-                  )}
+              Falls back to question/answer for a row whose messages could not be read, rather than
+              rendering an empty card.
+            */}
+            {(r.messages && r.messages.length > 0
+              ? r.messages
+              : ([
+                  { id: 'q', author: 'bam' as const, body: r.question, created_at: r.submitted_at },
+                  ...(r.answer
+                    ? [{ id: 'a', author: 'admin' as const, body: r.answer, created_at: r.answered_at ?? r.submitted_at }]
+                    : [])
+                ])
+            ).map(m => (
+              <div
+                key={m.id}
+                style={{
+                  marginTop: 10,
+                  ...(m.author === 'admin'
+                    ? {
+                        padding: '12px 14px', borderRadius: 8, background: '#fff',
+                        borderLeft: '3px solid var(--bl-blue, #0073cf)'
+                      }
+                    : {})
+                }}
+              >
+                <div className="subtle" style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                  {m.author === 'admin' ? 'Bud Light U' : 'You'}
+                  <span style={{ fontWeight: 400 }}> · {when(m.created_at)}</span>
                 </div>
                 <div style={{
-                  fontSize: 14, color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.7
+                  fontSize: 14, color: m.author === 'admin' ? '#374151' : '#1a1a2e',
+                  whiteSpace: 'pre-wrap', lineHeight: 1.65
                 }}>
-                  {r.answer}
+                  {m.body}
                 </div>
               </div>
-            ) : r.answered_at ? (
-              /* Marked answered with no text stored: the reply went out of somebody's own email
-                 client. Saying "handled" is honest; pretending there is nothing to show is not. */
-              <p className="subtle" style={{ fontSize: 13, margin: '12px 0 0', lineHeight: 1.6 }}>
-                Answered by email. Check your inbox, and ask again below if it did not arrive.
-              </p>
+            ))}
+
+            {/* Follow-up. Sending reopens the thread, so it goes back into the admin's Open list.
+                Without this the student's only option was to start a second, unconnected question. */}
+            {replyingTo === r.id ? (
+              <div style={{ marginTop: 12 }}>
+                <textarea
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  rows={3}
+                  autoFocus
+                  placeholder="Add to this conversation"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', fontSize: 14, fontFamily: 'inherit',
+                    padding: '10px 12px', border: '1px solid rgba(0,0,0,0.15)', borderRadius: 8,
+                    resize: 'vertical'
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    disabled={busy || replyText.trim().length < 2}
+                    onClick={() => void sendFollowUp(r.id)}
+                  >
+                    {busy ? 'Sending...' : 'Send'}
+                  </button>
+                  <button className="btn-ghost" disabled={busy} onClick={() => { setReplyingTo(null); setReplyText('') }}>
+                    Cancel
+                  </button>
+                  {sendError && <span style={{ fontSize: 13, color: '#991b1b' }}>{sendError}</span>}
+                </div>
+              </div>
             ) : (
-              <p className="subtle" style={{ fontSize: 13, margin: '12px 0 0', lineHeight: 1.6 }}>
-                Waiting for a reply. It will come here and to your email.
-              </p>
+              <button
+                onClick={() => { setReplyingTo(r.id); setReplyText(''); setSendError(null) }}
+                style={{
+                  marginTop: 12, background: 'none', border: 'none', padding: '4px 0',
+                  fontSize: 13, fontWeight: 600, color: 'var(--bl-blue, #0073cf)', cursor: 'pointer'
+                }}
+              >
+                Reply
+              </button>
             )}
           </div>
         ))}

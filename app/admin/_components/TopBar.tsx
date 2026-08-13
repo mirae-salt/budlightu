@@ -268,11 +268,13 @@ export function NotificationBell() {
         </svg>
         {unread > 0 && (
           <span style={{
-            position: 'absolute', top: 2, right: 2,
-            background: '#DC2626', color: '#fff', fontSize: 10, fontWeight: 700,
-            minWidth: 16, height: 16, borderRadius: 8,
+            // 13px, down from 16. The bell went from 20 to 17 and the badge did not follow, so a
+            // two-digit count was nearly as wide as the icon it sat on.
+            position: 'absolute', top: 0, right: 0,
+            background: '#DC2626', color: '#fff', fontSize: 9, fontWeight: 700,
+            minWidth: 13, height: 13, borderRadius: 999,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '0 4px', lineHeight: 1
+            padding: '0 3px', lineHeight: 1
           }}>
             {unread > 99 ? '99+' : unread}
           </span>

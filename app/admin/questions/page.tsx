@@ -30,6 +30,8 @@ type DbQuestion = {
   notified_at: string | null
   answered_at: string | null
   answer: string | null
+  /** Every message in the thread. Migration 0027. Order is not guaranteed by the join. */
+  portal_question_messages?: Array<{ id: string; author: 'bam' | 'admin'; body: string; created_at: string }>
   bams: {
     first_name: string | null
     last_name: string | null
@@ -37,6 +39,24 @@ type DbQuestion = {
     school_id: string | null
     cohorts?: { name: string } | { name: string }[] | null
   } | null
+}
+
+/**
+ * The thread, oldest first.
+ *
+ * Falls back to the question and answer columns for a row whose messages could not be read, so a card
+ * never renders empty. The join does not order, and a thread showing the reply above the question is
+ * not a thread.
+ */
+function threadOf(r: DbQuestion): Array<{ id: string; author: 'bam' | 'admin'; body: string; created_at: string }> {
+  const m = r.portal_question_messages
+  if (Array.isArray(m) && m.length > 0) {
+    return [...m].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }
+  return [
+    { id: 'q', author: 'bam', body: r.question, created_at: r.submitted_at },
+    ...(r.answer ? [{ id: 'a', author: 'admin' as const, body: r.answer, created_at: r.answered_at ?? r.submitted_at }] : [])
+  ]
 }
 
 /** cohorts comes back as an object or a one-element array depending on the join. */
@@ -365,23 +385,38 @@ export default function QuestionsPage() {
                       })}
                     </div>
                   </div>
-                  <div style={{ fontSize: 15, color: '#1a1a2e', whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>
-                    {r.question}
-                  </div>
-
-                  {/* What was sent, if anything was. Kept when a question is reopened, because
-                      it is a record of what was already said. */}
-                  {r.answer && (
-                    <div style={{
-                      marginTop: 12, padding: '10px 12px', borderRadius: 8,
-                      background: 'rgba(0,0,0,0.03)', borderLeft: '3px solid rgba(0,163,224,0.5)'
-                    }}>
-                      <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>Replied</div>
-                      <div style={{ fontSize: 13, color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                        {r.answer}
+                  {/* THE THREAD, not one question with one reply under it. A follow-up used to arrive
+                      as a separate unrelated card and a second reply overwrote the first. */}
+                  {threadOf(r).map(m => (
+                    <div
+                      key={m.id}
+                      style={{
+                        marginTop: 10,
+                        ...(m.author === 'admin'
+                          ? {
+                              padding: '10px 12px', borderRadius: 8,
+                              background: 'rgba(0,0,0,0.03)', borderLeft: '3px solid rgba(0,163,224,0.5)'
+                            }
+                          : {})
+                      }}
+                    >
+                      <div className="muted" style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                        {m.author === 'admin' ? 'Replied' : who(r).name}
+                        <span style={{ fontWeight: 400 }}>
+                          {' · '}{new Date(m.created_at).toLocaleString('en-US', {
+                            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      <div style={{
+                        fontSize: m.author === 'admin' ? 13 : 15,
+                        color: m.author === 'admin' ? '#374151' : '#1a1a2e',
+                        whiteSpace: 'pre-wrap', lineHeight: 1.65
+                      }}>
+                        {m.body}
                       </div>
                     </div>
-                  )}
+                  ))}
 
                   {replyTo === r.id ? (
                     <div style={{ marginTop: 12 }}>
