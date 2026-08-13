@@ -51,7 +51,7 @@ import { handler as sendBamCopy } from '../../../../../supabase/functions/sendBa
  * Graph email implementation for the same reason (see sendApEmail's header). `git log` has it
  * if it is ever wanted back.
  */
-import { lookupReimbursement, payloadLedgerMismatch } from '../../../../../lib/invoice-ledger'
+import { lookupReimbursement, payloadLedgerMismatch, undecidedReceiptsProblem } from '../../../../../lib/invoice-ledger'
 import type { InvoicePayload } from '../../../../../lib/invoice-payload'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { ensureInvoicePdf } from '../../../../../lib/invoice-pdf'
@@ -117,6 +117,14 @@ export async function POST(req: NextRequest) {
     const mismatch = payloadLedgerMismatch((inv.payload_json as unknown as InvoicePayload | null)?.lines, ledger.paidCad)
     if (mismatch) {
       results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: mismatch })
+      continue
+    }
+    // The document agreeing with the ledger is not enough if the ledger itself is not finished.
+    // A receipt still in Robin's queue is money this invoice does not carry, and AP treats what
+    // it receives as final.
+    const undecided = await undecidedReceiptsProblem(admin, inv.bam_id, inv.period)
+    if (undecided) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: undecided })
       continue
     }
 

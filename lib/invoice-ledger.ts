@@ -116,6 +116,78 @@ export async function lookupReimbursement(
   return { ok: true, paidCad: 0, source: 'no_receipts' }
 }
 
+/**
+ * States where a receipt still owes a decision AND the ledger does not yet reflect it.
+ *
+ * Derived from RECEIPT_STATES_WITH_MONEY above by removing 'approved', which is the only one
+ * of them that has been settled into reimbursement_ledger. 'rejected' is decided and worth
+ * nothing. 'ocr_failed' is deliberately absent, matching the existing policy that it is
+ * excluded from shortfall judgement and handled through the review queue and retry: it can
+ * stay unreadable indefinitely, and a receipt nobody can decide must not block a payment
+ * forever.
+ */
+const RECEIPT_STATES_UNDECIDED = ['pending', 'auto_pass', 'review']
+
+/**
+ * Refuse to SEND an invoice while a receipt for that month is still waiting on a decision.
+ *
+ * WHY THIS EXISTS, AND WHY IT IS NOT IN lookupReimbursement
+ * ---------------------------------------------------------
+ * lookupReimbursement already refuses when there is NO ledger row but receipts exist, with the
+ * comment "Invoice blocked so the BAM is not underpaid". That guard has a hole: once a ledger
+ * row exists it returns immediately and never looks at receipts again. A row saying
+ * `paid_cad = 0` is a ledger row.
+ *
+ * Found 2026-08-13, from a real case. A receipt for $58.45 was approved, then reverted, which
+ * recomputed the ledger to $0 and left the receipt in 'review'. Batch approve then reported
+ * success on an invoice carrying no reimbursement at all, while $58.45 of that student's money
+ * was still sitting in Robin's queue undecided. On a live cohort that invoice reaches AP as
+ * final, on net-15 terms, and the student is simply short for the month.
+ *
+ * This is the failure the 16th/17th split exists to prevent: audit on the 16th so Robin has a
+ * day to clear flagged receipts before invoices generate on the 17th. Nothing enforced that she
+ * had. Now the send does.
+ *
+ * NOT in lookupReimbursement because lib/draft-invoice.ts and generateInvoicePayload call it
+ * too, and drafts must keep generating all month while receipts are still being reviewed.
+ * Blocking there would break the thing this is trying to protect. So it sits beside
+ * payloadLedgerMismatch and is called from the three places that actually send.
+ *
+ * Fails CLOSED on a read error, like everything else in this file: if we cannot tell whether a
+ * decision is outstanding, we do not send money.
+ *
+ * Returns null when it is safe to send, or the reason when it is not.
+ */
+export async function undecidedReceiptsProblem(
+  db: LedgerDbClient,
+  bamId: string,
+  period: string
+): Promise<string | null> {
+  const { data, error } = await db
+    .from('receipts')
+    .select('id, status')
+    .eq('bam_id', bamId)
+    .eq('period', period)
+    .in('status', RECEIPT_STATES_UNDECIDED)
+
+  if (error) {
+    return `could not check whether any receipt is still under review (${error.message}) — refusing to send rather than risk underpaying`
+  }
+
+  const rows = (data ?? []) as Array<{ status: string }>
+  if (rows.length === 0) return null
+
+  const counts = new Map<string, number>()
+  for (const r of rows) counts.set(r.status, (counts.get(r.status) ?? 0) + 1)
+  const breakdown = [...counts.entries()].map(([s, n]) => `${n} ${s}`).join(', ')
+
+  return (
+    `HARD BLOCK · ${rows.length} receipt(s) for this month have not been decided yet (${breakdown}). ` +
+    `Sending now would invoice this BAM without money they may be owed, and the invoice is final ` +
+    `once AP has it. Clear them on the Receipts page (touchpoint 1), then send.`
+  )
+}
+
 // ── pure payload/ledger reconciliation (used at send time) ───────────────────
 
 export type PayloadLineish = { description?: unknown; total?: unknown }

@@ -39,7 +39,7 @@ import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../lib/in
 import { addressProblem, cleanAddress } from '../../../lib/sanitize'
 import { resolveApAddresses } from '../../../lib/ap-addresses'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
-import { lookupReimbursement, payloadLedgerMismatch } from '../../../lib/invoice-ledger'
+import { lookupReimbursement, payloadLedgerMismatch, undecidedReceiptsProblem } from '../../../lib/invoice-ledger'
 import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../lib/bam-cc'
 import { sendEmail } from '../../../lib/send-email'
@@ -82,6 +82,10 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   const payloadLines = (inv.payload_json as unknown as InvoicePayload | null)?.lines
   const mismatch = payloadLedgerMismatch(payloadLines, ledger.paidCad)
   if (mismatch) return { ok: false, error: mismatch }
+  // See undecidedReceiptsProblem: matching the ledger is not enough when a receipt for this
+  // month is still waiting on a decision.
+  const undecided = await undecidedReceiptsProblem(db, inv.bam_id, inv.period)
+  if (undecided) return { ok: false, error: undecided }
 
   // P1-18: sanitize/validate every address and URL segment.
   const toProblem = addressProblem('AP recipient', AP_TO)

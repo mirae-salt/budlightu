@@ -44,7 +44,7 @@ import { resolveApAddresses } from '../../../../lib/ap-addresses'
 import { claimSend, markSendFailed, markSendSucceeded } from '../../../../lib/send-guard'
 import { ensureInvoicePdf } from '../../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../../lib/bam-cc'
-import { lookupReimbursement, payloadLedgerMismatch } from '../../../../lib/invoice-ledger'
+import { lookupReimbursement, payloadLedgerMismatch, undecidedReceiptsProblem } from '../../../../lib/invoice-ledger'
 import { notifyBam } from '../../../../lib/notify-bam'
 import { handler as sendBamCopy } from '../../../../supabase/functions/sendBamCopy/index'
 
@@ -226,6 +226,13 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   if (!ledger.ok) return blocked(ledger.error)
   const mismatch = payloadLedgerMismatch((payload as unknown as InvoicePayload).lines, ledger.paidCad)
   if (mismatch) return blocked(mismatch)
+  // Matching the ledger is not enough when the ledger is not finished. See
+  // undecidedReceiptsProblem: a receipt still in the review queue is money this invoice does
+  // not carry, and AP treats what it receives as final.
+  if (!testEmail) {
+    const undecided = await undecidedReceiptsProblem(admin, inv.bam_id, inv.period)
+    if (undecided) return blocked(undecided)
+  }
 
   const period = new Date(inv.period)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
