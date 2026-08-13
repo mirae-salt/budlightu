@@ -451,14 +451,35 @@ export default function InvoiceBatch() {
         reportRow('error', `AP email failed: ${body.message ?? res.statusText}`)
       } else {
         const json = await res.json().catch(() => ({}))
+        /*
+         * READS `sent` AND `blocked`, not just `failed`.
+         *
+         * /api/admin/send-ap returns HTTP 200 with { ok:false, sent:0, blocked:1, failed:0 } when it
+         * refuses. `failed` is 0 because the route computes it as
+         * `outcomes.length - sent - blocked`. So this checked `res.ok` (true) and then `json.failed`
+         * (0, falsy) and fell through to "sent to AP", flipping the row to `sent`. Nothing was sent.
+         *
+         * It refuses for real reasons in live too, not only for a dryrun cohort: a voided invoice, one
+         * that is not approved, a missing PO, a payload that disagrees with the ledger, a malformed AP
+         * address. Every one of those was reported to the operator as a completed send, which is the
+         * version of this that loses an invoice: Robin believes AP has it and nobody chases it.
+         *
+         * `sent === 1` is now the ONLY thing that produces a success message or moves the row.
+         */
+        const outcome = Array.isArray(json.results) ? json.results[0] : undefined
+        const reason = outcome?.error ?? json.message ?? 'no reason given'
         if (testEmail) {
-          if (json.failed) reportRow('error', 'Test send failed.')
-          else reportRow('ok', `Test email sent to ${testEmail}`)
-        } else if (json.failed) {
-          reportRow('error', `${inv.number}: AP send failed.`)
-        } else {
+          if (json.sent === 1) reportRow('ok', `Test email sent to ${testEmail}`)
+          else reportRow('error', `Test send did not go out: ${reason}`)
+        } else if (json.sent === 1) {
           reportRow('ok', `${inv.number} sent to AP.`)
           setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'sent' as const } : i))
+        } else if (json.blocked) {
+          // Not an error in the operator's sense: the system refused on purpose and the reason is the
+          // useful part. Says NOT SENT explicitly, because that is the fact being corrected here.
+          reportRow('error', `${inv.number} NOT sent: ${reason}`)
+        } else {
+          reportRow('error', `${inv.number} NOT sent: ${reason}`)
         }
       }
     } catch {
