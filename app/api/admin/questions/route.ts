@@ -108,6 +108,9 @@ export async function PUT(req: NextRequest) {
     }
 
     const base = appBaseUrl()
+    // Checks `sent`, not just rejection: sendEmail resolves with { sent: false } on a provider
+    // failure. Marking a question answered when the reply never left is the one outcome this route
+    // is written to avoid, and it was doing exactly that. Audited 2026-08-13.
     const err = await sendEmail({
       to: bamEmail,
       replyTo: auth.email ?? undefined,
@@ -153,7 +156,9 @@ export async function PUT(req: NextRequest) {
         '',
         '- Bud Light U'
       ].join('\n')
-    }).then(() => null, (e: unknown) => (e as Error).message)
+    })
+      .then(r => (r.sent ? null : (r.error ?? `send failed via ${r.provider}`)))
+      .catch((e: unknown) => (e instanceof Error ? e.message : 'send threw'))
 
     if (err) {
       console.error('[admin/questions PUT] reply email failed:', err)

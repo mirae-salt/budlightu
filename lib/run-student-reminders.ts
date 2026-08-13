@@ -221,12 +221,22 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
       portalUrl: base
     })
 
-    const err = await sendEmail({
-      to: candidate.email as string,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text
-    }).then(() => null, (e: unknown) => (e as Error).message)
+    // `sendEmail` RESOLVES on failure with { sent: false, error }, it does not reject. This used
+    // `.then(() => null, onRejected)`, which only sees a throw, so an unconfigured provider or a
+    // Resend error read as success. Same disease as the unchecked fetch in the notification bell,
+    // committed the same day in code written the same day. Audited 2026-08-13.
+    let err: string | null = null
+    try {
+      const r = await sendEmail({
+        to: candidate.email as string,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text
+      })
+      if (!r.sent) err = r.error ?? `send failed via ${r.provider}`
+    } catch (e) {
+      err = e instanceof Error ? e.message : 'send threw'
+    }
 
     if (err) {
       failed++

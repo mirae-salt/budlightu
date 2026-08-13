@@ -252,7 +252,15 @@ export async function POST(req: NextRequest) {
       '- Bud Light U'
     ].join('\n')
   }).then(
-    () => null,
+    // Checks `sent`. sendEmail resolves with { sent: false } on a provider failure, so a rejection-
+    // only handler read that as delivered, stamped notified_at, and the digest then skipped the
+    // question because it filters on notified_at is null. It reached nobody. Audited 2026-08-13.
+    (r) => {
+      if (r.sent) return null
+      const msg = r.error ?? `send failed via ${r.provider}`
+      console.error('[portal/support] email to admins not sent:', msg)
+      return msg
+    },
     (e: unknown) => {
       // The question IS saved in portal_questions, so this is not a data loss;
       // it means Robin will see it in the dashboard rather than her inbox.
