@@ -120,9 +120,22 @@ export async function PUT(req: NextRequest) {
             <p style="font-size: 12px; color: #9ca3af; margin: 0 0 6px;">You asked:</p>
             <div style="font-size: 13px; color: #6b7280; white-space: pre-wrap; line-height: 1.6;">${escapeHtml(row.question)}</div>
           </div>
+          <!--
+            A BUTTON, not a link inside a sentence. Mirae: 바로가기로 해야지. A student who has more
+            to say should not have to find the way back inside a paragraph.
+
+            Worded "Ask a follow-up" rather than "View the thread" on purpose: /portal/support is
+            currently a submit form, so a thread link would be a promise the page cannot keep until
+            handoff item 1.3 ships. The href does not change when it does.
+          -->
+          <p style="margin: 0 0 18px;">
+            <a href="${escapeHtml(base)}/portal/support"
+               style="background: #0073cf; color: #ffffff; padding: 11px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
+              Ask a follow-up
+            </a>
+          </p>
           <p style="font-size: 13px; color: #6b7280; line-height: 1.6; margin: 0;">
-            Replying to this email reaches us directly, or use the
-            <a href="${escapeHtml(base)}/portal/support" style="color: #0073cf;">Support page</a>.
+            Replying straight to this email reaches us too.
           </p>
           <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">Bud Light U</p>
         </div>
@@ -135,7 +148,8 @@ export async function PUT(req: NextRequest) {
         'You asked:',
         row.question,
         '',
-        `Replying to this email reaches us directly, or use the Support page: ${base}/portal/support`,
+        `Ask a follow-up: ${base}/portal/support`,
+        'Replying straight to this email reaches us too.',
         '',
         '- Bud Light U'
       ].join('\n')

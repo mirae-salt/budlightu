@@ -1,11 +1,35 @@
 'use client'
+/**
+ * /portal/support — the BAM's support tracker.
+ *
+ * WHAT THIS USED TO BE, AND WHY IT CHANGED
+ * ---------------------------------------
+ * A textarea and a Send button. It accepted a question, replaced itself with "thanks, your program
+ * manager will reply by email within 1-2 business days", and showed nothing else ever again. So a
+ * student had no way to see what they had asked, whether it had landed, or whether it had been
+ * answered. Asking the same thing twice was the only reasonable response to that, and Robin got the
+ * duplicates.
+ *
+ * It is now a list first: every question with its status, and a button to ask a new one. Mirae's
+ * call, and it matches how every support inbox works, because the thing a person wants on this page
+ * is almost never "compose" and almost always "what happened to the one I sent".
+ *
+ * The composer is one click away rather than gone: the first question somebody asks is the one where
+ * the list is empty, so the empty state opens it directly.
+ */
 import { useState } from 'react'
+import { QuestionHistory } from './QuestionHistory'
 
 export default function SupportPage() {
   const [question, setQuestion] = useState('')
-  const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [composing, setComposing] = useState(false)
+  const [justSent, setJustSent] = useState(false)
+  /** Bumped after a send so the list refetches and the new question is visible immediately. */
+  const [historyKey, setHistoryKey] = useState(0)
+  /** null until the list has loaded. Drives the empty state without guessing. */
+  const [count, setCount] = useState<number | null>(null)
 
   async function submit() {
     setErr(null)
@@ -18,7 +42,12 @@ export default function SupportPage() {
       })
       const json = await res.json()
       if (!res.ok || !json.ok) { setErr(json.message ?? 'Something went wrong'); return }
-      setSent(true)
+      // Straight back to the list, with the new question in it. A separate confirmation screen hid
+      // the one piece of evidence worth showing: the question, now visibly received.
+      setQuestion('')
+      setComposing(false)
+      setJustSent(true)
+      setHistoryKey(k => k + 1)
     } catch (e) {
       setErr((e as Error).message)
     } finally {
@@ -26,17 +55,9 @@ export default function SupportPage() {
     }
   }
 
-  if (sent) {
-    return (
-      <>
-        <div className="topbar">
-          <div className="crumbs"><span className="now">Support</span></div>
-        </div>
-        <h1>Thanks! We&rsquo;ll get back to you</h1>
-        <p className="subtle">Your program manager will reply by email within 1–2 business days.</p>
-      </>
-    )
-  }
+  // Nothing asked yet: open the composer rather than showing an empty list and a button. The first
+  // visit is the one where there is nothing to track.
+  const showComposer = composing || count === 0
 
   return (
     <>
@@ -45,19 +66,68 @@ export default function SupportPage() {
       </div>
 
       <div style={{ maxWidth: 680 }}>
-        <h1>Ask a question</h1>
-        <p className="subtle">
-          Can&rsquo;t submit this month? Not sure about a receipt? Type your question and your program manager will get back to you.
-        </p>
-
-        <div className="surface stack" style={{ marginTop: 20 }}>
-          <label htmlFor="support-q" className="sr-only">Your question</label>
-          <textarea id="support-q" rows={6} value={question} onChange={e => setQuestion(e.target.value)} placeholder="What's going on?" aria-label="Your question" />
-          <button onClick={submit} disabled={busy || question.trim().length < 5}>
-            {busy ? 'Sending...' : 'Send'}
-          </button>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+          gap: 16, flexWrap: 'wrap'
+        }}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ marginBottom: 4 }}>Support</h1>
+            <p className="subtle" style={{ margin: 0 }}>
+              Your questions and the replies. Answers appear here and in your email.
+            </p>
+          </div>
+          {!showComposer && (
+            <button onClick={() => { setComposing(true); setJustSent(false) }} style={{ flexShrink: 0 }}>
+              Ask a question
+            </button>
+          )}
         </div>
+
+        {justSent && !showComposer && (
+          <p style={{
+            marginTop: 16, padding: '11px 14px', borderRadius: 8, fontSize: 13,
+            background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
+            color: '#166534', lineHeight: 1.6
+          }}>
+            Sent. It is at the top of the list below, and you will get an email when it is answered.
+          </p>
+        )}
+
+        {showComposer && (
+          <div className="surface stack" style={{ marginTop: 20 }}>
+            <label htmlFor="support-q" className="sr-only">Your question</label>
+            <p className="subtle" style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+              Can&rsquo;t submit this month? Not sure whether a receipt counts? Ask here.
+            </p>
+            <textarea
+              id="support-q"
+              rows={6}
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              placeholder="What's going on?"
+              aria-label="Your question"
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button onClick={submit} disabled={busy || question.trim().length < 5}>
+                {busy ? 'Sending...' : 'Send'}
+              </button>
+              {/* No Cancel when the list is empty: there is nothing to go back to. */}
+              {count !== 0 && (
+                <button
+                  className="btn-ghost"
+                  disabled={busy}
+                  onClick={() => { setComposing(false); setErr(null) }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {err && <p style={{ color: '#A31212', marginTop: 16 }}>{err}</p>}
+
+        <QuestionHistory refreshKey={historyKey} onCount={setCount} />
       </div>
     </>
   )

@@ -17,26 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
-
-/**
- * In dev only, and only with the explicit opt-in flag, resolve to a TEST-cohort BAM.
- *
- * Same pattern and the same two gates as /api/portal/support. Without it the student view cannot
- * be looked at at all: every portal page renders, but every portal API 401s, so the one control
- * on the account page is invisible in dev and the only way to see it is to receive an OTP code in
- * a real inbox. A student-facing control nobody on the team can open is a control nobody checks.
- *
- * is_test only. Never a real student's row.
- */
-async function devBypassBam(db: ReturnType<typeof serviceClient>) {
-  const { data } = await db
-    .from('bams')
-    .select('id, wants_reminders')
-    .eq('is_test', true)
-    .eq('status', 'active')
-    .limit(1)
-  return (data ?? [])[0] as { id: string; wants_reminders: boolean | null } | undefined
-}
+import { devBypassBam } from '../../../../lib/dev-bam'
 
 export async function GET() {
   const devBypass = isDevBypass()

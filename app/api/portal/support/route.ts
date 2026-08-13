@@ -11,6 +11,7 @@ import {
 import { getRole, isAdminRole } from '../../../../lib/auth-claims'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
+import { devBypassBam } from '../../../../lib/dev-bam'
 import { sendEmail } from '../../../../lib/send-email'
 import { notifyAdmin } from '../../../../lib/notify-admin'
 import { envAddress } from '../../../../lib/sanitize'
@@ -85,6 +86,18 @@ export async function POST(req: NextRequest) {
   // student who asked it.
   let bamName = 'Unknown BAM'
   let bamId: string | null = null
+
+  // Under the dev bypass, act as the SAME test BAM every other portal route acts as. Without this
+  // the question was inserted with bam_id null, which orphans it: /api/portal/questions filters by
+  // the caller's own bam_id, so nobody could ever be shown it. Found 2026-08-13 by submitting one.
+  if (devBypass) {
+    const dev = await devBypassBam(admin)
+    if (dev) {
+      bamId = dev.id
+      bamName = dev.first_name ?? 'Test BAM'
+      userEmail = dev.email ?? userEmail
+    }
+  }
   let bamSchool: string | null = null
   let bamCohort: string | null = null
   if (userId) {
