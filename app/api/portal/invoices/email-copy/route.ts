@@ -63,10 +63,37 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: bam, error: bamErr } = await admin.from('bams')
-    .select('first_name, last_name, email')
+    .select('first_name, last_name, email, email_verified_at')
     .eq('id', inv.bam_id).maybeSingle()
   if (bamErr) return NextResponse.json({ ok: false, error: bamErr.message }, { status: 500 })
   if (!bam?.email) return NextResponse.json({ ok: false, error: 'BAM email not found' }, { status: 404 })
+
+  /*
+   * P0-4, which this route was walking around. Audit finding 8, confirmed 2026-08-13.
+   *
+   * "They are signed in, so their address must work" is the intuition, and it is wrong.
+   * `email_verified_at` is CLEARED when an admin applies a banking change
+   * (lib/banking-request.ts buildAppliedBamPatch), on purpose: after the payout destination
+   * moves, the student has to prove the address still reaches them before anything containing
+   * the new bank details is emailed. Their existing session survives that, so without this
+   * check a student could change banks and immediately mail the new account number to an
+   * address nobody had re-confirmed. sendBamCopy and the AP CC both refuse in that state; this
+   * was the one door left open, and it is the one the student can open themselves.
+   *
+   * They are NOT locked out of their invoice: /portal/invoices still offers Download, which
+   * returns the PDF to the authenticated browser rather than to a stored address. Only the
+   * emailing of it waits for re-verification, which is the part the address matters for.
+   */
+  if (!bam.email_verified_at) {
+    return NextResponse.json({
+      ok: false,
+      error:
+        'Confirm your email address before we send invoices to it. Your invoice contains your ' +
+        'banking details, and this happens whenever those details change. You can still ' +
+        'download it from this page in the meantime.',
+      needsVerification: true
+    }, { status: 403 })
+  }
 
   const recipient = cleanAddress(bam.email)
   const recipientProblem = addressProblem('bam.email', recipient)

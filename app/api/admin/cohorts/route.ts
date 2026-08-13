@@ -73,7 +73,20 @@ export async function POST(req: NextRequest) {
     start_date,
     end_date,
     send_mode: 'dryrun',
-    bam_copy_mode: 'draft',
+    /*
+     * 'off', not 'draft'. Mirae, 2026-08-13: *"어차피 BAM 이 홈피에서 다운받을 수 있잖아."*
+     *
+     * A student already has two ways to hold their invoice: they are CC'd on the email to
+     * accounts payable, which carries the same PDF, and /portal/invoices offers a Download on
+     * anything past draft (verified: the route is requireBam plus an ownership check, and the
+     * page shows the button for status !== 'draft'). A third email carrying the same document
+     * is noise.
+     *
+     * `send_mode` stays 'dryrun' because that one guards real money leaving. This one only
+     * decides whether a student gets a second copy of something they can already reach, so the
+     * quiet default is the right one. Turning it back on is one field on the Cohorts page.
+     */
+    bam_copy_mode: 'off',
     salary_default: salary.value,
     reimbursement_max: reimbursementMax
   }).select().single()
