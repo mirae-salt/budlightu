@@ -135,6 +135,32 @@ export async function POST(req: NextRequest) {
   const questionId = ((inserted ?? [])[0] as { id?: string } | undefined)?.id ?? null
 
   /*
+   * THE STUDENT'S OWN QUESTION, as the thread's first message.
+   *
+   * Migration 0027 backfilled this for every row that existed at the time, but backfilling ran
+   * once. Every question asked THROUGH THIS ROUTE afterward never got a matching 'bam' message,
+   * so /portal/support's thread view (QuestionHistory.tsx) only takes its fallback path
+   * (show `question`/`answer` directly) while `messages` is empty. The moment an admin replies
+   * and the reply is appended as a message, `messages.length` becomes 1 and the fallback stops
+   * firing, so the thread renders the admin's answer with the student's own question gone.
+   *
+   * Found 2026-08-14 by Robin, testing her own test account: she asked a question, it got
+   * answered, and her own question disappeared from the screen.
+   *
+   * Not fatal to the request if it fails: the question is already saved in portal_questions,
+   * and app/api/admin/questions/route.ts falls back to that column when messages cannot be
+   * read, so a lost message here degrades rather than loses the record.
+   */
+  if (questionId) {
+    const { error: msgErr } = await admin.from('portal_question_messages').insert({
+      question_id: questionId,
+      author: 'bam',
+      body: question.trim()
+    })
+    if (msgErr) console.error('[portal/support] could not add the question as a thread message:', msgErr.message)
+  }
+
+  /*
    * Everything that follows -- who is emailed, the email itself, the notified_at handover to
    * the daily digest, and the in-app admin notification -- moved to lib/question-alert.ts so
    * that replying in a thread does the same thing.
