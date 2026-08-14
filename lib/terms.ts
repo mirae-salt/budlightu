@@ -34,7 +34,7 @@
  * Bump this whenever the text below changes in a way that affects what someone is
  * agreeing to. Fixing a typo does not need a bump; changing a rule does.
  */
-export const TERMS_VERSION = '2026-08-12'
+export const TERMS_VERSION = '2026-08-14'
 
 /**
  * Why this looks like it went backwards.
@@ -50,6 +50,12 @@ export const TERMS_VERSION = '2026-08-12'
  *     next month rather than the one it was made in
  *   - a closed month is refused outright, where the old text said a late receipt "may
  *     not be reimbursed for that month"
+ *
+ * Bumped again on 2026-08-14: the "Conduct and brand" and "Ending your participation"
+ * draft sections are removed, not filled in (Robin's call, BL Campus x AI Final
+ * Connect -- see the comment where they used to sit). A student accepting this version
+ * is agreeing to a page that no longer mentions those topics at all, which is a
+ * different thing to agree to than a page that flagged them as coming soon.
  *
  * Per rule 3 above, the one row holding '2026-09-01' keeps it. It is a test account.
  */
@@ -131,21 +137,16 @@ export const TERMS_SECTIONS: readonly TermsSection[] = [
       'Your banking details are encrypted. Other BAMs cannot see your information.'
     ],
     enforcedAt: 'RLS policies in supabase/migrations/0002, 0012, 0016; pgp_sym_encrypt in 0003'
-  },
-  {
-    heading: 'Conduct and brand',
-    body: [
-      'PLACEHOLDER — Robin is drafting this section. It is expected to cover representing the brand, age-related requirements for alcohol marketing, social media conduct, and event expectations.'
-    ],
-    draft: true
-  },
-  {
-    heading: 'Ending your participation',
-    body: [
-      'PLACEHOLDER — Robin is drafting this section. It is expected to cover notice, what happens to a final month’s reimbursement, and removal for cause.'
-    ],
-    draft: true
   }
+  /*
+   * "Conduct and brand" and "Ending your participation" were here as draft placeholders
+   * and are gone, not filled in. Robin, 2026-08-14 (BL Campus x AI Final Connect): "I
+   * redrafted some of the paragraphs, the ones at the bottom, the conduct and brand, and
+   * then the ending your participation piece -- I think we can honestly leave out of this
+   * platform... they've all signed their contracts, they all will sign like codes of
+   * conduct... I think if we keep this just financial, that's totally fine." Those topics
+   * are covered by the BAM's employment contract and code of conduct, not this page.
+   */
 ]
 
 /** True when any section is still a placeholder, so the page can say so honestly. */

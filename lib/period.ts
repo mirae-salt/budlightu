@@ -83,11 +83,14 @@ export function validatePeriod(
   // is charged to NEXT month's $150, so that advice would quietly cost the student the
   // cap they were trying to use, and would read as rollover when none exists.
   //
-  // The open question underneath is which month a purchase made AFTER the deadline
-  // belongs to. As built, the only place it can go is the following cycle, which makes
-  // the real spending window the 16th to the 15th rather than the calendar month.
-  // Whether that is intended is Robin's call, so the message points at her instead of
-  // inventing a rule.
+  // RESOLVED 2026-08-14 (BL Campus x AI Final Connect). The open question was which
+  // month a purchase made AFTER the deadline belongs to. Robin: "that's kind of the
+  // rule and that's what we train them on -- their product is purchased in the first
+  // half of the month... we just keep it to say that so there's not any exceptions."
+  // So this stays exactly as built: a closed month is refused, full stop, and the only
+  // place a late purchase can go is the following cycle if the student submits it
+  // there themselves. No new rule needed, and the message below still deliberately
+  // does not invent a "submit it next month" instruction (see the note above it).
   if (!testException) {
     if (idx < cur) {
       return {

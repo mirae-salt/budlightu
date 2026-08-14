@@ -103,11 +103,15 @@ function OpenItemsPanel() {
   // CLAUDE.md. Last reviewed 2026-08-14. Items are removed when Robin answers, not when
   // the code changes: several of these are decisions, not tasks.
   //
-  // Two items came off this list on 2026-08-14 (BL Campus x AI Final Connect): the low-spend
-  // threshold (Robin set it to $130) and the reminder email wording (Robin: cut it to one
-  // paragraph, and turn off the opt-out). Both are built -- see lib/policy.ts and
-  // lib/student-reminders.ts. The remaining items below were not raised in that meeting and
-  // are still open; do not remove one without a specific answer from Robin for that item.
+  // Four items came off this list on 2026-08-14 (BL Campus x AI Final Connect):
+  //   - low-spend threshold: Robin set it to $130 (lib/policy.ts)
+  //   - reminder email wording: cut to one paragraph, opt-out turned off (lib/student-reminders.ts)
+  //   - late-purchase month: Robin confirmed no exceptions, built behavior stands (lib/period.ts)
+  //   - float card: Robin's card replaces Jenna's; nothing in the app tracks this, so there was
+  //     never anything to build, only to stop asking about
+  // Terms and conditions stays, downgraded: the two draft sections are gone per Robin's call
+  // (lib/terms.ts), but she also has minor wording edits for the financial sections that were
+  // sent to Mirae outside this chat and still need to be pasted in and applied.
   //
   // SHORT ON PURPOSE. These were three or four sentences each, explaining the mechanism
   // before getting to the question, and Mirae was right that nobody reads that. One question
@@ -115,37 +119,23 @@ function OpenItemsPanel() {
   // needs the reasoning she will ask, and then she is asking about the thing that matters.
   const items = [
     {
-      priority: 'high' as const,
-      title: 'A receipt bought after the 15th: which month?',
-      detail:
-        "Can they submit it with next month's receipts, or is each month strictly its own " +
-        "spending? If it rolls into next month, it uses up next month's $150.",
-      owner: 'Robin',
-      due: 'Before Sept 1',
-    },
-    {
-      priority: 'high' as const,
-      title: 'Terms and conditions body',
-      detail:
-        'The T&C page is our placeholder wording. Send us yours. Two sections show a DRAFT badge.',
-      owner: 'Robin',
-      due: 'Before Sept 1',
-    },
-    {
       priority: 'medium' as const,
-      title: 'Float card: who takes over from Jenna?',
-      detail: 'Jenna is leaving. Who manages the float card and ad-hoc expenses?',
-      owner: 'Robin',
-      due: 'ASAP',
+      title: "Terms and conditions: Robin's wording edits",
+      detail:
+        'The two draft sections are removed (per Robin, keep this page financial-only). ' +
+        'She also has minor edits to the remaining sections, sent outside the platform -- ' +
+        'still need to be applied.',
+      owner: 'Mirae',
+      due: 'Before Sept 1',
     },
     {
       priority: 'low' as const,
       title: 'Sending address allowlist with IT',
       detail:
-        'Ticket sent Aug 12: allow noreply@budlightu.com to reach accounts.payable. Until then ' +
-        'invoices go to Guneet, who forwards them. Waiting on IT.',
+        'Ticket sent Aug 12. Agreed 2026-08-14: wait about a week; if IT has not responded by ' +
+        'then, Shane escalates. Until resolved, invoices go to Guneet, who forwards them.',
       owner: 'Mirae',
-      due: 'Before Sept 17',
+      due: 'Escalate ~Aug 21 if silent',
     },
   ]
 
