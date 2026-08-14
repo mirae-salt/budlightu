@@ -98,75 +98,16 @@ function TabNav() {
 /* ═══════════════════════════════════════════════════════════════════
    TAB: Open items — pending decisions & action items
    ═══════════════════════════════════════════════════════════════════ */
-/**
- * The reminder email, collapsed, on the open item that asks about it.
- *
- * Fetched from /api/admin/student-reminders, which renders it with the same pure function the
- * cron sends with, so what Robin reads here is exactly what a BAM receives. A description of an
- * email cannot be approved: the answer to "would you like us to email your BAMs on the 10th"
- * depends entirely on the sentences, which is the part a summary leaves out.
- */
-function ReminderPreview() {
-  const [open, setOpen] = useState(false)
-  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  async function toggle() {
-    const next = !open
-    setOpen(next)
-    if (!next || preview) return
-    try {
-      const res = await fetch('/api/admin/student-reminders')
-      const j = await res.json()
-      if (res.ok && j?.ok && j.preview) setPreview(j.preview)
-      else setErr(j?.message ?? 'Could not load the email.')
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-  }
-
-  return (
-    <div style={{ margin: '0 0 10px' }}>
-      <button
-        onClick={() => void toggle()}
-        style={{
-          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontSize: 13, fontWeight: 600, color: 'var(--bl-blue, #0073cf)'
-        }}
-      >
-        {open ? 'Hide the email' : 'Read the email that would go out'}
-      </button>
-
-      {open && err && (
-        <p style={{ fontSize: 12, color: '#991b1b', margin: '8px 0 0' }}>{err}</p>
-      )}
-
-      {open && preview && (
-        <div style={{ marginTop: 10 }}>
-          <p style={{ fontSize: 12, color: 'var(--midgray)', margin: '0 0 6px' }}>
-            Subject: <strong style={{ color: 'var(--bl-navy)' }}>{preview.subject}</strong>
-          </p>
-          <div
-            style={{
-              border: '1px solid var(--border)', borderRadius: 8, background: '#fff',
-              maxHeight: 360, overflow: 'auto'
-            }}
-            // Our own template, no student data in it, so there is nothing here to escape.
-            dangerouslySetInnerHTML={{ __html: preview.html }}
-          />
-          <p style={{ fontSize: 12, color: 'var(--midgray)', margin: '8px 0 0', lineHeight: 1.6 }}>
-            Example figures. Turn it on, or say what to change, on the Settings page.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function OpenItemsPanel() {
   // Kept in step with DESIGN-NOTES.md section 6 and the open-question sections in
-  // CLAUDE.md. Last reviewed 2026-08-12. Items are removed when Robin answers, not when
+  // CLAUDE.md. Last reviewed 2026-08-14. Items are removed when Robin answers, not when
   // the code changes: several of these are decisions, not tasks.
+  //
+  // Two items came off this list on 2026-08-14 (BL Campus x AI Final Connect): the low-spend
+  // threshold (Robin set it to $130) and the reminder email wording (Robin: cut it to one
+  // paragraph, and turn off the opt-out). Both are built -- see lib/policy.ts and
+  // lib/student-reminders.ts. The remaining items below were not raised in that meeting and
+  // are still open; do not remove one without a specific answer from Robin for that item.
   //
   // SHORT ON PURPOSE. These were three or four sentences each, explaining the mechanism
   // before getting to the question, and Mirae was right that nobody reads that. One question
@@ -189,25 +130,6 @@ function OpenItemsPanel() {
         'The T&C page is our placeholder wording. Send us yours. Two sections show a DRAFT badge.',
       owner: 'Robin',
       due: 'Before Sept 1',
-    },
-    {
-      priority: 'medium' as const,
-      title: 'Low-spend warning: below how much?',
-      detail:
-        'Set to $75 as a placeholder. Below that a BAM gets a warning email, and twice in a row ' +
-        'flags them for reevaluation. Also: skip this the first month? Onboarding to the deadline ' +
-        'is only two weeks.',
-      owner: 'Robin',
-      due: 'Before Sept 15',
-    },
-    {
-      priority: 'medium' as const,
-      title: 'Reminder emails to BAMs: is this wording ok?',
-      detail: 'Built and turned off. On the 10th and the 14th, only to BAMs who have submitted nothing that month.',
-      /** Rendered inside a collapsible, so the question is about the email and not about a summary of it. */
-      preview: 'reminder',
-      owner: 'Robin',
-      due: 'Before Sept 10',
     },
     {
       priority: 'medium' as const,
@@ -251,7 +173,6 @@ function OpenItemsPanel() {
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)' }}>{item.title}</span>
               </div>
               <p style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5, margin: '0 0 8px' }}>{item.detail}</p>
-              {item.preview === 'reminder' && <ReminderPreview />}
               <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--midgray)' }}>
                 <span><strong>Owner:</strong> {item.owner}</span>
                 <span><strong>Due:</strong> {item.due}</span>
