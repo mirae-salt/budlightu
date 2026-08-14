@@ -25,7 +25,6 @@ export default function GuidePage() {
 
 function TabNav() {
   const tabs = [
-    { id: 'open', label: 'Open items' },
     { id: 'setup', label: 'Getting started' },
     { id: 'flow', label: 'How it works' },
     { id: 'bam-ux', label: 'What BAMs see' },
@@ -34,15 +33,32 @@ function TabNav() {
     { id: 'emails', label: 'Emails & alerts' },
     { id: 'admin-actions', label: 'Admin actions' },
   ] as const
-  const [active, setActive] = useState<string>('open')
+  const [active, setActive] = useState<string>('setup')
 
   return (
     <div>
       <style>{`
         :root { --built-by-mirae-lee: 1; }
-        .guide-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
+        /* SCROLL, do not clip. This was overflow:visible, so once the tabs stopped fitting
+           they spilled outside the bar with no way to reach them: measured 2026-08-14 at
+           375px, four of seven tabs were unreachable, and removing a tab only moved where
+           that starts. Scrolling the overflow keeps every tab reachable on a phone.
+           NOTE: no backticks in this block, it lives inside a template literal.
+           Wrapping was tried first and rejected: it costs a second row on desktop, because
+           flex wraps the line before it shrinks the items. */
+        .guide-tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+          border-bottom: 2px solid var(--border); margin-bottom: 24px; }
+        /* Tabs keep the default shrink and the default text wrapping, so a wide window still
+           fits all seven on one row with no scrollbar (measured: 876px of tabs in an 891px
+           bar). Only when shrinking runs out, on a phone, does the bar start scrolling. */
         .guide-tab { padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--midgray);
-          cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; background: none; border-top: none; border-left: none; border-right: none; }
+          cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; background: none;
+          border-top: none; border-left: none; border-right: none; }
+        /* Tap target on a phone: 8px padding gives a 33px-tall control, under the 44px
+           minimum. Only below the sidebar breakpoint, so the desktop bar keeps its density. */
+        @media (max-width: 768px) {
+          .guide-tab { padding: 11px 14px; }
+        }
         .guide-tab:hover { color: var(--bl-navy); background: rgba(0,0,0,0.03); border-radius: 6px 6px 0 0; }
         .guide-tab.active { color: #fff; background: var(--bl-blue); border-bottom-color: var(--bl-blue); border-radius: 6px 6px 0 0; }
         .guide-tab.active:hover { color: #fff; background: var(--bl-blue); }
@@ -75,7 +91,6 @@ function TabNav() {
         ))}
       </div>
 
-      {active === 'open' && <OpenItemsPanel />}
       {active === 'setup' && <SetupPanel />}
       {active === 'flow' && <FlowPanel />}
       {active === 'bam-ux' && <BamUxPanel />}
@@ -92,92 +107,6 @@ function TabNav() {
         </p>
       </div>
     </div>
-  )
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   TAB: Open items — pending decisions & action items
-   ═══════════════════════════════════════════════════════════════════ */
-function OpenItemsPanel() {
-  // Kept in step with DESIGN-NOTES.md section 6 and the open-question sections in
-  // CLAUDE.md. Last reviewed 2026-08-14. Items are removed when Robin answers, not when
-  // the code changes: several of these are decisions, not tasks.
-  //
-  // Four items came off this list on 2026-08-14 (BL Campus x AI Final Connect):
-  //   - low-spend threshold: Robin set it to $130 (lib/policy.ts)
-  //   - reminder email wording: cut to one paragraph, opt-out turned off (lib/student-reminders.ts)
-  //   - late-purchase month: Robin confirmed no exceptions, built behavior stands (lib/period.ts)
-  //   - float card: Robin's card replaces Jenna's; nothing in the app tracks this, so there was
-  //     never anything to build, only to stop asking about
-  // Terms and conditions stays, downgraded: the two draft sections are gone per Robin's call
-  // (lib/terms.ts), but she also has minor wording edits for the financial sections that were
-  // sent to Mirae outside this chat and still need to be pasted in and applied.
-  //
-  // SHORT ON PURPOSE. These were three or four sentences each, explaining the mechanism
-  // before getting to the question, and Mirae was right that nobody reads that. One question
-  // with the options named, and the consequence only where it changes the answer. If Robin
-  // needs the reasoning she will ask, and then she is asking about the thing that matters.
-  const items = [
-    {
-      priority: 'medium' as const,
-      title: "Terms and conditions: Robin's wording edits",
-      detail:
-        'The two draft sections are removed (per Robin, keep this page financial-only). ' +
-        'She also has minor edits to the remaining sections, sent outside the platform -- ' +
-        'still need to be applied.',
-      owner: 'Mirae',
-      due: 'Before Sept 1',
-    },
-    {
-      priority: 'low' as const,
-      title: 'Sending address allowlist with IT',
-      detail:
-        'Ticket sent Aug 12. Agreed 2026-08-14: wait about a week; if IT has not responded by ' +
-        'then, Shane escalates. Until resolved, invoices go to Guneet, who forwards them.',
-      owner: 'Mirae',
-      due: 'Escalate ~Aug 21 if silent',
-    },
-  ]
-
-  const priorityStyle = {
-    high: { background: 'rgba(239,68,68,0.1)', color: '#dc2626', label: 'Urgent' },
-    medium: { background: 'rgba(245,158,11,0.12)', color: '#d97706', label: 'Medium' },
-    low: { background: 'rgba(128,128,128,0.1)', color: '#6b7280', label: 'Low' },
-  }
-
-  return (
-    <>
-      <p style={{ fontSize: 13, color: 'var(--midgray)', marginBottom: 16, lineHeight: 1.5 }}>
-        Decisions we need from you before the system goes live. These are questions, not
-        tasks for the build: each one changes what the portal tells 58 BAMs, so we would
-        rather ask than guess. Answered items are removed from this list.
-      </p>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {items.map((item, i) => {
-          const ps = priorityStyle[item.priority]
-          return (
-            <div key={i} style={{ padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 8, borderLeft: `3px solid ${ps.color}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <span className="pill" style={{ background: ps.background, color: ps.color }}>{ps.label}</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--bl-navy)' }}>{item.title}</span>
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5, margin: '0 0 8px' }}>{item.detail}</p>
-              <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--midgray)' }}>
-                <span><strong>Owner:</strong> {item.owner}</span>
-                <span><strong>Due:</strong> {item.due}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {items.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--midgray)', fontSize: 14 }}>
-          All clear — no open items.
-        </div>
-      )}
-    </>
   )
 }
 

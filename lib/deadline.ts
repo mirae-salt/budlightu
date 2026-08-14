@@ -23,12 +23,17 @@
  * never less. Any drift lands on the side of the person who might otherwise lose $150.
  * There is no zone conversion, no DST table, and nothing to be subtly wrong about.
  *
- * THIS IS A LABEL, NOT A GATE
- * Nothing here rejects a submission. The server still accepts the current or previous
- * month (lib/period.ts). A student an hour late should not lose $150, and the program is
- * soft everywhere else -- a shortfall is a warning, not a cutoff. What actually decides
- * whether a receipt lands in a month's invoice is whether it is in the database when the
- * audit job runs.
+ * THIS FILE IS THE CUTOFF, NOT THE GATE
+ * Nothing here rejects anything. `lib/period.ts validatePeriod` does the rejecting, and it
+ * CALLS isPastDeadline to decide. So the generosity above is real at the gate: measured
+ * 2026-08-14, a submission for September at 06:30 UTC on Sep 16 (11:30pm Sep 15 in BC) is
+ * accepted, and the same submission at 08:00 UTC is refused.
+ *
+ * A closed month is refused outright, which is stricter than this file's header used to
+ * claim ("the server still accepts the current or previous month") -- that stopped being
+ * true when period.ts started refusing closed months, because a receipt filed against a
+ * closed month was stored, never audited and never paid. Robin confirmed the strict
+ * reading on 2026-08-14: "we just keep it to say that so that there's not any exceptions."
  */
 
 /** The day students are told to submit by. */
