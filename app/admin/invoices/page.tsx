@@ -527,7 +527,11 @@ export default function InvoiceBatch() {
           <div className="surface-title">
             Batch approval
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* wrap, not nowrap: the count, an optional badge and three buttons in one row is
+              already tight on a laptop, and on a phone this row alone was wider than the
+              screen with nothing to contain it -- a second, independent source of the same
+              whole-page horizontal scroll the table below caused. */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className="muted" style={{ fontSize: 12 }}>{invoices.length} invoices · <strong>${total.toFixed(2)}</strong></span>
             {approvedUnsent.length > 0 && (
               <span className="badge badge-yellow" style={{ fontSize: 10 }}>
@@ -566,6 +570,11 @@ export default function InvoiceBatch() {
         <Toast notice={batchNotice} onDismiss={() => setBatchNotice(null)} />
         <Toast notice={rowNotice} onDismiss={() => setRowNotice(null)} />
 
+        {/* Contained to this box, not the page -- see app/admin/unmatched/page.tsx for the
+            fault this fixes: an unwrapped admin-table drags the whole page (sidebar included)
+            sideways on a phone. This is the table Mirae's 2026-08-14 screenshots showed
+            breaking, PDF/void buttons and all pushed off the right edge. */}
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -921,6 +930,7 @@ export default function InvoiceBatch() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {apPreview && (() => {

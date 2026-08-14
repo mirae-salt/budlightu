@@ -388,7 +388,7 @@ export default function ReceiptsQueue() {
               History ({history.length})
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {tab === 'queue' ? (
               <>
                 {pendingCount > 0 && <span className="badge badge-blue">PENDING · {pendingCount}</span>}
@@ -406,6 +406,10 @@ export default function ReceiptsQueue() {
 
         {/* Fixed toast. This was a badge hardcoded to badge-green, so failures read as successes. */}
         <Toast notice={notice} onDismiss={() => setNotice(null)} />
+        {/* Contained to this box, not the page -- see app/admin/unmatched/page.tsx for the fault
+            this fixes: an unwrapped admin-table drags the whole page (sidebar included)
+            sideways on a phone. */}
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -885,6 +889,7 @@ export default function ReceiptsQueue() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {lightboxSrc && (

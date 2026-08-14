@@ -149,6 +149,11 @@ export default function Unmatched() {
       {/* Fixed toast: an inline badge beside the button was too easy to miss. */}
       <Toast notice={notice} onDismiss={() => setNotice(null)} />
 
+        {/* Contained to this box, not the page. Without it a 600px-minimum table (5 columns:
+            email, timestamp, reason, guessed match, actions) pushes .admin-main past the
+            viewport on a phone, and since nothing clips that overflow it drags the WHOLE page
+            sideways -- the fixed sidebar included. Same fix as /portal/invoices, 2026-08-14. */}
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -242,6 +247,7 @@ export default function Unmatched() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   )

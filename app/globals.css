@@ -593,6 +593,11 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 .surface-header {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 16px; gap: 12px;
+  /* Two groups side by side (a title/tabs on the left, badges/buttons on the right) fit a
+     laptop but not a phone, and neither this row nor its children wrapped -- confirmed
+     2026-08-14 dragging the whole admin page sideways on /admin/receipts, sidebar included.
+     Wrapping onto a second line is never worse than silently overflowing the screen. */
+  flex-wrap: wrap;
 }
 .surface-title { font-weight: 700; font-size: 13px; color: var(--bl-navy); text-transform: uppercase; letter-spacing: 0.06em; }
 
