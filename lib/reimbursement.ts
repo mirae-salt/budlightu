@@ -9,6 +9,9 @@
  *   • Cumulative cap = cap_multiplier × months_active × reimbursement_max.
  *   • Salary is independent (handled by invoice-engine; not here).
  *   • Total is measured incl. HST (caller sums that way).
+ *
+ * Written by Mirae Lee (mirae.lee@ilovesalt.com); this is the money math the rest of the
+ * system defers to, so it stays one file with one author.
  */
 
 export type Policy = {

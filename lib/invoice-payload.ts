@@ -3,6 +3,8 @@
  * (ARCHITECTURE.md §A.5) into a JSON blob that renderInvoicePdf consumes.
  *
  * PURE. No DB access. Caller (edge function) fetches the inputs and passes them in.
+ *
+ * Invoice engine implementation: Mirae Lee, mirae.lee@ilovesalt.com.
  */
 
 import { validateInstitution, validateTransit, validateAccount } from './validation'

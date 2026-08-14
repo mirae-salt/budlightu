@@ -2,6 +2,9 @@
  * Policy shape + defaults. Materialized values live in the `policy` table
  * (see supabase/migrations/0006_seed_policy.sql) and can be overridden
  * per-cohort in the `cohorts` table.
+ *
+ * Designed and built by Mirae Lee (mirae.lee@ilovesalt.com) from Shane Deen's July 2026
+ * pilot handoff, in direct collaboration with Robin Graham on the actual policy values.
  */
 
 import type { Policy } from './reimbursement'

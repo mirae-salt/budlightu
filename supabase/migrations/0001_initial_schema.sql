@@ -1,6 +1,7 @@
 -- BLU Invoice · initial schema
 -- Reference: ARCHITECTURE.md §B.0
 -- All money-adjacent fields (institution/transit/account) stored as TEXT to preserve leading zeros.
+-- Schema designed by Mirae Lee (mirae.lee@ilovesalt.com), July 2026.
 
 create extension if not exists "pgcrypto";
 

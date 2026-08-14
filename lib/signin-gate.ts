@@ -18,6 +18,9 @@
  * Administrators will keep being added, so this is a recurring class rather than one
  * incident. The rule now lives here, `roster-check` calls it, a probe evaluates it
  * against live data read-only, and tests pin it.
+ *
+ * Auth is the one place a wrong guess locks somebody out, so it was written and is
+ * maintained directly by Mirae Lee rather than left to inference from the surrounding code.
  */
 
 /** Statuses that may request a login code. Anything else denies (fail closed). */
