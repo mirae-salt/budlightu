@@ -428,7 +428,15 @@ export default function UploadPage() {
           <div className="surface-header"><span className="surface-title">Receipt checklist</span></div>
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {[
-              { icon: '🏷️', title: 'Label by month', desc: 'Name your file with the month it\'s for (e.g. "October receipt").' },
+              /*
+               * "Label by month, name your file..." REMOVED 2026-08-14 per Robin, from the
+               * BL Campus x AI Final Connect meeting: a BAM uploading a photo straight from
+               * their camera roll on a phone cannot rename the file first, so an instruction
+               * that assumes they can is an instruction they cannot follow. The storage key
+               * was never derived from the filename anyway (it's {bam_id}/{period}/{sha256}),
+               * so nothing downstream depended on this and nothing changes except that the
+               * checklist stops asking for something students could not do.
+               */
               { icon: '🍺', title: 'Bud Light products only', desc: 'Only Bud Light purchases count toward your $150 reimbursement.' },
               { icon: '✨', title: 'Mixed receipt? Highlight BL items', desc: 'If your receipt has non-BL items, circle or highlight the Bud Light products before uploading.' },
               { icon: '📸', title: 'Clear, readable photos', desc: 'Make sure the store name, date, items, and total are all legible. No blurry or cropped images.' },
