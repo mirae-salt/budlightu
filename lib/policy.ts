@@ -49,15 +49,19 @@ export function softFloorFor(policy: Pick<Policy, 'reimbursementMax' | 'reviewBa
 /**
  * Spend below this triggers a shortfall warning to Robin and the BAM.
  *
- * INTERIM VALUE: $75 (Mirae, 2026-08-07). The final number is not decided yet.
- * The meetings said "warn if they do not spend $150", which would make this equal
- * to reimbursementMax; $140 was never a policy, just the review padding leaking
- * in. Kept as its own named knob so changing it is a one-line edit here.
+ * $130 (Robin, 2026-08-14, "BL Campus x AI Final Connect"): "Can we change it to
+ * like 130 just so we can keep track? ... we can look at month over month just so
+ * if we have the time we can go, hey, spend more next month." A tracking floor for
+ * outreach, not a hard cutoff -- the reimbursement itself is still whatever was
+ * actually spent, up to the $150 cap.
  *
- * The ledger's own `shortfallFlag` stays at `spent < reimbursementMax` — that is
+ * Was $75, an interim placeholder set 2026-08-07 pending exactly this decision.
+ * Kept as its own named knob so changing it stays a one-line edit here.
+ *
+ * The ledger's own `shortfallFlag` stays at `spent < reimbursementMax` -- that is
  * the accounting fact. This threshold only governs when a human gets told.
  */
-export const SHORTFALL_WARN_BELOW_CAD = 75
+export const SHORTFALL_WARN_BELOW_CAD = 130
 
 export function shortfallWarnBelow(
   policy: Pick<Policy, 'reimbursementMax'>
