@@ -51,11 +51,16 @@ export const TERMS_VERSION = '2026-08-14'
  *   - a closed month is refused outright, where the old text said a late receipt "may
  *     not be reimbursed for that month"
  *
- * Bumped again on 2026-08-14: the "Conduct and brand" and "Ending your participation"
- * draft sections are removed, not filled in (Robin's call, BL Campus x AI Final
- * Connect -- see the comment where they used to sit). A student accepting this version
- * is agreeing to a page that no longer mentions those topics at all, which is a
- * different thing to agree to than a page that flagged them as coming soon.
+ * Bumped again on 2026-08-14, for two changes made the same day:
+ *   - the "Conduct and brand" and "Ending your participation" draft sections are removed,
+ *     not filled in (Robin's call -- see the comment where they used to sit). A student
+ *     accepting this version agrees to a page that no longer mentions those topics.
+ *   - Robin's own wording landed for the four financial sections, replacing ours. It is
+ *     not a paraphrase: the pay figures are now stated literally, spending $150 is
+ *     described as a requirement rather than a maximum, and the "counted generously"
+ *     deadline promise is gone.
+ * Both are the same day, so one version covers them. Nobody has accepted '2026-08-14'
+ * yet, so there is no acceptance stranded between the two edits.
  *
  * Per rule 3 above, the one row holding '2026-09-01' keeps it. It is a test account.
  */
@@ -74,20 +79,31 @@ export type TermsSection = {
 }
 
 export const TERMS_SECTIONS: readonly TermsSection[] = [
+  /*
+   * The four sections below are ROBIN'S WORDING, sent 2026-08-14 after the BL Campus x AI
+   * Final Connect meeting ("I'll send you the terms and conditions edits... some of the
+   * headings I changed a little bit"). Pasted as received. Do not reword them to match how
+   * the code describes itself: where the two differ, that is a question for Robin, not a
+   * copy edit. The `enforcedAt` notes below flag the two places they currently differ.
+   */
   {
-    heading: 'What you are paid',
+    heading: 'Payment Details',
     body: [
-      'You are paid a monthly amount for your work as a Brand Activation Manager. That amount is set when you join the program and is paid every month of your term, separately from any reimbursement.',
+      'You are paid $1,750 across the entire 8-month program. This will be paid out in $218.75 monthly payments.',
       'Payment is by direct deposit on net-15 terms, to the banking details on your account.'
     ],
+    // NOTE: Robin's copy states the figures literally, while the system reads them from
+    // cohorts.salary_default per cohort. They agree for Fall 2026 ($218.75 x 8 = $1,750).
+    // A cohort with a different salary or term length would make this page wrong, so this
+    // wording is worth revisiting when a second live cohort is created.
     enforcedAt: 'cohorts.salary_default; lib/invoice-payload.ts salaryLine'
   },
   {
-    heading: 'Reimbursement for Bud Light purchases',
+    heading: 'Bud Light Product Reimbursement',
     body: [
-      'Each month you can be reimbursed for what you spend on Bud Light products, up to a monthly maximum set for your cohort. You are reimbursed for what you actually spent, not the maximum.',
-      'A month runs from the 16th of the previous month to the 15th of that month, because that is when receipts are due. So a purchase made on the 20th falls in the next month, not the one it was made in.',
-      'Only Bud Light products count. If a receipt includes other items, only the Bud Light lines are reimbursed.',
+      'Each month, BAMs are required to spend at least $150 on Bud Light product and will be reimbursed for up to $150 of their total spend.',
+      'Receipts must be submitted by the 15th of each month to receive that month’s reimbursement. So for September, BAMs must submit their $150 worth of product receipts by September 15th in order to be reimbursed for the month.',
+      'Only Bud Light products count. If a receipt includes other items, only the Bud Light will be reimbursed.',
       'The monthly maximum does not carry over. Anything unspent in a month does not increase the next month.'
     ],
     enforcedAt: 'cohorts.reimbursement_max; rollover_mode = forfeit; lib/reimbursement.ts'
@@ -95,22 +111,27 @@ export const TERMS_SECTIONS: readonly TermsSection[] = [
   {
     heading: 'Receipts',
     body: [
-      'Submit your receipts through the portal by the 15th of the month. The 15th is counted generously: you have until the end of the 15th wherever you are in Canada.',
+      'Submit your receipts through the portal by the 15th of the month.',
       'After that the month is closed and the portal will not accept receipts for it. If you miss the deadline, contact your program manager rather than submitting it against another month.',
       'You may submit more than one receipt per month.',
-      'Receipts are reviewed. Where a receipt is unclear, your program manager decides.',
+      'Receipts are reviewed. Where a receipt is unclear, your program manager will manually review.',
       'Keep your original receipts for at least six months. You may be asked for them.',
       'Submitting a receipt that is fraudulent, altered, reused, or generated by AI may result in losing that month’s reimbursement and being removed from the program.'
     ],
-    enforcedAt: 'lib/upload-months.ts; app/api/admin/receipts/decide; the onboarding checkbox wording'
+    // NOTE: Robin's copy drops the old "counted generously" sentence. The generosity is
+    // still real (lib/deadline.ts holds the cutoff at 08:00 UTC on the 16th, so a late
+    // Pacific submission on the 15th is on time). It just is not promised in writing now,
+    // which is the safer direction: the page states the earlier deadline, the system is
+    // quietly kinder than the page.
+    enforcedAt: 'lib/period.ts validatePeriod; lib/deadline.ts; app/api/admin/receipts/decide'
   },
   {
-    heading: 'If you spend less than expected',
+    heading: 'Underspend',
     body: [
-      'If your spending in a month is well below the program’s expectation, you will get an email letting you know.',
-      'If that happens two months in a row, your program manager will review your participation with you. This is a conversation, not an automatic removal.'
+      'If your spending in a month is below the program’s expectation, you may get a warning email letting you know that you have not met the month’s contractual requirement.',
+      'If that happens two months in a row, your program manager will review your participation with you. This is a conversation, not necessarily an automatic removal.'
     ],
-    enforcedAt: 'lib/policy.ts SHORTFALL_WARN_BELOW_CAD; lib/shortfall-warning.ts consecutiveWarningStreak'
+    enforcedAt: 'lib/policy.ts SHORTFALL_WARN_BELOW_CAD ($130); lib/shortfall-warning.ts consecutiveWarningStreak'
   },
   {
     heading: 'Your banking details',
