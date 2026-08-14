@@ -40,8 +40,9 @@ export async function GET() {
     return NextResponse.json({ ok: false, message: 'Server is not configured.' }, { status: 503 })
   }
 
-  // Resolve the roster row first. Same dev-bypass shape as /api/portal/reminders: an is_test row
-  // only, so the student view can be opened in dev without a real OTP.
+  // Resolve the roster row first. Same dev-bypass shape as every other portal route
+  // (lib/dev-bam.ts): an is_test row only, so the student view can be opened in dev without a
+  // real OTP.
   let bamId: string | null = null
   if (devBypass) {
     bamId = (await devBypassBam(db))?.id ?? null

@@ -26,7 +26,6 @@ export type DevBam = {
   id: string
   email: string | null
   first_name: string | null
-  wants_reminders: boolean | null
 }
 
 /**
@@ -40,7 +39,7 @@ export async function devBypassBam(
 ): Promise<DevBam | null> {
   const { data, error } = await db
     .from('bams')
-    .select('id, email, first_name, wants_reminders')
+    .select('id, email, first_name')
     .eq('is_test', true)
     .eq('status', 'active')
     // DETERMINISTIC. See the header: without this, two routes can disagree about who they are.

@@ -90,7 +90,10 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
 
   const { data: bamRows, error: bamErr } = await db
     .from('bams')
-    .select('id, first_name, email, status, is_test, cohort_id, wants_reminders')
+    // wants_reminders is NOT selected: the per-student opt-out was removed 2026-08-14 per
+    // Robin ("I don't want them to be able to turn their reminders off"). The column still
+    // exists but nothing reads it now.
+    .select('id, first_name, email, status, is_test, cohort_id')
     .eq('status', 'active')
   if (bamErr) {
     console.error('[student-reminders] roster read failed:', bamErr.message)
@@ -99,7 +102,6 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
   const bams = (bamRows ?? []) as Array<{
     id: string; first_name: string; email: string | null
     status: string; is_test: boolean | null; cohort_id: string | null
-    wants_reminders: boolean | null
   }>
 
   // WHO HAS UPLOADED ANYTHING, not how much they spent. The rule is "submitted nothing"
@@ -183,10 +185,7 @@ export async function runStudentReminders(now: Date = new Date()): Promise<Remin
       receiptCount: receiptCounts.get(b.id) ?? 0,
       cap: caps.get(b.id) ?? 150,
       isTest: Boolean(b.is_test),
-      status: b.status,
-      // A null means the column defaulted, which is opted IN. Only an explicit false excludes
-      // somebody, so a student who never touched the setting still hears from us.
-      wantsReminders: b.wants_reminders !== false
+      status: b.status
     }
 
     const plan = planReminder({
