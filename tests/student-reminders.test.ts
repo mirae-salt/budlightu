@@ -32,7 +32,6 @@ function bam(over: Partial<ReminderCandidate> = {}): ReminderCandidate {
     cap: 150,
     isTest: false,
     status: 'active',
-    wantsReminders: true,
     ...over
   }
 }
@@ -130,13 +129,6 @@ describe('who does not get one', () => {
     if (!plan.send) expect(plan.reason).toMatch(/no email/)
   })
 
-  it('nobody who turned reminders off for themselves', () => {
-    // Students control this on their account page. A courtesy nobody can decline is just mail.
-    const plan = planReminder({ candidate: bam({ wantsReminders: false }), settings: LIVE, day: 10, alreadySent: false })
-    expect(plan.send).toBe(false)
-    if (!plan.send) expect(plan.reason).toMatch(/turned reminders off/)
-  })
-
   it('does include TEST accounts, so Robin can receive one herself', () => {
     expect(planReminder({ candidate: bam({ isTest: true }), settings: LIVE, day: 10, alreadySent: false }).send).toBe(true)
   })
@@ -167,9 +159,8 @@ describe('the email itself', () => {
     portalUrl: 'https://budlightu.com'
   })
 
-  it('says the cap and the month in both html and text', () => {
+  it('says the month in both html and text', () => {
     for (const body of [mail.html, mail.text]) {
-      expect(body).toContain('150.00')
       expect(body).toContain('September 2026')
     }
   })
@@ -183,24 +174,17 @@ describe('the email itself', () => {
     expect(mail.text).not.toMatch(/\$0\.00|so far/i)
   })
 
-  it('tells them how to turn it off', () => {
-    expect(mail.text).toContain('/portal/account')
-    expect(mail.html).toContain('/portal/account')
+  it('does not quote the cap, per Robin: one paragraph, not a claim-back-$150 explainer', () => {
+    for (const body of [mail.html, mail.text]) expect(body).not.toContain('150.00')
   })
 
-  it('links to upload and to support', () => {
+  it('links to upload, and nowhere else -- no account, no support, no opt-out', () => {
     expect(mail.html).toContain('https://budlightu.com/portal/upload')
-    expect(mail.html).toContain('https://budlightu.com/portal/support')
-  })
-
-  it('says the money does not carry over, because that is why the date matters', () => {
-    expect(mail.text).toMatch(/does not carry/i)
-  })
-
-  it('tells them it is fine to have nothing to submit', () => {
-    // Without this line a reminder to somebody who genuinely has no receipts reads as a
-    // demand, and the honest reply is on the Support page.
-    expect(mail.text).toMatch(/that is fine/i)
+    expect(mail.text).toContain('https://budlightu.com/portal/upload')
+    for (const body of [mail.html, mail.text]) {
+      expect(body).not.toContain('/portal/account')
+      expect(body).not.toContain('/portal/support')
+    }
   })
 
   it('does not scold, beg or exclaim', () => {

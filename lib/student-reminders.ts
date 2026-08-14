@@ -25,6 +25,13 @@
  * nothing. That is the opposite of how question notifications fail, and correct here for a
  * different reason. Three colleagues can absorb a stray email; 58 students cannot un-receive
  * one.
+ *
+ * NO PER-STUDENT OPT-OUT. There was one (`bams.wants_reminders`, a toggle on the account page);
+ * removed 2026-08-14 per Robin, from the BL Campus x AI Final Connect meeting: "I don't want
+ * them to be able to turn their reminders off." The admin `mode` switch above is still the
+ * only control, which decides whether the PROGRAM sends these at all. The database column is
+ * left in place rather than migrated away -- nothing reads it now, and it is cheap to bring
+ * back if the answer changes again, which this exact setting already has once.
  */
 
 export type ReminderMode =
@@ -143,14 +150,6 @@ export type ReminderCandidate = {
   isTest: boolean
   /** Statuses other than active are skipped: nobody archived should be nudged. */
   status: string
-  /**
-   * False when the student has turned reminders off for themselves.
-   *
-   * They can, on their account page. A reminder about money they are entitled to is a courtesy,
-   * and a courtesy nobody can decline is just mail. Admins control WHETHER the program sends
-   * these at all; each student controls whether they personally receive them.
-   */
-  wantsReminders: boolean
 }
 
 export type ReminderPlan =
@@ -184,7 +183,6 @@ export function planReminder(input: {
   // a null would otherwise become a send to "null" and a confusing bounce.
   if (!c.email) return { send: false, reason: 'no email address on the roster row' }
   if (c.status !== 'active') return { send: false, reason: `status is ${c.status}` }
-  if (!c.wantsReminders) return { send: false, reason: 'this BAM turned reminders off' }
 
   // Anyone who has uploaded anything at all is left alone. One receipt means they know how
   // this works, and the amount is their decision.
@@ -227,29 +225,34 @@ export function reminderEmail(input: {
     ? `${dayPhrase} to submit your ${monthLabel} receipts`
     : `${daysLeft} days left to submit your ${monthLabel} receipts`
 
+  /*
+   * ONE PARAGRAPH, not three. Robin, 2026-08-14 (BL Campus x AI Final Connect): "I would
+   * honestly just leave it at the first paragraph... I feel like it's a confusing system when
+   * we say like claim back $150 and like it's not available the next month. If we just give
+   * them exactly what we want then like hopefully there's less to interpret."
+   *
+   * Two paragraphs removed, not trimmed:
+   *  - the $cap / no-rollover explanation, which is the "confusing" one she named directly
+   *  - the closing paragraph (support link, "no reply needed", and the reminder opt-out link)
+   *    -- Shane asked whether to keep it and Robin said to take it off specifically because of
+   *    the opt-out link: "I don't want them to be able to turn their reminders off."
+   *
+   * `cap` is kept as a function PARAMETER rather than removed, even though this template no
+   * longer prints it: the caller still needs to pass the right one, and deleting the parameter
+   * would be the kind of change that quietly breaks the call site instead of the copy.
+   */
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
       <p style="font-size: 15px; color: #1a1a2e; margin: 0 0 12px;">Hi ${escapeHtml(firstName)},</p>
-      <p style="font-size: 14px; color: #374151; line-height: 1.6; margin: 0 0 16px;">
+      <p style="font-size: 14px; color: #374151; line-height: 1.6; margin: 0 0 20px;">
         ${dayPhrase} to upload your ${escapeHtml(monthLabel)} Bud Light receipts. We have not
         received any from you yet this month.
-      </p>
-      <p style="font-size: 14px; color: #374151; line-height: 1.6; margin: 0 0 20px;">
-        You can claim up to $${cap.toFixed(2)} back for ${escapeHtml(monthLabel)}. It does not
-        carry into next month, so it is only available until the 15th.
       </p>
       <p style="margin: 0 0 20px;">
         <a href="${escapeHtml(portalUrl)}/portal/upload"
            style="background: #0073cf; color: #ffffff; padding: 11px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; display: inline-block;">
           Upload receipts
         </a>
-      </p>
-      <p style="font-size: 13px; color: #6b7280; line-height: 1.6; margin: 0;">
-        Nothing to submit this month? That is fine, no reply needed. If something is in the way,
-        tell us on the
-        <a href="${escapeHtml(portalUrl)}/portal/support" style="color: #0073cf;">Support page</a>
-        and we will sort it out. You can turn these reminders off on your
-        <a href="${escapeHtml(portalUrl)}/portal/account" style="color: #0073cf;">account page</a>.
       </p>
       <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">Bud Light U</p>
     </div>
@@ -261,15 +264,7 @@ export function reminderEmail(input: {
     `${dayPhrase} to upload your ${monthLabel} Bud Light receipts. We have not received any`,
     'from you yet this month.',
     '',
-    `You can claim up to $${cap.toFixed(2)} back for ${monthLabel}. It does not carry into next`,
-    'month, so it is only available until the 15th.',
-    '',
     `Upload receipts: ${portalUrl}/portal/upload`,
-    '',
-    'Nothing to submit this month? That is fine, no reply needed. If something is in the way,',
-    `tell us on the Support page: ${portalUrl}/portal/support`,
-    '',
-    `You can turn these reminders off here: ${portalUrl}/portal/account`,
     '',
     '- Bud Light U'
   ].join('\n')
