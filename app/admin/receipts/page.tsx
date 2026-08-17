@@ -58,6 +58,22 @@ type DbReceipt = {
   bams: { first_name: string; last_name: string } | null
 }
 
+/**
+ * The URL for one receipt image.
+ *
+ * ONE BUILDER, four call sites (thumbnail and lightbox, in both the row and the expanded
+ * detail). The URL was inlined at each of them, which is how two of them end up drifting:
+ * add `name` to three and the fourth quietly saves files without it.
+ *
+ * `name` is only a label for the download filename. The month comes from the storage key
+ * on the server, so a missing or dashed-out name still gives a well-named file.
+ */
+function receiptImageUrl(storageKey: string, bam?: string): string {
+  const base = `/api/admin/receipts/image?key=${encodeURIComponent(storageKey)}`
+  // '—' is the table's placeholder for an unresolved BAM, not a name.
+  return bam && bam !== '—' ? `${base}&name=${encodeURIComponent(bam)}` : base
+}
+
 function reasonFor(r: DbReceipt): string {
   if (r.status === 'pending') return 'Awaiting OCR processing'
   if (r.status === 'ocr_failed') return r.decision_reason || 'OCR failed. Needs manual review or retry'
@@ -441,9 +457,9 @@ export default function ReceiptsQueue() {
                   <td style={{ padding: '4px 6px' }}>
                     {r.storageKey ? (
                       <img
-                        src={`/api/admin/receipts/image?key=${encodeURIComponent(r.storageKey)}`}
+                        src={receiptImageUrl(r.storageKey, r.bam)}
                         alt="Receipt"
-                        onClick={() => setLightboxSrc(`/api/admin/receipts/image?key=${encodeURIComponent(r.storageKey!)}`)}
+                        onClick={() => setLightboxSrc(receiptImageUrl(r.storageKey!, r.bam))}
                         style={{
                           width: 40, height: 40, objectFit: 'cover',
                           borderRadius: 6, border: '1px solid var(--stone)',
@@ -499,12 +515,12 @@ export default function ReceiptsQueue() {
                       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
                         {r.storageKey ? (
                           <div
-                            onClick={() => setLightboxSrc(`/api/admin/receipts/image?key=${encodeURIComponent(r.storageKey!)}`)}
+                            onClick={() => setLightboxSrc(receiptImageUrl(r.storageKey!, r.bam))}
                             style={{ flexShrink: 0, cursor: 'pointer' }}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
-                              src={`/api/admin/receipts/image?key=${encodeURIComponent(r.storageKey)}`}
+                              src={receiptImageUrl(r.storageKey, r.bam)}
                               alt="Receipt"
                               style={{
                                 width: 160, maxHeight: 220, objectFit: 'contain',
