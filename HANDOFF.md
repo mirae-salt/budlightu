@@ -1,6 +1,6 @@
 # Bud Light U — invoice automation, handoff
 
-**Built and maintained by Mirae Lee** (mirae.lee@ilovesalt.com)
+**Built and maintained by Mirae Lee** (mirae.lee@ilovesalt.com) — sole developer.
 Last updated 2026-08-18.
 
 This is the operating manual: what the system does, how to run it, and what to touch
