@@ -267,7 +267,7 @@ export default function BankingRequestsPage() {
                     style={mono}
                     placeholder="Type it, do not paste"
                   />
-                  {confirmAccount !== '' && confirmAccount !== (row.requested.account_no ?? ' ') && (
+                  {confirmAccount !== '' && confirmAccount !== (row.requested.account_no ?? '') && (
                     <span className="field-err">Does not match the requested account number yet.</span>
                   )}
                 </div>
