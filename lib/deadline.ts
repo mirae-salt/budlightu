@@ -34,6 +34,8 @@
  * true when period.ts started refusing closed months, because a receipt filed against a
  * closed month was stored, never audited and never paid. Robin confirmed the strict
  * reading on 2026-08-14: "we just keep it to say that so that there's not any exceptions."
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 /** The day students are told to submit by. */

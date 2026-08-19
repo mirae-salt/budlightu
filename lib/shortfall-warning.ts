@@ -12,6 +12,8 @@
  *          failure meant the warning simply never happened while the UI said it did.
  *   P0-H:  every supabase call here is error-checked, and the returned shape says
  *          what actually happened rather than assuming success.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendEmail } from './send-email'

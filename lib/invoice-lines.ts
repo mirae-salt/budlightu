@@ -36,6 +36,8 @@
  * Totals are ALWAYS recomputed server-side from the submitted lines with the same
  * helpers the generator uses (`computeHst`, `round2`). A client-sent subtotal /
  * tax / total is read by nothing in this file.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { cleanText } from './sanitize'
 import { round2, parseMoney } from './money'

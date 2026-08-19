@@ -21,6 +21,8 @@
  *  - a missing/unreadable env var denies (503) instead of waving traffic through
  *  - the dev bypass needs BOTH NODE_ENV=development AND ALLOW_DEV_AUTH_BYPASS
  *  - a `user_metadata.role` that outranks the trusted claim is logged as tampering
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'

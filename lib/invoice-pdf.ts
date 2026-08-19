@@ -34,6 +34,8 @@
  *
  * 0004's `invoices_system_fields_guard` exempts `service_role`, so the pdf_key
  * write below is permitted. Every caller here uses the service client.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { renderInvoicePdfToBuffer } from './render-pdf'
 import { assertPdfRenderable } from './pdf-text'

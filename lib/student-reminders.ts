@@ -32,6 +32,8 @@
  * only control, which decides whether the PROGRAM sends these at all. The database column is
  * left in place rather than migrated away -- nothing reads it now, and it is cheap to bring
  * back if the answer changes again, which this exact setting already has once.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 export type ReminderMode =

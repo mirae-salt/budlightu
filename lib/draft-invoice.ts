@@ -20,6 +20,8 @@
  *
  * Failure is always visible: console.error + an admin notification. Nothing is
  * written when any input is uncertain.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { generateInvoicePayload } from './invoice-payload'
 import { ensureInitialsResolved } from './ensure-initials'

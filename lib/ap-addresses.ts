@@ -32,6 +32,8 @@
  * NOT COVERED HERE, on purpose: lib/send-email.ts uses AP_CC_EMAILS[0] as a Reply-To fallback.
  * That is not a recipient of anything, and putting a database read inside the mailer would put
  * a query in the path of every email, including the ones that report database problems.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { addressProblem, cleanAddress, envAddressOr, envAddressListOr } from './sanitize'
 import type { serviceClient } from '../supabase/functions/_shared/supabase-admin'

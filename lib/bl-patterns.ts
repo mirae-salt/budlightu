@@ -7,6 +7,8 @@
  * Safeway, Sobeys, Wine and Beyond, Calgary Co-op, Sherwood Co-op, Liquor House,
  * Urban Cellars, Crowfoot Wine & Spirits, Athena Liquor, Angry Otter, Campus One Stop,
  * Erieau Marina, Green's Superette, Proxi, bars/restaurants, convenience.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 // ── Primary text patterns (case-insensitive match against receipt line desc) ──

@@ -17,6 +17,8 @@
  * storage key and the key is what was actually downloaded, so the month on the
  * filename cannot disagree with the file's contents. A `name` passed in is only a
  * label and is sanitized; if it is missing or unusable the month still lands.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 /** Kept short so several receipts in one month stay distinguishable without being noisy. */

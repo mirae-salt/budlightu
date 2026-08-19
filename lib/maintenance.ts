@@ -21,6 +21,8 @@
  * If the flag cannot be read, students get the normal portal. A read failure taking
  * the portal down would turn a transient database hiccup into an outage, and the worst
  * case of failing open is that someone sees a working app during maintenance.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 /**

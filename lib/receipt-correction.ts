@@ -34,6 +34,8 @@
  * falls back to the conservative basis (pre-tax sum, or the receipt's own rate when
  * every line is Bud Light) and the admin uses the corrected-amount field if the
  * true tax-inclusive figure is knowable only from the paper. Never an overpay.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import {
   recomputeBudLightTotal,

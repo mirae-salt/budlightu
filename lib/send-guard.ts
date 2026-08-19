@@ -24,6 +24,8 @@
  * `(invoice_id, target) where sent_at is not null` makes a second completed send
  * structurally impossible even across modes, and a stale 'sending' claim ages
  * out after STALE_CLAIM_MS so a crashed run cannot block payment permanently.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

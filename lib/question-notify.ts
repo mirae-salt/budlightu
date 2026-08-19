@@ -16,6 +16,8 @@
  * FAILS LOUD, unlike maintenance mode. If the setting cannot be read we send anyway: an
  * extra email is cheap, a student's question sitting unanswered is not. A malformed value
  * resolves to 'each' for the same reason.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 export type QuestionNotifyMode =

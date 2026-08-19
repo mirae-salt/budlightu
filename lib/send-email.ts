@@ -13,6 +13,8 @@
  * percent-encoded to %EF%BB%BF in the login URL, which 404s with nothing
  * suspicious in the logs. Unusable values now fail CLOSED (no send) rather than
  * sending from a corrupt address.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { createTransport } from 'nodemailer'
 import { Resend } from 'resend'

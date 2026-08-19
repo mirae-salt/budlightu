@@ -9,6 +9,8 @@
  *
  * Kept dependency-free and side-effect-free so this module is safe to import
  * from the Edge runtime (middleware) and from Deno Edge Functions.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 /**

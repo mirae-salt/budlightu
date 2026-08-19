@@ -1,3 +1,8 @@
+/**
+ * The invoice document itself — the thing AP receives and pays from.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
+ */
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import type { InvoicePayload } from './invoice-payload'
 import { normalizeForPdf } from './pdf-text'

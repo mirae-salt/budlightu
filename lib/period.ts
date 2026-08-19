@@ -11,6 +11,8 @@
  * This lives in lib/ rather than beside the route handler because a Next.js route
  * file may only export the recognized handler names; exporting a helper from it
  * fails the production type check.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 import { isPastDeadline, DEADLINE_DAY } from './deadline'

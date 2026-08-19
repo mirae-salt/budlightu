@@ -12,6 +12,8 @@
  * P0-G (audit 2026-08-07): the cap comparison now goes through isInReviewBand(),
  *   so the soft-floor band (reimbursementMax - reviewBandPaddingCad .. cap)
  *   actually routes to Robin. This is touchpoint 1.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 import type { Policy } from './reimbursement'

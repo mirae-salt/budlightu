@@ -10,6 +10,8 @@
  *
  * Rule now: the amount comes from reimbursement_ledger.paid_cad, period.
  * Nothing here recomputes or caps anything.
+ *
+ * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
