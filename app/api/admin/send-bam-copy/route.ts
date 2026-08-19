@@ -178,8 +178,7 @@ function bamCopyEmailHtml(firstName: string, month: string, invoiceNumber: strin
     <p style="font-size: 16px; color: #1a1a1a;">Hi ${firstName},</p>
 
     <p style="font-size: 15px; color: #333; line-height: 1.6;">
-      Your ${month} invoice (${invoiceNumber}) has been submitted to Salt AP for payment on
-      net-15 terms via direct deposit. ${attached ? 'A copy is attached for your records.' : ''}
+      Your ${month} invoice (${invoiceNumber}) is ready.${attached ? ' A copy is attached.' : ''}
     </p>
 
     <div style="text-align: center; margin: 32px 0;">
@@ -190,8 +189,7 @@ function bamCopyEmailHtml(firstName: string, month: string, invoiceNumber: strin
     </div>
 
     <p style="font-size: 13px; color: #6b7280; line-height: 1.5;">
-      You can view and download your invoice any time from your portal. Questions?
-      Reach out to your program manager or use the support form in your portal.
+      Questions? Ask on the support page in your portal.
     </p>
 
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 32px 0 16px;" />

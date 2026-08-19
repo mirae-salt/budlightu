@@ -32,7 +32,28 @@ export default function UploadPage() {
    * once, in a sentence, with somewhere to go if that is a problem.
    */
   const hasOtherSubmittable = pastMonths.some(o => o.isSubmittable)
+  /**
+   * FOLLOWS currentMonth until the student picks one themselves.
+   *
+   * `useState` initialises once, on the first render — and on that render `isTestBam` is
+   * still false and `cohortWindow` is still null, because both arrive from fetches. With
+   * nothing submittable yet, `currentMonth` falls through to `monthOptions[0]`, the
+   * EARLIEST month in the list. The selection was then pinned there forever: measured
+   * 2026-08-19, the page opened on July, badged it "late", and every submit failed with
+   * "July is closed" while August was the month actually open.
+   *
+   * It bit a real student too, not just test accounts: after the 15th nothing is
+   * submittable at first render either, so they were shown the wrong month's closure
+   * message instead of their own.
+   *
+   * `userPicked` is what keeps this from fighting the student: once they choose, the
+   * effect stops moving the selection under them.
+   */
+  const [userPicked, setUserPicked] = useState(false)
   const [selectedPeriod, setSelectedPeriod] = useState(currentMonth.value)
+  useEffect(() => {
+    if (!userPicked) setSelectedPeriod(currentMonth.value)
+  }, [currentMonth.value, userPicked])
   const [showPastMonths, setShowPastMonths] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
@@ -274,7 +295,12 @@ export default function UploadPage() {
                       opacity: o.isSubmittable ? 1 : 0.4,
                       cursor: o.isSubmittable ? 'pointer' : 'not-allowed'
                     }}
-                    onClick={() => { if (o.isSubmittable) setSelectedPeriod(o.value) }}
+                    onClick={() => {
+                      if (!o.isSubmittable) return
+                      // Their choice from here on; stop auto-following currentMonth.
+                      setUserPicked(true)
+                      setSelectedPeriod(o.value)
+                    }}
                   >
                     {o.shortLabel}
                   </button>

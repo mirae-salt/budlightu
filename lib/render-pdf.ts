@@ -36,8 +36,8 @@ export function buildSamplePayload(row: {
     invoiceDate: new Date().toISOString(),
     period: periodDate.toISOString().slice(0, 10),
     toBlock: {
-      company: 'Salt Experiential Commerce, Inc.',
-      address: '249 Dufferin Street Toronto, ON, M6K 1Z5',
+      company: 'Salt Experiential Commerce Inc.',
+      address: '5th Floor - 99 Atlantic Avenue, Toronto, Ontario, M6K 3J8',
       attn: ['Robin Graham (robin.graham@ilovesalt.com)', 'Nathan Brown (nb@ilovesalt.com)']
     },
     influencer: {

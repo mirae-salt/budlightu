@@ -64,15 +64,23 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
   const subject = `Your Bud Light U invoice — ${monthLong}`
+  /*
+   * SHORT ON PURPOSE. This said the invoice was attached, that AP had been notified, and
+   * that payment would come on net-15 terms via direct deposit. Two of those the student
+   * cannot act on, and the third was a promise we do not control: Salt's own supplier
+   * checklist states standard terms are net 30, so quoting net-15 here risked telling a
+   * student a payment date that AP never agreed to.
+   *
+   * What is left is the part they need: the invoice exists, and where to ask.
+   */
   const body = [
     `Hi ${bam.first_name},`,
     '',
-    `Your ${monthLong} invoice is attached for your records. Salt AP has also been notified and will process payment on net-15 terms via direct deposit.`,
+    `Your ${monthLong} invoice is attached.`,
     '',
-    'Questions? Reach out to your program manager, or use the support form in your portal.',
+    'Questions? Ask on the support page in your portal.',
     '',
-    'Thanks,',
-    'Bud Light U program'
+    'Bud Light U'
   ].join('\n')
 
   // F1: shared render+archive path. Reuses the object AP received when pdf_key
