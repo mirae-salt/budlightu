@@ -559,7 +559,7 @@ export async function POST(req: Request) {
        * No email, matching the decide path: the row and the in-app notification are the
        * record, and /admin/warnings is where a human sends anything.
        */
-      if (ledger.shortfall) {
+      if (ledger.belowWarnFloor) {
         scheduleBackground(async () => {
           try {
             const { flagShortfall } = await import('@/lib/shortfall-warning')

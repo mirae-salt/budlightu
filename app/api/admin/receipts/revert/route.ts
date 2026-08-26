@@ -19,9 +19,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { reasonProblem } from '../../../../../lib/reason'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
-import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
-import { DEFAULT_POLICY } from '../../../../../lib/policy'
-import { parseNonNegativeMoney } from '../../../../../lib/money'
+import { recomputeLedgerForPeriod } from '../../../../../lib/recompute-ledger'
 
 /** Statuses that can be reopened. `pending` is already open. */
 const REVERTIBLE = ['approved', 'rejected', 'auto_pass']
@@ -207,76 +205,34 @@ export async function POST(req: NextRequest) {
 
 type ReceiptRow = { bam_id: string; cohort_id: string; period: string }
 
+/**
+ * Recompute the month after a receipt has been pulled back out of it.
+ *
+ * This used to be its own forty lines of the same arithmetic that decide,
+ * scheduler-audit and the auto-pass path each carried separately, and it did not
+ * agree with them: it passed `monthsActiveThroughPeriod: 1` and `priorLedger: []`,
+ * hardcoded, so it computed every reversal as though this were the BAM's first month
+ * in the program.
+ *
+ * With rollover set to forfeit, which is every cohort (Robin 2026-08-04), that came
+ * out to the same dollar figure, because carryover is always zero and the cumulative
+ * cap never binds below one month's entitlement. It stored a different
+ * `cap_snapshot_cad` than the other two writers, and the moment any cohort was
+ * switched to accumulate it would have paid a different amount for "approve" than for
+ * "approve, revert, approve again". A reimbursement that depends on which button was
+ * pressed last is not a reimbursement anyone can audit.
+ *
+ * One function now. The behaviour that survived is the strictest of the three.
+ */
 async function recomputeLedger(
   admin: ReturnType<typeof serviceClient>,
   receipt: ReceiptRow
 ): Promise<{ ok: true; paidCad: number } | { ok: false; error: string }> {
-  const { data: cohort, error: cohortErr } = await admin
-    .from('cohorts')
-    // No review_band_padding_cad here: that is a policy default, not a cohorts
-    // column. Selecting it made this whole query error, so every revert failed
-    // with "cohort read failed". Found by scripts/probe/schema-drift.js, which
-    // exists because a column name inside a string literal is invisible to tsc.
-    .select('reimbursement_max, rollover_mode, cap_multiplier, first_cohort_all_review')
-    .eq('id', receipt.cohort_id)
-    .maybeSingle()
-  if (cohortErr) return { ok: false, error: `cohort read failed: ${cohortErr.message}` }
-  if (!cohort) return { ok: false, error: 'cohort not found' }
-
-  const reimbursementMax = parseNonNegativeMoney(cohort.reimbursement_max)
-  if (reimbursementMax === null || reimbursementMax <= 0) {
-    return { ok: false, error: 'cohort reimbursement_max is unusable' }
-  }
-
-  const { data: remaining, error: remErr } = await admin
-    .from('receipts')
-    .select('bud_light_total_incl_tax')
-    .eq('bam_id', receipt.bam_id)
-    .eq('cohort_id', receipt.cohort_id)
-    .eq('period', receipt.period)
-    .in('status', ['approved', 'auto_pass'])
-  if (remErr) return { ok: false, error: `remaining receipts read failed: ${remErr.message}` }
-
-  const total = (remaining ?? []).reduce((sum, r) => {
-    const v = parseNonNegativeMoney(r.bud_light_total_incl_tax)
-    return sum + (v ?? 0)
-  }, 0)
-
-  const out = computeMonthlyReimbursement({
-    period: receipt.period,
-    monthsActiveThroughPeriod: 1,
-    receiptsTotalInclHst: total,
-    priorLedger: [],
-    policy: {
-      ...DEFAULT_POLICY,
-      reimbursementMax,
-      rolloverMode: cohort.rollover_mode === 'accumulate' ? 'accumulate' : 'forfeit',
-      capMultiplier: Number(cohort.cap_multiplier) || DEFAULT_POLICY.capMultiplier
-    }
+  const out = await recomputeLedgerForPeriod(admin, {
+    bamId: receipt.bam_id,
+    cohortId: receipt.cohort_id,
+    period: receipt.period
   })
-
-  const { data: wrote, error: ledgerErr } = await admin
-    .from('reimbursement_ledger')
-    .upsert(
-      {
-        bam_id: receipt.bam_id,
-        cohort_id: receipt.cohort_id,
-        period: receipt.period,
-        entitlement_cad: out.entitlement,
-        spent_cad: total,
-        carryover_in_cad: out.carryoverIn,
-        carryover_out_cad: out.carryoverOut,
-        paid_cad: out.paidThisMonth,
-        spendable_cap_cad: out.spendableCap,
-        cap_snapshot_cad: out.capSnapshot,
-        shortfall_flag: out.shortfallFlag,
-        policy_version: DEFAULT_POLICY.policyVersion
-      },
-      { onConflict: 'bam_id,cohort_id,period' }
-    )
-    .select('paid_cad')
-  if (ledgerErr) return { ok: false, error: `ledger upsert failed: ${ledgerErr.message}` }
-  if (!wrote || wrote.length !== 1) return { ok: false, error: 'ledger upsert affected no rows' }
-
-  return { ok: true, paidCad: out.paidThisMonth }
+  if (!out.ok) return { ok: false, error: out.error }
+  return { ok: true, paidCad: out.paidCad }
 }

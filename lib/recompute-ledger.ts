@@ -19,14 +19,25 @@
  * Observed 2026-08-26 with scripts/probe/autopass-ledger-gap.js: one auto_pass receipt
  * worth $69.00, no ledger row, no invoice, dashboard $0. Two symptoms, one hole.
  *
- * SCOPE, DELIBERATELY
+ * THE ONLY COPY
  *
- * This is the extraction target, not yet the extraction. decide, revert and
- * scheduler-audit still each carry their own copy of this computation. Folding those
- * three in is the right next step and is surgery on working money paths, so it is not
- * being done in the same edit that closes the gap. What this file guarantees today is
- * that the AUTO-PASS path and the DECIDE path agree, because they run the same math
- * over the same inputs in the same order.
+ * This calculation used to exist four times: inline in receipts/decide, again in
+ * receipts/revert, again in scheduler-audit, and here. Four copies of one payment rule
+ * is four chances to disagree, and they already had. receipts/revert passed
+ * `monthsActiveThroughPeriod: 1` and `priorLedger: []`, hardcoded, so it computed every
+ * reversal as though it were the BAM's first month in the program. Under forfeit, which
+ * is every cohort today, that happened to reach the same dollar figure, but it stored a
+ * different cap_snapshot_cad and would have paid differently the moment a cohort was
+ * switched to accumulate. A reimbursement that depends on which button was pressed last
+ * is not one anybody can audit.
+ *
+ * All four now call this function, and computeMonthlyReimbursement is called from
+ * exactly one place in the codebase. Where the copies disagreed, the strictest
+ * behaviour won: an unusable rollover_mode refuses rather than defaulting, which is
+ * what scheduler-audit alone used to do.
+ *
+ * Verified on the real ledger with scripts/probe/ledger-consolidation-check.js: every
+ * existing row re-derived through this function, all nine money columns identical.
  *
  * FAIL CLOSED
  *
@@ -53,10 +64,19 @@ export type RecomputeLedgerResult =
       paidCad: number
       /** Sum of every approved/auto_pass receipt in the period. */
       spentCad: number
-      /** Spend below this is a shortfall worth telling someone about. */
+      /** The month's full allowance, before anything is spent. */
+      entitlementCad: number
+      /**
+       * The LEDGER's shortfall column: spend came in under the full entitlement.
+       *
+       * Not the same thing as belowWarnFloor, and the two are easy to confuse, which
+       * is why they are named apart. This one is true at $149 of a $150 entitlement.
+       */
+      shortfallFlag: boolean
+      /** Spend below this is worth telling someone about. $130, Robin 2026-08-14. */
       shortfallWarnBelowCad: number
-      /** True when spentCad is under that floor. */
-      shortfall: boolean
+      /** True when spentCad is under THAT floor. This is the one that raises a warning. */
+      belowWarnFloor: boolean
       /** True when no row existed for this period before the call. */
       created: boolean
     }
@@ -95,10 +115,25 @@ export async function recomputeLedgerForPeriod(
     }
   }
 
+  /*
+   * rollover_mode is checked against the two legal values rather than defaulted.
+   *
+   * computeMonthlyReimbursement treats anything that is not the string 'forfeit' as
+   * accumulate, so a typo in that column would silently switch a cohort into carrying
+   * money forward. scheduler-audit already refused to run on an unusable value and
+   * skipped the whole cohort; the other callers defaulted instead. This function is the
+   * one all of them use now, so it takes the stricter of the two behaviours. A cohort we
+   * cannot read a policy for is a cohort we do not pay.
+   */
+  const rolloverMode = cohort.rollover_mode
+  if (rolloverMode !== 'forfeit' && rolloverMode !== 'accumulate') {
+    return { ok: false, error: `cohort rollover_mode is "${String(rolloverMode)}", which is neither forfeit nor accumulate` }
+  }
+
   const policy = {
     ...DEFAULT_POLICY,
     reimbursementMax: cohortMax,
-    rolloverMode: (cohort.rollover_mode ?? DEFAULT_POLICY.rolloverMode) as 'accumulate' | 'forfeit',
+    rolloverMode: rolloverMode as 'accumulate' | 'forfeit',
     capMultiplier: cohortMultiplier,
     // Classifier-only flag. It decides whether a receipt reaches a human and has
     // nothing to say about ledger arithmetic.
@@ -204,8 +239,10 @@ export async function recomputeLedgerForPeriod(
     ok: true,
     paidCad: persistedPaid,
     spentCad,
+    entitlementCad: out.entitlement,
+    shortfallFlag: out.shortfallFlag,
     shortfallWarnBelowCad: warnBelow,
-    shortfall: spentCad < warnBelow,
+    belowWarnFloor: spentCad < warnBelow,
     created
   }
 }

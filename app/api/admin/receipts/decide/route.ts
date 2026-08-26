@@ -22,15 +22,17 @@
  *   Precedence when both arrive: the ticks set the CLASSIFICATION, `override_total`
  *   sets the AMOUNT. Reported back as `amount_source` and written to the audit log.
  *
- * P0-H: the reimbursement_ledger upsert is the write that decides what a BAM is paid.
- *   Its error is now checked, the row is read back, and if it fails the receipt status
- *   is rolled back so the UI can never say "Reimbursement confirmed" without a ledger row.
+ * P0-H: the write that decides what a BAM is paid now lives in lib/recompute-ledger,
+ *   shared with receipts/revert, scheduler-audit and the auto-pass path, because four
+ *   private copies of one calculation had already started to disagree. Its error is
+ *   checked and the row is read back there; if it fails, the receipt status is rolled
+ *   back here so this page can never say "Reimbursement confirmed" without a ledger row.
  */
 import { NextRequest, NextResponse, after } from 'next/server'
 import { reasonProblem } from '../../../../../lib/reason'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
-import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
+import { recomputeLedgerForPeriod } from '../../../../../lib/recompute-ledger'
 import { DEFAULT_POLICY, shortfallWarnBelow } from '../../../../../lib/policy'
 import { sendEmail } from '../../../../../lib/send-email'
 import { parseNonNegativeMoney } from '../../../../../lib/money'
@@ -292,142 +294,45 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  /*
+   * THE WRITE THAT DECIDES WHAT THE BAM IS PAID.
+   *
+   * The arithmetic used to live here, inline, and separately again in
+   * receipts/revert, in scheduler-audit, and on the auto-pass path. Four copies of one
+   * rule is four chances for them to disagree, and they already did: revert computed
+   * every reversal as though it were the BAM's first month in the program. One
+   * function now, in lib/recompute-ledger, called by all four.
+   *
+   * Every failure below still undoes the decision. A receipt sitting at 'approved'
+   * with no ledger row behind it is the state that makes this page say "Reimbursement
+   * confirmed" about money that does not exist.
+   */
   let softFloorBreach = false
   let softFloorValue = shortfallWarnBelow(DEFAULT_POLICY)
   let totalSpentThisPeriod = 0
   let ledgerPaid: number | null = null
 
   if (decision === 'approved' && effectiveTotal != null) {
-    // P0-H: an unreadable cohort must NOT fall back to DEFAULT_POLICY. A cohort with
-    // reimbursement_max = 100 would otherwise be paid the $150 default.
-    const { data: cohort, error: cohortErr } = await admin.from('cohorts')
-      .select('reimbursement_max, rollover_mode, cap_multiplier').eq('id', receipt.cohort_id).maybeSingle()
-    if (cohortErr || !cohort) {
-      const rb = await rollback(`cohort policy unreadable (${cohortErr?.message ?? 'no cohort row'})`)
-      return NextResponse.json({
-        ok: false,
-        error: `cannot compute reimbursement: cohort policy could not be read (${cohortErr?.message ?? 'no cohort row'}).${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-    const cohortMax = parseNonNegativeMoney(cohort.reimbursement_max)
-    const cohortMultiplier = Number(cohort.cap_multiplier)
-    if (cohortMax === null || cohortMax <= 0 || !Number.isFinite(cohortMultiplier) || cohortMultiplier <= 0) {
-      const rb = await rollback('cohort reimbursement_max / cap_multiplier is not a usable number')
-      return NextResponse.json({
-        ok: false,
-        error: `cannot compute reimbursement: cohort reimbursement_max="${String(cohort.reimbursement_max)}" cap_multiplier="${String(cohort.cap_multiplier)}".${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-
-    const policy = {
-      ...DEFAULT_POLICY,
-      reimbursementMax: cohortMax,
-      rolloverMode: (cohort.rollover_mode ?? DEFAULT_POLICY.rolloverMode) as 'accumulate' | 'forfeit',
-      capMultiplier: cohortMultiplier,
-      firstCohortAllReview: false // classifier-only flag, not relevant to ledger math
-    }
-
-    // Sum ALL approved (+ auto_pass) receipts for this bam/period, not just this one —
-    // the ledger reflects the whole month, and a BAM may submit multiple receipts.
-    const { data: monthReceipts, error: monthErr } = await admin.from('receipts')
-      .select('bud_light_total_incl_tax, status')
-      .eq('bam_id', receipt.bam_id).eq('period', receipt.period)
-      .in('status', ['approved', 'auto_pass'])
-    if (monthErr) {
-      const rb = await rollback(`could not sum this period's receipts (${monthErr.message})`)
-      return NextResponse.json({
-        ok: false,
-        error: `cannot compute reimbursement: this period's receipts could not be summed (${monthErr.message}).${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-    let receiptsTotal = 0
-    for (const r of monthReceipts ?? []) {
-      const v = parseNonNegativeMoney(r.bud_light_total_incl_tax)
-      if (v !== null) receiptsTotal = Math.round((receiptsTotal + v) * 100) / 100
-    }
-    totalSpentThisPeriod = receiptsTotal
-
-    const { data: prior, error: priorErr } = await admin.from('reimbursement_ledger')
-      .select('*').eq('bam_id', receipt.bam_id).lt('period', receipt.period)
-      .order('period', { ascending: true })
-    if (priorErr) {
-      const rb = await rollback(`could not read the prior ledger (${priorErr.message})`)
-      return NextResponse.json({
-        ok: false,
-        error: `cannot compute reimbursement: prior ledger unreadable (${priorErr.message}).${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-    const priorLedger = (prior ?? []).map(p => ({
-      period: p.period,
-      entitlementCad: Number(p.entitlement_cad),
-      spentCad: Number(p.spent_cad),
-      carryoverInCad: Number(p.carryover_in_cad),
-      carryoverOutCad: Number(p.carryover_out_cad),
-      paidCad: Number(p.paid_cad),
-      spendableCapCad: Number(p.spendable_cap_cad),
-      capSnapshotCad: Number(p.cap_snapshot_cad),
-      shortfallFlag: p.shortfall_flag,
-      policyVersion: p.policy_version
-    }))
-    const monthsActive = priorLedger.length + 1
-
-    const out = computeMonthlyReimbursement({
-      period: receipt.period,
-      monthsActiveThroughPeriod: monthsActive,
-      receiptsTotalInclHst: receiptsTotal,
-      priorLedger,
-      policy
+    const ledger = await recomputeLedgerForPeriod(admin, {
+      bamId: receipt.bam_id,
+      cohortId: receipt.cohort_id,
+      period: receipt.period
     })
-    // Soft-floor breach (for the warning email) is distinct from the ledger's
-    // shortfallFlag (spent < full entitlement) — the warning only fires when
-    // spend falls below entitlement - reviewBandPadding (e.g. $150 - $10 = $140).
-    softFloorValue = shortfallWarnBelow(policy)
-    softFloorBreach = receiptsTotal < softFloorValue
+    if (!ledger.ok) {
+      const rb = await rollback(ledger.error)
+      return NextResponse.json({
+        ok: false,
+        error: `reimbursement could not be recorded: ${ledger.error}.${rollbackNote(rb)}`
+      }, { status: 500 })
+    }
 
-    // P0-H: THIS is the write that decides what the BAM is paid. Its error was
-    // discarded, so the receipt could flip to 'approved' with no ledger row while the
-    // admin UI displayed "Reimbursement confirmed". Checked, read back, and rolled
-    // back on failure.
-    const { data: ledgerRows, error: ledgerErr } = await admin.from('reimbursement_ledger').upsert({
-      bam_id: receipt.bam_id,
-      cohort_id: receipt.cohort_id,
-      period: receipt.period,
-      entitlement_cad: out.entitlement,
-      spent_cad: receiptsTotal,
-      carryover_in_cad: out.carryoverIn,
-      carryover_out_cad: out.carryoverOut,
-      paid_cad: out.paidThisMonth,
-      spendable_cap_cad: out.spendableCap,
-      cap_snapshot_cad: out.capSnapshot,
-      shortfall_flag: out.shortfallFlag,
-      policy_version: policy.policyVersion,
-      created_by: 'system'
-    }, { onConflict: 'bam_id,cohort_id,period' })
-      .select('id, paid_cad, spent_cad')
-
-    if (ledgerErr) {
-      const rb = await rollback(`reimbursement ledger write failed (${ledgerErr.message})`)
-      return NextResponse.json({
-        ok: false,
-        error: `reimbursement could not be recorded (${ledgerErr.message}).${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-    if (!ledgerRows || ledgerRows.length !== 1) {
-      const rb = await rollback(`reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows`)
-      return NextResponse.json({
-        ok: false,
-        error: `reimbursement ledger write affected ${ledgerRows?.length ?? 0} rows, expected 1.${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-    const persistedPaid = parseNonNegativeMoney(ledgerRows[0].paid_cad)
-    if (persistedPaid === null || Math.abs(persistedPaid - out.paidThisMonth) > 0.005) {
-      const rb = await rollback(`ledger stored paid_cad=${String(ledgerRows[0].paid_cad)} but expected ${out.paidThisMonth}`)
-      return NextResponse.json({
-        ok: false,
-        error: `ledger read-back mismatch: stored $${String(ledgerRows[0].paid_cad)}, expected $${out.paidThisMonth.toFixed(2)}.${rollbackNote(rb)}`
-      }, { status: 500 })
-    }
-    ledgerPaid = persistedPaid
+    ledgerPaid = ledger.paidCad
+    totalSpentThisPeriod = ledger.spentCad
+    // The soft-floor breach that triggers a warning is spend under the $130 tracking
+    // floor, NOT the ledger's own shortfall_flag, which is true at $149 of $150. They
+    // are different questions and were confused once already.
+    softFloorValue = ledger.shortfallWarnBelowCad
+    softFloorBreach = ledger.belowWarnFloor
   }
 
   // Auto-upsert draft invoice when approving. Scheduled with after() so the promise

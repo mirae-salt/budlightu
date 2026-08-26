@@ -24,8 +24,7 @@
  *         never silently paid at the DEFAULT_POLICY $150.
  */
 import { serviceClient } from '../_shared/supabase-admin'
-import { computeMonthlyReimbursement } from '../../../lib/reimbursement'
-import { DEFAULT_POLICY } from '../../../lib/policy'
+import { recomputeLedgerForPeriod } from '../../../lib/recompute-ledger'
 
 const LOCK_TTL_SECONDS = 900
 
@@ -111,14 +110,10 @@ async function runAudit(
       continue
     }
 
-    const policy = {
-      ...DEFAULT_POLICY,
-      rolloverMode: rolloverMode as 'accumulate' | 'forfeit',
-      reimbursementMax: cohortMax,
-      capMultiplier: cohortMultiplier,
-      firstCohortAllReview: false,   // relevant to the classifier, not the ledger
-      policyVersion: 1
-    }
+    // The three checks above are now also made per BAM inside recomputeLedgerForPeriod,
+    // which is where they decide whether anyone gets paid. They are kept here because
+    // a bad cohort should be reported ONCE, as "cohort skipped", rather than as the
+    // same error repeated for each of its 58 members.
 
     const { data: bams, error: bamsErr } = await db.from('bams')
       .select('id, first_name, last_name, cohort_id')
@@ -130,100 +125,35 @@ async function runAudit(
     if (!bams?.length) continue
 
     for (const bam of bams) {
-      // approved receipts (exclude ocr_failed per P0-5c)
-      const { data: rcpts, error: rcptErr } = await db.from('receipts')
-        .select('bud_light_total_incl_tax, status')
-        .eq('bam_id', bam.id).eq('period', period)
-        .in('status', ['approved', 'auto_pass'])
-      if (rcptErr) {
-        errors.push({ scope: 'receipts', id: bam.id, message: rcptErr.message })
+      /*
+       * One BAM's month, computed and stored by lib/recompute-ledger.
+       *
+       * This was forty lines here: read the receipts, sum them, read the prior ledger,
+       * compute, upsert, read back. The same forty lines existed in receipts/decide, in
+       * receipts/revert, and on the auto-pass path, and revert's copy had already
+       * drifted (it assumed every reversal was the BAM's first month). One function
+       * now, so the monthly sweep and a single click cannot produce different money.
+       *
+       * The cohort policy is re-read per BAM rather than reused from the loop above.
+       * That is 58 extra reads a month and it buys the guarantee that the sweep uses
+       * exactly the policy every other path uses, read the same way.
+       */
+      const ledger = await recomputeLedgerForPeriod(db, {
+        bamId: bam.id,
+        cohortId: cohort.id,
+        period
+      })
+      if (!ledger.ok) {
+        errors.push({ scope: 'reimbursement_ledger', id: bam.id, message: ledger.error })
         continue
       }
 
-      let receiptsTotal = 0
-      for (const r of rcpts ?? []) {
-        const v = Number(r.bud_light_total_incl_tax ?? 0)
-        if (Number.isFinite(v) && v > 0) receiptsTotal = Math.round((receiptsTotal + v) * 100) / 100
-      }
-
-      // prior ledger for carryover
-      const { data: prior, error: priorErr } = await db.from('reimbursement_ledger')
-        .select('*').eq('bam_id', bam.id).lt('period', period)
-        .order('period', { ascending: true })
-      if (priorErr) {
-        errors.push({ scope: 'reimbursement_ledger.read', id: bam.id, message: priorErr.message })
-        continue
-      }
-
-      const priorLedger = (prior ?? []).map(p => ({
-        period: p.period,
-        entitlementCad: Number(p.entitlement_cad),
-        spentCad: Number(p.spent_cad),
-        carryoverInCad: Number(p.carryover_in_cad),
-        carryoverOutCad: Number(p.carryover_out_cad),
-        paidCad: Number(p.paid_cad),
-        spendableCapCad: Number(p.spendable_cap_cad),
-        capSnapshotCad: Number(p.cap_snapshot_cad),
-        shortfallFlag: p.shortfall_flag,
-        policyVersion: p.policy_version
-      }))
-
-      const monthsActive = priorLedger.length + 1
-
-      let out
-      try {
-        out = computeMonthlyReimbursement({
-          period,
-          monthsActiveThroughPeriod: monthsActive,
-          receiptsTotalInclHst: receiptsTotal,
-          priorLedger,
-          policy
-        })
-      } catch (e) {
-        errors.push({ scope: 'computeMonthlyReimbursement', id: bam.id, message: e instanceof Error ? e.message : String(e) })
-        continue
-      }
-
-      // P0-H: this write decides what the BAM is paid. Checked and read back.
-      const { data: ledgerRows, error: ledgerErr } = await db.from('reimbursement_ledger').upsert({
-        bam_id: bam.id, cohort_id: cohort.id, period,
-        entitlement_cad:      out.entitlement,
-        spent_cad:            receiptsTotal,
-        carryover_in_cad:     out.carryoverIn,
-        carryover_out_cad:    out.carryoverOut,
-        paid_cad:             out.paidThisMonth,
-        spendable_cap_cad:    out.spendableCap,
-        cap_snapshot_cad:     out.capSnapshot,
-        shortfall_flag:       out.shortfallFlag,
-        policy_version:       policy.policyVersion,
-        created_by:           'system'
-      }, { onConflict: 'bam_id,cohort_id,period' })
-        .select('id, paid_cad')
-
-      if (ledgerErr) {
-        errors.push({ scope: 'reimbursement_ledger.upsert', id: bam.id, message: ledgerErr.message })
-        continue
-      }
-      if (!ledgerRows || ledgerRows.length !== 1) {
-        errors.push({ scope: 'reimbursement_ledger.upsert', id: bam.id, message: `affected ${ledgerRows?.length ?? 0} rows, expected 1` })
-        continue
-      }
-      const persistedPaid = Number(ledgerRows[0].paid_cad)
-      if (!Number.isFinite(persistedPaid) || Math.abs(persistedPaid - out.paidThisMonth) > 0.005) {
-        errors.push({
-          scope: 'reimbursement_ledger.readback',
-          id: bam.id,
-          message: `stored paid_cad=${String(ledgerRows[0].paid_cad)} but computed ${out.paidThisMonth}`
-        })
-        continue
-      }
-
-      if (out.shortfallFlag) {
+      if (ledger.shortfallFlag) {
         shortfall.push({
           bamId: bam.id,
           name: `${bam.first_name} ${bam.last_name}`,
-          spent: receiptsTotal,
-          entitlement: out.entitlement
+          spent: ledger.spentCad,
+          entitlement: ledger.entitlementCad
         })
       }
       processed++

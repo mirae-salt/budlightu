@@ -42,6 +42,20 @@ const PAGE = readFileSync(
   join(__dirname, '..', 'app', 'admin', 'receipts', 'page.tsx'),
   'utf8'
 )
+/*
+ * The ledger arithmetic moved out of the route on 2026-08-26. It had been written out
+ * four times (decide, revert, scheduler-audit, and the auto-pass path) and the copies
+ * had begun to disagree, so it now lives in one file that all four call.
+ *
+ * These tests kept asserting on the route's text and failed the moment the code moved,
+ * which is the correct behaviour for a test like this: it noticed. The fix is to point
+ * them at where the guarantee now lives, NOT to relax them. Every property checked
+ * below is still checked, just against the file that owns it.
+ */
+const LEDGER = readFileSync(
+  join(__dirname, '..', 'lib', 'recompute-ledger.ts'),
+  'utf8'
+)
 
 /**
  * The real receipt from production: Metro, Montreal, 8 lines, 3 ticked by the model
@@ -461,19 +475,54 @@ describe('decide route wiring', () => {
 
   it('still rolls back on every downstream money failure, and restores ocr_json', () => {
     const rollbacks = ROUTE.match(/await rollback\(/g) ?? []
-    // 5 pre-existing ledger paths (cohort unreadable, cohort numbers unusable,
-    // month sum, prior ledger, ledger write) + ledger row count + ledger read-back
-    // + three new ones (amount did not persist, flags did not persist, audit write
-    // failed).
-    expect(rollbacks.length).toBeGreaterThanOrEqual(10)
+    // Four now, not the ten this once counted. The six ledger failure paths (cohort
+    // unreadable, cohort numbers unusable, month sum, prior ledger, ledger write, row
+    // count, read-back) collapsed into ONE call site when the arithmetic moved to
+    // lib/recompute-ledger: that function returns a single error and the route rolls
+    // back on it. Fewer call sites, same coverage, and one place that can forget.
+    //
+    // What matters is that no ledger failure can reach the client without an undo,
+    // which the two assertions after this one check directly.
+    expect(rollbacks.length).toBeGreaterThanOrEqual(4)
     expect(ROUTE).toMatch(/restoreOcrJson/)
     expect(ROUTE).toMatch(/payload\.ocr_json = previousOcrJson/)
   })
 
-  it('keeps the reason requirement and the ledger read-back', () => {
+  it('every failure of the shared ledger function reaches a rollback', () => {
+    // The ledger step has exactly one exit for failure, and it must undo the decision.
+    // Written as one span so a future edit cannot insert an early return between the
+    // call and the rollback: the two have to stay adjacent for this to match.
+    expect(ROUTE).toMatch(
+      /await recomputeLedgerForPeriod\(admin, \{[\s\S]{0,300}?if \(!ledger\.ok\) \{[\s\S]{0,200}?await rollback\(ledger\.error\)/
+    )
+    // And the route must not carry a second, private copy of the arithmetic again.
+    expect(ROUTE).not.toMatch(/computeMonthlyReimbursement/)
+    // Match CODE, not prose: the route's docblock still mentions the ledger upsert,
+    // and an assertion that a comment cannot mention a table is not a useful one.
+    expect(ROUTE).not.toMatch(/from\('reimbursement_ledger'\)/)
+    expect(ROUTE).not.toMatch(/entitlement_cad/)
+  })
+
+  it('keeps the reason requirement, and the ledger read-back still exists', () => {
     expect(ROUTE).toMatch(/reasonProblem\(reason\)/)
-    expect(ROUTE).toMatch(/ledger read-back mismatch/)
-    expect(ROUTE).toMatch(/persistedPaid/)
+    // The read-back is now inside the shared function rather than inline in the route.
+    // It is the assertion that stops a write reporting success while storing a
+    // different number, so it is checked where it lives.
+    expect(LEDGER).toMatch(/ledger read-back mismatch/)
+    expect(LEDGER).toMatch(/persistedPaid/)
+    expect(LEDGER).toMatch(/Math\.abs\(persistedPaid - out\.paidThisMonth\) > 0\.005/)
+  })
+
+  it('the shared ledger function fails closed on every input it cannot trust', () => {
+    // Each of these was a separate guarded branch in the route before the move. They
+    // are the reason an unreadable cohort is never quietly paid the $150 default.
+    expect(LEDGER).toMatch(/cohort policy could not be read/)
+    expect(LEDGER).toMatch(/is not a usable number/)
+    expect(LEDGER).toMatch(/neither forfeit nor accumulate/)
+    expect(LEDGER).toMatch(/receipts could not be summed/)
+    expect(LEDGER).toMatch(/prior ledger unreadable/)
+    expect(LEDGER).toMatch(/ledger write failed/)
+    expect(LEDGER).toMatch(/expected 1/)
   })
 
   it('reports the amount source back to the caller', () => {
