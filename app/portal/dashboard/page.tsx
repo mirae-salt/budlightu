@@ -88,10 +88,25 @@ export default function Dashboard() {
         <div className="eyebrow">THIS MONTH</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 16 }}>
           <div>
+            {/*
+              Cents, not a rounded dollar. This was toFixed(0), so $58.45 of spend read
+              as "$58" here and $58.45 on the invoice, and 45 cents looked like it had
+              gone missing. Money a student can check against a document should be
+              printed the way the document prints it.
+            */}
             <div style={{ fontSize: 40, fontWeight: 800, color: 'var(--paper)', lineHeight: 1 }}>
-              {loading ? '—' : `$${state.spentCad.toFixed(0)}`}
+              {loading ? '—' : `$${state.spentCad.toFixed(2)}`}
             </div>
-            <div className="muted" style={{ fontSize: 13 }}>of your ${state.capCad.toFixed(0)} allowance used</div>
+            {/*
+              The rule, not a progress report. "of your $150 allowance used" left the
+              big number unlabelled: a student had to work out whether it was what they
+              had spent, what they were getting, or what was left. The one thing they
+              actually need to know is that the program pays back what they spend and
+              stops at the cap, so the line says that instead.
+            */}
+            <div className="muted" style={{ fontSize: 13 }}>
+              You get back what you spend, up to ${state.capCad.toFixed(0)} a month
+            </div>
           </div>
           <Link href="/portal/upload" className="btn" style={{ textDecoration: 'none' }}>Upload receipt</Link>
         </div>
