@@ -336,7 +336,7 @@ export async function POST(req: Request) {
   //    P0-H: if this read fails we must NOT continue with default policy/cap — that is
   //    how a $150 payout gets decided for a cohort we could not read.
   const { data: thisReceipt, error: receiptErr } = await db.from('receipts')
-    .select('bam_id, cohort_id, period').eq('id', receipt_id).maybeSingle()
+    .select('bam_id, cohort_id, period, sha256').eq('id', receipt_id).maybeSingle()
   if (receiptErr) {
     await bumpAttempt(db, receipt_id, `receipt lookup failed: ${receiptErr.message}`)
     return NextResponse.json({ ok: false, error: `receipt lookup failed: ${receiptErr.message}` }, { status: 500 })
@@ -401,6 +401,84 @@ export async function POST(req: Request) {
           balanceAvailable,
           recomputed.total
         ))
+      }
+    }
+  }
+
+  /*
+   * 5b. HAS SOMEBODY ELSE ALREADY CLAIMED THIS RECEIPT?
+   *
+   * Everything above this point compares the uploader against the uploader. So does the
+   * sha256 check in app/api/portal/upload. Nothing looked across people, so one photo
+   * forwarded to a friend paid twice, and lib/classify-receipt's `duplicateHash` input,
+   * documented since it was written as "same sha256 already accepted for ANOTHER bam",
+   * has only ever been handed a same-BAM answer.
+   *
+   * Test accounts are excluded in both directions: a test uploader is not checked at
+   * all, and no test account's receipt is ever a candidate. A room of testers passing
+   * one receipt around must not fill the review queue, and a real BAM must never be
+   * accused because a demo receipt is sitting in the same table.
+   */
+  if (thisReceipt?.bam_id) {
+    const { data: uploader, error: uploaderErr } = await db.from('bams')
+      .select('is_test').eq('id', thisReceipt.bam_id).maybeSingle()
+
+    if (uploaderErr) {
+      // Fail loud, not open. "We could not tell whether to check" is not "no duplicate".
+      fraudFlags.push(`duplicate_check_unavailable: could not tell whether this is a test account (${uploaderErr.message}) -- admin must confirm`)
+    } else if (uploader?.is_test) {
+      console.info('[ocr] cross-BAM duplicate check skipped for test account', thisReceipt.bam_id)
+    } else {
+      const { data: testBams, error: testErr } = await db.from('bams')
+        .select('id').eq('is_test', true)
+      const { data: realBams, error: realErr } = await db.from('bams')
+        .select('id, first_name, last_name')
+
+      // A period filter is deliberately absent. Reusing a receipt is worth seeing
+      // whenever it happens, not only inside one month.
+      const { data: theirs, error: theirsErr } = await db.from('receipts')
+        .select('id, bam_id, period, sha256, ocr_json')
+        .neq('bam_id', thisReceipt.bam_id)
+        .neq('status', 'rejected')
+
+      if (testErr || realErr || theirsErr) {
+        const why = testErr?.message ?? realErr?.message ?? theirsErr?.message
+        fraudFlags.push(`duplicate_check_unavailable: other BAMs' receipts could not be read (${why}) -- admin must confirm`)
+      } else {
+        const testIds = new Set((testBams ?? []).map((b: { id: string }) => b.id))
+        const nameOf = new Map(
+          (realBams ?? []).map((b: { id: string; first_name: string; last_name: string }) =>
+            [b.id, `${b.first_name} ${b.last_name}`.trim()])
+        )
+
+        const { findCrossBamDuplicate } = await import('@/lib/duplicate-receipt')
+        const match = findCrossBamDuplicate(
+          {
+            receiptId: receipt_id,
+            bamId: thisReceipt.bam_id,
+            sha256: (thisReceipt as { sha256?: string | null }).sha256,
+            store: (ocr.store as string) ?? null,
+            date: (ocr.date as string) ?? null,
+            grandTotal: (ocr.grand_total as number) ?? null
+          },
+          (theirs ?? [])
+            .filter((r: { bam_id: string }) => !testIds.has(r.bam_id))
+            .map((r: { id: string; bam_id: string; period: string; sha256: string | null; ocr_json: Record<string, unknown> | null }) => ({
+              id: r.id,
+              bamId: r.bam_id,
+              bamName: nameOf.get(r.bam_id) ?? null,
+              period: r.period,
+              sha256: r.sha256,
+              store: (r.ocr_json?.store as string) ?? null,
+              date: (r.ocr_json?.date as string) ?? null,
+              grandTotal: (r.ocr_json?.grand_total as number) ?? null
+            }))
+        )
+
+        if (match) {
+          dupSuspect = true
+          fraudFlags.push(match.reason)
+        }
       }
     }
   }
