@@ -36,13 +36,18 @@ type Limit = { max: number; windowMs: number; methods?: string[] }
  * all without a valid `invite_token_hash`, and the token carries its own attempt limit,
  * so the IP ceiling is a second fence rather than the only one.
  *
+ * Onboarding is 100 a day rather than something tighter because of what September 1
+ * looks like: 58 students signing up around the same time, some of them on one campus
+ * network, and a form people get wrong once before they get it right. Each retry spends
+ * a request. Running out on onboarding day would look like the portal being broken.
+ *
  * roster-check is deliberately lower than onboarding. It sends an OTP email, so it is
  * the one an attacker could use to probe which addresses are on the roster or to bury
  * somebody's inbox. 30 an hour still covers a full room signing in together while
  * keeping that narrow.
  */
 const LIMITS: Record<string, Limit> = {
-  '/api/onboarding':      { max: 50, windowMs: 24 * 60 * 60 * 1000 },
+  '/api/onboarding':      { max: 100, windowMs: 24 * 60 * 60 * 1000 },
   '/api/auth/roster-check': { max: 30, windowMs: 60 * 60 * 1000 },
   '/api/portal/upload':   { max: 30, windowMs: 24 * 60 * 60 * 1000 },
   '/api/portal/support':  { max: 10, windowMs: 60 * 60 * 1000 },
