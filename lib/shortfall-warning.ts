@@ -98,10 +98,32 @@ export type FlagShortfallResult = {
   status?: number
 }
 
+export type FlagShortfallOptions = {
+  /**
+   * Whether to email the program manager. Defaults to true, which is the behaviour
+   * every caller had before this existed.
+   *
+   * The receipt decide flow passes false (Mirae, 2026-08-26: "shortfall detected is
+   * an email nobody needs"). Approving a receipt under the floor fired two automatic
+   * emails, one to the manager and one to the student, on every single approval. At
+   * 58 BAMs that is a monthly wave of mail announcing something already visible on
+   * the dashboard, and during testing it was one alert per test receipt.
+   *
+   * What is switched off is the AUTOMATIC send. The warning row and the in-app
+   * notification are unaffected, so the "two consecutive shortfalls means reevaluate"
+   * count (Robin 2026-08-04) still advances exactly as before, and /admin/warnings
+   * still emails when a human deliberately presses the button. The manager email even
+   * said so itself: "You can send a warning email to the BAM from the admin dashboard."
+   */
+  sendManagerEmail?: boolean
+}
+
 export async function flagShortfall(
   admin: SupabaseClient,
-  input: FlagShortfallInput
+  input: FlagShortfallInput,
+  opts: FlagShortfallOptions = {}
 ): Promise<FlagShortfallResult> {
+  const sendManagerEmail = opts.sendManagerEmail !== false
   const period = normalizeWarningPeriod(input.period)
   const spent = Number.isFinite(input.spent) ? input.spent : 0
 
@@ -163,6 +185,22 @@ export async function flagShortfall(
   const reevalLine = needsReevaluation
     ? `\n\nThis is ${streak} shortfall months in a row for ${bamName} (warning #${warningNumber} overall). Per policy, their standing in the program should be reevaluated.`
     : ''
+
+  if (!sendManagerEmail) {
+    // The warning is on the record and the streak has advanced; only the automatic
+    // email is skipped. Reported as notifiedManager:false with a reason, never as a
+    // silent success, so a caller can never print "manager notified" from this.
+    return {
+      ok: true,
+      warning,
+      warningNumber,
+      needsReevaluation,
+      notifiedManager: false,
+      notifyProvider: 'skipped',
+      reason: 'automatic shortfall email is off; the warning was recorded',
+      status: 200
+    }
+  }
 
   const result = await sendEmail({
     to: ROBIN_EMAIL,

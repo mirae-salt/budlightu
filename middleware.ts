@@ -43,17 +43,37 @@ type Limit = { max: number; windowMs: number; methods?: string[] }
  *
  * roster-check is deliberately lower than onboarding. It sends an OTP email, so it is
  * the one an attacker could use to probe which addresses are on the roster or to bury
- * somebody's inbox. 30 an hour still covers a full room signing in together while
- * keeping that narrow.
+ * somebody's inbox. Keeping it the tightest of the five is the point, not the exact number.
+ *
+ * SECOND RAISE, later the same day: onboarding was not the only limit a shared network
+ * trips. Someone testing on an office connection hit "Too many attempts" again, and the
+ * four remaining entries were all still sized for one person at home:
+ *
+ *   upload           30/day  -> 200/day  one tester re-uploading to watch OCR spends ten
+ *                                        of these alone, and a room shares the bucket
+ *   support          10/hour ->  60/hour six testers sending two notes each was over it
+ *   banking-request  10/day  ->  60/day  same arithmetic, and 0022 already allows only
+ *                                        one OPEN request per BAM regardless of this
+ *   roster-check     30/hour ->  60/hour still the tightest, because it sends OTP mail
+ *
+ * upload is the expensive one: every accepted file costs an OCR call. It is also behind
+ * portal auth, so reaching it at all needs a real student session, and the per-file size
+ * and type checks are in app/api/portal/upload. The IP ceiling is the outer fence, not
+ * the only one, which is what makes 200 an acceptable number here.
+ *
+ * These buckets live in a per-instance Map, so on Vercel the effective ceiling is already
+ * higher than what is written here and resets on every cold start. That cuts one way only:
+ * it means these numbers can under-count real traffic, never over-count it.
  */
 const LIMITS: Record<string, Limit> = {
   '/api/onboarding':      { max: 100, windowMs: 24 * 60 * 60 * 1000 },
-  '/api/auth/roster-check': { max: 30, windowMs: 60 * 60 * 1000 },
-  '/api/portal/upload':   { max: 30, windowMs: 24 * 60 * 60 * 1000 },
-  '/api/portal/support':  { max: 10, windowMs: 60 * 60 * 1000 },
-  // Banking corrections are rare by nature. The database also allows only one
-  // open request per BAM (0022); this is the outer fence on submission attempts.
-  '/api/portal/banking-request': { max: 10, windowMs: 24 * 60 * 60 * 1000, methods: ['POST'] }
+  '/api/auth/roster-check': { max: 60, windowMs: 60 * 60 * 1000 },
+  '/api/portal/upload':   { max: 200, windowMs: 24 * 60 * 60 * 1000 },
+  '/api/portal/support':  { max: 60, windowMs: 60 * 60 * 1000 },
+  // Banking corrections are rare per person, but the bucket is the whole room.
+  // The database also allows only one open request per BAM (0022), which is the
+  // limit that actually matters; this is the outer fence on submission attempts.
+  '/api/portal/banking-request': { max: 60, windowMs: 24 * 60 * 60 * 1000, methods: ['POST'] }
 }
 
 function rateLimit(req: NextRequest): NextResponse | null {

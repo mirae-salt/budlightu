@@ -194,6 +194,24 @@ function adminClient() {
   )
 }
 
+/*
+ * Every line item is returned as its own object with desc, qty, unit, total,
+ * is_bud_light and confidence, so the response length scales with the receipt, not
+ * with the amount claimed. This was 1024, which is about twelve line items.
+ *
+ * A real grocery receipt broke it on 2026-08-26: 22 items, mostly deposits and
+ * groceries around a few Bud Light lines. The model was cut off mid-JSON, JSON.parse
+ * failed, and the student saw "OCR returned invalid JSON" with no amount. Nothing in
+ * the message said the output had been truncated, so it read as an unreadable photo
+ * when the photo was fine.
+ *
+ * The people this hits are exactly the ones doing the normal thing: buying beer as
+ * part of a weekly shop. 8192 covers a receipt several times longer than that one,
+ * and the response is billed on what is actually generated, so a short receipt costs
+ * no more than it did before.
+ */
+const OCR_MAX_TOKENS = 8192
+
 async function callOpenRouter(apiKey: string, base64: string, mediaType: MediaType): Promise<string> {
   const resp = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -203,7 +221,7 @@ async function callOpenRouter(apiKey: string, base64: string, mediaType: MediaTy
     },
     body: JSON.stringify({
       model: OCR_MODEL,
-      max_tokens: 1024,
+      max_tokens: OCR_MAX_TOKENS,
       messages: [{
         role: 'user',
         content: [
@@ -220,7 +238,21 @@ async function callOpenRouter(apiKey: string, base64: string, mediaType: MediaTy
   }
 
   const json = await resp.json()
-  return json.choices?.[0]?.message?.content ?? ''
+  const choice = json.choices?.[0]
+
+  // A truncated response is not a bad receipt, and it must not be reported as one.
+  // Without this the caller only sees JSON.parse fail and says "OCR returned invalid
+  // JSON", which points the reviewer at the photo instead of at the token ceiling.
+  const finish = choice?.finish_reason ?? choice?.native_finish_reason
+  if (finish === 'length') {
+    throw new Error(
+      `the model ran out of room before it finished reading this receipt ` +
+      `(stopped at the ${OCR_MAX_TOKENS}-token ceiling). The image is probably fine; ` +
+      `this is a very long receipt. Raise OCR_MAX_TOKENS or enter the amount by hand.`
+    )
+  }
+
+  return choice?.message?.content ?? ''
 }
 
 export async function POST(req: Request) {
@@ -484,21 +516,110 @@ export async function POST(req: Request) {
     )
   }
 
+  /*
+   * 10b. AN AUTO-PASS IS A DECISION, SO IT HAS TO SETTLE THE MONEY.
+   *
+   * reimbursement_ledger.paid_cad is the only figure the dashboard and the invoice
+   * read. It used to be written only by an admin decision or by the monthly sweep,
+   * and an auto-passed receipt goes through neither. The result, seen live on
+   * 2026-08-26: a $69.00 auto-passed receipt, no ledger row, a dashboard reading $0,
+   * and no invoice, because lib/draft-invoice correctly refuses to invoice a period
+   * whose money has not been computed rather than invent an amount.
+   *
+   * Run inline rather than in after(): the status this route returns has to be the
+   * status the receipt ended up in, and the failure branch below changes it.
+   *
+   * Failure is CLOSED. An auto_pass with no ledger row is exactly the broken state
+   * this fixes, so if the ledger cannot be written the receipt goes to the review
+   * queue and a human decides. Quietly leaving it auto-passed would reintroduce the
+   * bug one row at a time.
+   */
+  let settledStatus = finalStatus
+  let ledgerPaidCad: number | null = null
+  let ledgerError: string | undefined
+
+  if (finalStatus === 'auto_pass' && thisReceipt?.bam_id && thisReceipt?.cohort_id && thisReceipt?.period) {
+    const { recomputeLedgerForPeriod } = await import('@/lib/recompute-ledger')
+    const ledger = await recomputeLedgerForPeriod(db, {
+      bamId: thisReceipt.bam_id,
+      cohortId: thisReceipt.cohort_id,
+      period: thisReceipt.period
+    })
+
+    if (ledger.ok) {
+      ledgerPaidCad = ledger.paidCad
+
+      /*
+       * The same month that settles has to be measured against the floor, or the
+       * reevaluate rule quietly skips everyone whose receipts auto-pass. A $69 receipt
+       * approved by hand records a warning; the identical receipt auto-passed recorded
+       * nothing, so "two consecutive shortfalls" could never trigger for a student the
+       * classifier was happy with. That is the wrong way round.
+       *
+       * No email, matching the decide path: the row and the in-app notification are the
+       * record, and /admin/warnings is where a human sends anything.
+       */
+      if (ledger.shortfall) {
+        scheduleBackground(async () => {
+          try {
+            const { flagShortfall } = await import('@/lib/shortfall-warning')
+            const flag = await flagShortfall(db, {
+              bamId: thisReceipt.bam_id,
+              cohortId: thisReceipt.cohort_id,
+              period: thisReceipt.period,
+              spent: ledger.spentCad,
+              notes: 'auto-passed receipt, no admin decision'
+            }, { sendManagerEmail: false })
+            if (!flag.ok) {
+              console.error('[ocr] shortfall could not be recorded:', flag.error ?? flag.notifyError)
+            }
+          } catch (e) {
+            console.error('[ocr] flagShortfall failed:', e)
+          }
+        })
+      }
+    } else {
+      ledgerError = ledger.error
+      console.error('[ocr] ledger write failed for auto-passed receipt', receipt_id, '-', ledger.error)
+
+      const { data: reverted, error: revertErr } = await db.from('receipts').update({
+        status: 'review',
+        decision_reason:
+          `${decisionReason} | auto-pass held for review: the reimbursement could not be recorded (${ledger.error})`
+            .slice(0, 1000)
+      }).eq('id', receipt_id).select('id, status')
+
+      // Read-back. If even the hold fails, say so loudly: the row is then auto_pass
+      // with no money behind it, which is the one state nobody should discover later.
+      if (revertErr || reverted?.length !== 1 || reverted[0].status !== 'review') {
+        console.error('[ocr] COULD NOT HOLD receipt', receipt_id,
+          'for review after a ledger failure -', revertErr?.message ?? `rows=${reverted?.length ?? 0}`,
+          '- this receipt is auto-passed with no ledger row and needs a manual check')
+      } else {
+        settledStatus = 'review'
+      }
+    }
+  }
+
   // 11. Auto-upsert draft invoice for this BAM+period.
   //     Scheduled with after() so the platform keeps the invocation alive instead of
   //     dropping the promise at response time (same class of bug as P1-13).
   if (thisReceipt?.bam_id && thisReceipt?.cohort_id && thisReceipt?.period) {
+    // On an auto-pass the ledger was just written above, so "no ledger row yet" is no
+    // longer an expected state on this path and a block here is a real block worth
+    // hearing about. Everywhere else it stays quiet, for the reason below.
+    const ledgerJustWritten = ledgerPaidCad !== null
     scheduleBackground(async () => {
       try {
         const { upsertDraftInvoice } = await import('@/lib/draft-invoice')
-        // F5: quietWhenLedgerPending. Ledger rows are written by receipts/decide
-        // and scheduler-audit, never by OCR, and first_cohort_all_review sends
-        // every receipt to `review`, so on this path "no ledger row yet" is the
-        // expected state, not an incident. Without this flag every upload fired a
-        // false "Invoice generation blocked" notification. Every other block
-        // (missing banking, missing PO, cross-cohort, insert failure) stays loud.
+        // F5: quietWhenLedgerPending. For a receipt that lands in `review`, the ledger
+        // is written later by receipts/decide or by scheduler-audit, so on that path
+        // "no ledger row yet" is the expected state, not an incident. Without this flag
+        // every upload fired a false "Invoice generation blocked" notification. Every
+        // other block (missing banking, missing PO, cross-cohort, insert failure) stays
+        // loud, on both paths.
         await upsertDraftInvoice(db, thisReceipt.bam_id, thisReceipt.cohort_id, thisReceipt.period, {
-          quietWhenLedgerPending: true
+          quietWhenLedgerPending: !ledgerJustWritten
         })
       } catch (e) {
         console.error('[ocr] draft invoice upsert failed:', e)
@@ -507,15 +628,17 @@ export async function POST(req: Request) {
   }
 
   // 12. Admin notification for review
-  if (finalStatus === 'review') {
+  if (settledStatus === 'review') {
     scheduleBackground(async () => {
       try {
         const { notifyAdmin } = await import('@/lib/notify-admin')
         const bamLabel = thisReceipt?.bam_id ? `BAM ${thisReceipt.bam_id.slice(0, 8)}` : 'Unknown BAM'
         await notifyAdmin({
           type: 'receipt_review',
-          title: 'Receipt needs review',
-          body: `${bamLabel}: ${decisionReason}`,
+          title: ledgerError ? 'Auto-passed receipt held for review' : 'Receipt needs review',
+          body: ledgerError
+            ? `${bamLabel}: the receipt passed every check, but its reimbursement could not be recorded (${ledgerError}), so it is waiting on a decision instead of being paid.`
+            : `${bamLabel}: ${decisionReason}`,
           bam_id: thisReceipt?.bam_id,
           cohort_id: thisReceipt?.cohort_id,
           period: thisReceipt?.period,
@@ -529,13 +652,20 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    status: finalStatus,
+    // The status the receipt actually ended in. It is not always the classifier's
+    // verdict: an auto-pass whose reimbursement could not be recorded is held for
+    // review above, and reporting `auto_pass` here would hide that.
+    status: settledStatus,
+    classified_status: finalStatus,
     duplicate_suspect: dupSuspect,
     fraud_flags: fraudFlags,
     // surfaced so a caller (and the dry-run harness) can diff amounts without a DB read
     server_total: classification.budLightTotalInclTax,
     model_total: classification.modelReportedTotal,
-    recompute_basis: classification.recomputeBasis
+    recompute_basis: classification.recomputeBasis,
+    // What the month now pays, present only when this call settled it.
+    ledger_paid_cad: ledgerPaidCad,
+    ...(ledgerError ? { ledger_error: ledgerError } : {})
   })
 }
 

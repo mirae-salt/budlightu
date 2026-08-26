@@ -33,11 +33,9 @@ import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { computeMonthlyReimbursement } from '../../../../../lib/reimbursement'
 import { DEFAULT_POLICY, shortfallWarnBelow } from '../../../../../lib/policy'
 import { sendEmail } from '../../../../../lib/send-email'
-import { appBaseUrl } from '../../../../../lib/app-url'
 import { parseNonNegativeMoney } from '../../../../../lib/money'
 import { flagShortfall } from '../../../../../lib/shortfall-warning'
 import { notifyBam } from '../../../../../lib/notify-bam'
-import { cleanEnvValue } from '../../../../../lib/sanitize'
 import {
   planReceiptCorrection,
   annotateCorrectedOcr,
@@ -445,10 +443,26 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Trigger shortfall warning if approved but below soft floor.
-  // P1-12: the Robin flag now runs in-process (flagShortfall) instead of an unawaited
-  // self-fetch, so its result is real. The BAM-facing email keeps its own route but is
-  // scheduled with after() and its outcome is logged rather than swallowed.
+  /*
+   * Shortfall: record it, show it, do not mail about it.
+   *
+   * Approving a receipt under the floor used to fire TWO automatic emails, one to the
+   * program manager and one to the student, on every approval. At 58 BAMs that is a
+   * monthly wave of mail restating what the dashboard already shows, and while testing
+   * it was an alert per test receipt. Turned off 2026-08-26 (Mirae: "shortfall detected
+   * is an email nobody needs").
+   *
+   * What is switched off is only the AUTOMATIC send:
+   *   - the bam_warnings row is still written, so the "two consecutive shortfalls means
+   *     reevaluate" rule (Robin 2026-08-04) keeps counting exactly as before
+   *   - the in-app admin notification still appears
+   *   - /admin/warnings still emails the student when a human presses the button, which
+   *     is what Robin's "warn them" step actually is now
+   *
+   * P1-12 still holds for the manual path: flagShortfall reports whether the provider
+   * confirmed, and here it reports notifiedManager:false with a reason rather than a
+   * silent success.
+   */
   let shortfallFlagged: boolean | null = null
   let shortfallFlagError: string | undefined
   if (decision === 'approved' && softFloorBreach) {
@@ -457,27 +471,11 @@ export async function POST(req: NextRequest) {
       cohortId: receipt.cohort_id,
       period: receipt.period,
       spent: totalSpentThisPeriod,
-    })
+    }, { sendManagerEmail: false })
     shortfallFlagged = flag.ok
     if (!flag.ok) shortfallFlagError = flag.error ?? flag.notifyError
 
-    const baseUrl = req.nextUrl?.origin || appBaseUrl()
-    // The shortfall-warning route is no longer anonymous (P0-A). This self-fetch
-    // carries no cookies, so it authenticates with the internal shared secret.
-    const internalSecret = cleanEnvValue(process.env.INTERNAL_API_SECRET)
     scheduleBackground(async () => {
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (internalSecret) headers['x-internal-secret'] = internalSecret
-        const resp = await fetch(`${baseUrl}/api/admin/receipts/shortfall-warning`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ receipt_id })
-        })
-        if (!resp.ok) console.error('[decide] shortfall-warning returned', resp.status, await resp.text().catch(() => ''))
-      } catch (e) {
-        console.error('[decide] shortfall-warning call failed:', e)
-      }
       try {
         const { notifyAdmin } = await import('@/lib/notify-admin')
         await notifyAdmin({
