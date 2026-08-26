@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { getRole, isAdminRole, detectRoleTampering } from './lib/auth-claims'
 import { needsPortalAuth, needsAdminAuth } from './lib/route-gate'
+import { ONBOARDING_MAX_PER_IP_PER_DAY } from './lib/rate-limits'
 
 type Bucket = { count: number; resetAt: number }
 const buckets = new Map<string, Bucket>()
@@ -64,9 +65,18 @@ type Limit = { max: number; windowMs: number; methods?: string[] }
  * These buckets live in a per-instance Map, so on Vercel the effective ceiling is already
  * higher than what is written here and resets on every cold start. That cuts one way only:
  * it means these numbers can under-count real traffic, never over-count it.
+ *
+ * THIS TABLE IS NOT THE ONLY GATE, AND FOR ONBOARDING IT IS NOT THE DECIDING ONE.
+ * supabase/functions/onboarding-ingest keeps its own durable per-IP count in audit_log.
+ * It was hardcoded at 3 while this line said 100, so three people onboarded from one
+ * office in 34 seconds and the fourth was refused for the day, hours after the limit
+ * here had supposedly been raised. Both now read ONBOARDING_MAX_PER_IP_PER_DAY from
+ * lib/rate-limits.ts. Before changing any number in this file, check whether the route
+ * behind it counts for itself as well; `node scripts/probe/onboarding-limit.js` answers
+ * that for onboarding.
  */
 const LIMITS: Record<string, Limit> = {
-  '/api/onboarding':      { max: 100, windowMs: 24 * 60 * 60 * 1000 },
+  '/api/onboarding':      { max: ONBOARDING_MAX_PER_IP_PER_DAY, windowMs: 24 * 60 * 60 * 1000 },
   '/api/auth/roster-check': { max: 60, windowMs: 60 * 60 * 1000 },
   '/api/portal/upload':   { max: 200, windowMs: 24 * 60 * 60 * 1000 },
   '/api/portal/support':  { max: 60, windowMs: 60 * 60 * 1000 },

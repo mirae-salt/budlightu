@@ -12,7 +12,8 @@
  *
  * Flow:
  *  1. Verify invite token → returns bam_id (pending)
- *  2. Rate limit check (3/IP/day, 3/token)
+ *  2. Rate limit check (per IP per day, see lib/rate-limits.ts; the token itself is
+ *     single use, which is the gate that matters)
  *  3. Match email against pending BAM
  *     - Match: encrypt banking, upsert bams, create Supabase Auth user, send OTP, mark active
  *     - No match: park in onboarding_submissions (NO banking fields stored plaintext), notify program admin
@@ -32,6 +33,7 @@ import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 // different versions and there would be no way to tell which text was accepted.
 import { TERMS_VERSION } from '../../../lib/terms'
 import { decideInstitution } from '../../../lib/institution-confirm'
+import { ONBOARDING_MAX_PER_IP_PER_DAY } from '../../../lib/rate-limits'
 
 type FormPayload = {
   email: string
@@ -72,7 +74,11 @@ export async function handler(req: {
 }> {
   const db = serviceClient()
 
-  // ── 1. Rate limit (3 per IP per day, P0-3) ────────────────────
+  // ── 1. Rate limit (per IP per day, P0-3) ──────────────────────
+  // The number lives in lib/rate-limits.ts and NOT here. It was hardcoded to 3, which
+  // is right for one person at home and wrong for a room, and because middleware.ts
+  // carried a second, higher copy of the same rule, raising the visible one changed
+  // nothing while this one kept refusing the fourth person. See that file.
   // P0-H / fail-closed: the count error used to be discarded, so a failed count
   // left `ipHits` undefined, `(undefined ?? 0) >= 3` was false, and the documented
   // limit failed OPEN on exactly the request where the DB was unhealthy. This
@@ -90,7 +96,7 @@ export async function handler(req: {
     console.error('[onboarding-ingest] rate-limit count failed:', rateErr?.message ?? 'no count returned')
     return { ok: false, message: 'We could not process your submission right now. Please try again in a few minutes.' }
   }
-  if (ipHits >= 3) return { ok: false, message: 'Too many attempts from this network today. Try again tomorrow.' }
+  if (ipHits >= ONBOARDING_MAX_PER_IP_PER_DAY) return { ok: false, message: 'Too many attempts from this network today. Try again tomorrow.' }
 
   // Log this attempt BEFORE doing any work. If the counter cannot be written the
   // limit is unenforceable for the next request, so refuse rather than proceed.
