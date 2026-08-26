@@ -26,7 +26,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
-import { testRowCohortProblem } from '../../../../../lib/admin-test-bam'
+import { testRowCohortProblem, isTestForCohort } from '../../../../../lib/admin-test-bam'
 
 // `is_test` is in here because of audit finding 13: this route never read it, so it moved test
 // accounts into live cohorts and walked straight around the guard on the roster screen. It is
@@ -59,18 +59,26 @@ export async function POST(req: NextRequest) {
   if (bErr) return NextResponse.json({ ok: false, message: `Could not read that BAM: ${bErr.message}` }, { status: 500 })
   if (!before) return NextResponse.json({ ok: false, message: 'No roster row matched that id.' }, { status: 404 })
 
+  // Moving someone into a TEST cohort makes them a test row, the same as adding them there
+  // from the roster screen. Without this, a BAM dragged in here stayed is_test false and was
+  // treated as a real BAM by the deadline rule and the invoice run.
+  const resolvedIsTest = isTestForCohort(cohort.name, before.is_test === true)
+
   // AUDIT FINDING 13. A test account in a live cohort is picked up by the monthly invoice run
   // like anybody else, so it gets a real invoice addressed to AP. The roster screen has refused
   // this since it was written; this one did not, and this is the screen the cutover uses.
   const problem = testRowCohortProblem({
-    isTest: before.is_test === true,
+    isTest: resolvedIsTest,
     cohortName: cohort.name,
     cohortFound: true
   })
   if (problem) return NextResponse.json({ ok: false, message: problem }, { status: 409 })
 
+  const move: Record<string, unknown> = { cohort_id }
+  if (resolvedIsTest !== (before.is_test === true)) move.is_test = resolvedIsTest
+
   const { data: rows, error } = await admin
-    .from('bams').update({ cohort_id }).eq('id', bam_id).select(READBACK)
+    .from('bams').update(move).eq('id', bam_id).select(READBACK)
   if (error) return NextResponse.json({ ok: false, message: error.message }, { status: 500 })
   if (!rows || rows.length !== 1) {
     return NextResponse.json({ ok: false, message: `Move affected ${rows?.length ?? 0} rows, expected 1. Nothing was changed.` }, { status: 500 })

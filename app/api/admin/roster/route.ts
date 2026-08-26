@@ -30,7 +30,7 @@ import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { parseEmail, cleanText } from '../../../../lib/sanitize'
 import { parseBankName, parseSchoolId, parseCohortId } from '../../../../lib/admin-input'
 import { lookupBank } from '../../../../lib/banks'
-import { testRowCohortProblem } from '../../../../lib/admin-test-bam'
+import { testRowCohortProblem, isTestForCohort } from '../../../../lib/admin-test-bam'
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
 import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
@@ -218,7 +218,10 @@ export async function PATCH(req: NextRequest) {
     const willBeTest = 'is_test' in update ? update.is_test === true : row?.is_test === true
     const targetCohortId = 'cohort_id' in update ? (update.cohort_id as string | null) : (row?.cohort_id ?? null)
 
-    if (willBeTest && targetCohortId) {
+    // The cohort is read whenever there IS one, not only when the row is already flagged
+    // as a test. It used to be `if (willBeTest && targetCohortId)`, which meant moving an
+    // unticked BAM into the TEST cohort skipped this block entirely and left is_test false.
+    if (targetCohortId) {
       const { data: cRows, error: cErr } = await db
         .from('cohorts').select('id, name').eq('id', targetCohortId).limit(1)
       if (cErr) {
@@ -228,10 +231,16 @@ export async function PATCH(req: NextRequest) {
         )
       }
       const target = (cRows ?? [])[0] as { name: string | null } | undefined
+
+      // Landing in a TEST cohort makes it a test row. One direction only: see
+      // isTestForCohort for why leaving one is left to fail loudly instead.
+      const resolvedIsTest = isTestForCohort(target?.name, willBeTest)
+      if (resolvedIsTest !== willBeTest) update.is_test = resolvedIsTest
+
       // The shared rule (lib/admin-test-bam.ts). It used to be `if (target && ...)` here, which
       // skipped the check when the cohort read back as zero rows: audit finding 20.
       const problem = testRowCohortProblem({
-        isTest: willBeTest,
+        isTest: resolvedIsTest,
         cohortName: target?.name,
         cohortFound: Boolean(target)
       })
@@ -419,7 +428,9 @@ export async function POST(req: NextRequest) {
   const bank = parseBankName(fields.bank_name)
   if (!bank.ok) return NextResponse.json({ ok: false, message: bank.error }, { status: 400 })
 
-  const isTest = fields.is_test === true
+  // Provisional. Upgraded to true below if the target cohort is a TEST cohort, so the
+  // checkbox cannot be the thing that decides whether a tester behaves like a tester.
+  const isTestRequested = fields.is_test === true
   // Defaults to TRUE when the caller says nothing: the expectation for adding a BAM
   // is that they get invited, and the CSV import already behaves that way. An
   // explicit `false` opts out.
@@ -443,13 +454,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'That cohort does not exist. Reload the page.' }, { status: 404 })
   }
 
+  const cohortName = (cohortRows[0] as { name: string | null }).name
+
+  // Adding someone to a TEST cohort makes them a test row, whether or not the checkbox was
+  // ticked. See isTestForCohort: an unticked tester is treated as a real BAM by everything
+  // that matters, including the deadline exception that lets them upload a receipt at all.
+  const isTest = isTestForCohort(cohortName, isTestRequested)
+
   // AUDIT FINDING 12. The cohort's name was already being read here, purely for the existence
   // check above, and then never looked at. So this route would happily CREATE a test account in
   // a live cohort while PATCH refused to move one there, and GO-LIVE.md claimed both were
   // covered. Same rule, same message, one function.
   const newRowProblem = testRowCohortProblem({
     isTest,
-    cohortName: (cohortRows[0] as { name: string | null }).name,
+    cohortName,
     cohortFound: true
   })
   if (newRowProblem) {

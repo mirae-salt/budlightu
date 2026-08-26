@@ -73,6 +73,29 @@ export function chooseTestCohort(cohorts: CohortChoice[]): CohortChoice | null {
  * cohort is not blocked here; that is not a money error and blocking it would break the way
  * test cohorts are populated today.
  */
+/**
+ * What `is_test` must be for a row landing in this cohort.
+ *
+ * The pairing rule already ran one way: testRowCohortProblem refuses a test row in a live
+ * cohort. This is the other direction. A row placed in a TEST cohort IS a test row, so the
+ * flag is derived rather than typed in.
+ *
+ * WHY IT IS DERIVED. The add form has a "Test account" checkbox that defaults to off, and
+ * nothing about picking the TEST cohort turned it on. Forgetting it produced a row that
+ * looks like a tester and is treated as a real BAM everywhere it matters. The one that
+ * would have bitten on 2026-08-26: an unticked tester cannot upload a receipt after the
+ * 15th, because the deadline exception in lib/period.ts keys off is_test, so a live
+ * testing session would have failed at the step it existed to test.
+ *
+ * ONE DIRECTION ONLY. Entering a TEST cohort sets the flag true. LEAVING one does not set
+ * it false, and must not: that would silently turn a test row into a real BAM who gets a
+ * real invoice. That move still hits testRowCohortProblem and is refused until someone
+ * unticks the box on purpose. Tightening is automatic, loosening stays deliberate.
+ */
+export function isTestForCohort(cohortName: string | null | undefined, current: boolean): boolean {
+  return isTestCohortName(cohortName ?? null) ? true : current
+}
+
 export function testRowCohortProblem(input: {
   /** The row's is_test AFTER the edit being attempted. */
   isTest: boolean

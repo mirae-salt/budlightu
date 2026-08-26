@@ -13,6 +13,7 @@ import { sendEmail } from '../../../../lib/send-email'
 import { resolveInitials, type Bam } from '../../../../lib/initials'
 import { appBaseUrl } from '../../../../lib/app-url'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
+import { isTestForCohort } from '../../../../lib/admin-test-bam'
 
 const MAX_BATCH = 100
 
@@ -119,6 +120,12 @@ export async function POST(req: NextRequest) {
   }
 
   // --- insert BAMs ---
+  // A CSV imported into the TEST cohort produces test rows. This route never set is_test
+  // at all, so every imported row defaulted to a real BAM regardless of where it landed,
+  // and the deadline exception in lib/period.ts keys off that flag: importing a list of
+  // testers after the 15th gave them a portal they could not upload to.
+  const isTest = isTestForCohort(cohort.name, false)
+
   const insertRows = toInsert.map((b, i) => ({
     cohort_id,
     first_name: b.first_name,
@@ -126,6 +133,7 @@ export async function POST(req: NextRequest) {
     email: b.email,
     school_id: b.school,
     status: 'pending' as const,
+    is_test: isTest,
     initials_resolved: initialsMap.get(`new-${i}`) ?? null
   }))
 
