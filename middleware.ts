@@ -22,9 +22,28 @@ const buckets = new Map<string, Bucket>()
  * GETs would lock a student out of simply looking at their details.
  */
 type Limit = { max: number; windowMs: number; methods?: string[] }
+/*
+ * THESE ARE KEYED BY IP, SO A SHARED OFFICE OR CAMPUS IS ONE BUCKET.
+ *
+ * That is the thing to hold in mind before lowering any of them. Onboarding was 3 per
+ * IP per day, which is right for one person at home and wrong for the two situations
+ * this product actually has: a room of testers going through the flow together, and
+ * an onboarding day where a cohort signs up from the same campus network. In both, the
+ * fourth person got "Too many attempts" and had to wait 24 hours.
+ *
+ * Raised on 2026-08-26, before a live testing session with several people in one room.
+ * The invite token is the real gate on onboarding: /api/onboarding cannot be used at
+ * all without a valid `invite_token_hash`, and the token carries its own attempt limit,
+ * so the IP ceiling is a second fence rather than the only one.
+ *
+ * roster-check is deliberately lower than onboarding. It sends an OTP email, so it is
+ * the one an attacker could use to probe which addresses are on the roster or to bury
+ * somebody's inbox. 30 an hour still covers a full room signing in together while
+ * keeping that narrow.
+ */
 const LIMITS: Record<string, Limit> = {
-  '/api/onboarding':      { max: 3,  windowMs: 24 * 60 * 60 * 1000 },
-  '/api/auth/roster-check': { max: 5,  windowMs: 60 * 60 * 1000 },
+  '/api/onboarding':      { max: 50, windowMs: 24 * 60 * 60 * 1000 },
+  '/api/auth/roster-check': { max: 30, windowMs: 60 * 60 * 1000 },
   '/api/portal/upload':   { max: 30, windowMs: 24 * 60 * 60 * 1000 },
   '/api/portal/support':  { max: 10, windowMs: 60 * 60 * 1000 },
   // Banking corrections are rare by nature. The database also allows only one
