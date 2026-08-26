@@ -134,7 +134,7 @@ export default function VerifyAccountPage() {
         >
           These digits are not mine and I did not enter them
         </a>
-        <span className="muted"> (someone else may have filled in your onboarding form: email Robin now)</span>
+        <span className="muted"> (someone else may have filled in your onboarding form: email your program manager now)</span>
       </div>
 
       <p className="subtle" style={{ fontSize: 12, marginTop: 14 }}>

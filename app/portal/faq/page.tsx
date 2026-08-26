@@ -72,7 +72,7 @@ export default function FaqPage() {
             <li>Keep the <strong>number of drinks equal to or less than the number of people</strong> visible.</li>
             <li>Include a <strong>legal-age disclaimer</strong> where required (19+ in Ontario, 18+ in Alberta/Quebec).</li>
             <li>Get <strong>written consent</strong> from anyone appearing in your content.</li>
-            <li>Submit content to Robin for <strong>legal review before posting</strong> when in doubt.</li>
+            <li>Submit content to your program manager for <strong>legal review before posting</strong> when in doubt.</li>
           </ul>
         </div>
 

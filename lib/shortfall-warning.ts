@@ -6,7 +6,7 @@
  * directly instead of firing an unawaited HTTP request at our own API. Two audit
  * findings meet here:
  *
- *   P1-12: the route reported `notifiedRobin: true` unconditionally, discarding the
+ *   P1-12: the route reported `notifiedManager: true` unconditionally, discarding the
  *          sendEmail result. This email is the ONLY mechanism that tells Robin a BAM
  *          underspent, i.e. the trigger for the reevaluate rule. A silent provider
  *          failure meant the warning simply never happened while the UI said it did.
@@ -91,7 +91,7 @@ export type FlagShortfallResult = {
   warningNumber?: number
   needsReevaluation?: boolean
   /** true ONLY if the provider confirmed the send */
-  notifiedRobin: boolean
+  notifiedManager: boolean
   notifyProvider?: string
   notifyError?: string
   error?: string
@@ -108,8 +108,8 @@ export async function flagShortfall(
   const { data: bam, error: bamErr } = await admin.from('bams')
     .select('first_name, last_name, email')
     .eq('id', input.bamId).maybeSingle()
-  if (bamErr) return { ok: false, notifiedRobin: false, error: `bams lookup failed: ${bamErr.message}`, status: 500 }
-  if (!bam) return { ok: false, notifiedRobin: false, error: 'BAM not found', status: 404 }
+  if (bamErr) return { ok: false, notifiedManager: false, error: `bams lookup failed: ${bamErr.message}`, status: 500 }
+  if (!bam) return { ok: false, notifiedManager: false, error: 'BAM not found', status: 404 }
 
   const bamName = `${bam.first_name} ${bam.last_name}`
 
@@ -120,10 +120,10 @@ export async function flagShortfall(
     .eq('period', period)
     .maybeSingle()
   if (existingErr) {
-    return { ok: false, notifiedRobin: false, error: `warning lookup failed: ${existingErr.message}`, status: 500 }
+    return { ok: false, notifiedManager: false, error: `warning lookup failed: ${existingErr.message}`, status: 500 }
   }
   if (existing) {
-    return { ok: true, skipped: true, reason: 'already flagged for this period', notifiedRobin: false }
+    return { ok: true, skipped: true, reason: 'already flagged for this period', notifiedManager: false }
   }
 
   // The PERIODS, not just how many. Reevaluation is a consecutive rule, so a count
@@ -133,7 +133,7 @@ export async function flagShortfall(
     .eq('bam_id', input.bamId)
     .eq('cohort_id', input.cohortId)
   if (countErr) {
-    return { ok: false, notifiedRobin: false, error: `warning lookup failed: ${countErr.message}`, status: 500 }
+    return { ok: false, notifiedManager: false, error: `warning lookup failed: ${countErr.message}`, status: 500 }
   }
 
   const priorPeriods = (priorWarnings ?? []).map(w => String(w.period))
@@ -155,7 +155,7 @@ export async function flagShortfall(
   const { data: warning, error: insErr } = await admin.from('bam_warnings')
     .insert(insertRow).select().single()
   if (insErr) {
-    return { ok: false, notifiedRobin: false, error: `could not record warning: ${insErr.message}`, status: 500 }
+    return { ok: false, notifiedManager: false, error: `could not record warning: ${insErr.message}`, status: 500 }
   }
 
   const monthLabel = formatWarningMonth(period)
@@ -203,10 +203,10 @@ export async function flagShortfall(
     warning,
     warningNumber,
     needsReevaluation,
-    notifiedRobin: result.sent,
+    notifiedManager: result.sent,
     notifyProvider: result.provider,
     notifyError: result.error,
-    error: result.sent ? undefined : `warning recorded but the alert email to Robin failed: ${result.error ?? 'unknown error'}`,
+    error: result.sent ? undefined : `warning recorded but the alert email to the program manager failed: ${result.error ?? 'unknown error'}`,
     status: result.sent ? 200 : 502
   }
 }

@@ -454,7 +454,7 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
       return out('review', `$${total.toFixed(2)} is at or over the $${reimbursementMax.toFixed(2)} monthly maximum -- needs admin confirmation`)
     }
     const softFloor = round2(Math.min(spendableCap, reimbursementMax) - padding)
-    return out('review', `$${total.toFixed(2)} is inside the review band ($${softFloor.toFixed(2)} to $${Math.min(spendableCap, reimbursementMax).toFixed(2)}) -- Robin decides`)
+    return out('review', `$${total.toFixed(2)} is inside the review band ($${softFloor.toFixed(2)} to $${Math.min(spendableCap, reimbursementMax).toFixed(2)}) -- a program manager decides`)
   }
 
   return out('auto_pass', `meets all auto-pass thresholds (recomputed $${total.toFixed(2)} from line items)`)

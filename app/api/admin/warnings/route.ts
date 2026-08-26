@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
   if (!bam) return NextResponse.json({ ok: false, message: 'BAM not found' }, { status: 404 })
 
   if (action === 'flag') {
-    // P1-12: the send result decides the response. `notifiedRobin` is no longer
+    // P1-12: the send result decides the response. `notifiedManager` is no longer
     // asserted; it reports what the provider actually confirmed.
     const result = await flagShortfall(admin, {
       bamId: bam_id,

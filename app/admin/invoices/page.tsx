@@ -761,7 +761,7 @@ export default function InvoiceBatch() {
                                     <input
                                       value={d.description}
                                       maxLength={120}
-                                      placeholder="e.g. Event bar tab, approved by Robin"
+                                      placeholder="e.g. Event bar tab, approved by the program manager"
                                       onChange={e => updateDraft(i, { description: e.target.value })}
                                       style={{ width: '100%' }}
                                     />
@@ -839,7 +839,7 @@ export default function InvoiceBatch() {
                         <div className="field">
                           <label>Why are the amounts changing?</label>
                           <input
-                            placeholder="e.g. Robin approved $60 bar tab for the Sept 12 event"
+                            placeholder="e.g. Program manager approved $60 bar tab for the Sept 12 event"
                             value={editReason}
                             maxLength={500}
                             onChange={e => setEditReason(e.target.value)}

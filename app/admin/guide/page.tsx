@@ -441,7 +441,7 @@ function BamUxPanel() {
               </tr>
               <tr>
                 <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Support</td>
-                <td>If they can&apos;t submit receipts this month, they explain why here. The message goes to you (Robin).</td>
+                <td>If they can&apos;t submit receipts this month, they explain why here. The message goes to you.</td>
               </tr>
             </tbody>
           </table>
@@ -622,7 +622,7 @@ function AdminActionsPanel() {
             </tr>
             <tr>
               <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Send AP</td>
-              <td>Sends the invoice PDF to accounts.payable@ilovesalt.com with CC to Robin, Nathan, and the BAM. Records the send in the database so it can&apos;t be sent twice.</td>
+              <td>Sends the invoice PDF to accounts.payable@ilovesalt.com with CC to the program managers on the Settings page, and the BAM. Records the send in the database so it can&apos;t be sent twice.</td>
               <td><span className="pill pill-red">No</span> Email is already delivered. You can void the invoice, but AP has the email.</td>
             </tr>
             <tr>
@@ -801,10 +801,10 @@ function EmailsPanel() {
   const emails: { trigger: string; to: string; cc?: string; subject: string; auto: boolean; note?: string }[] = [
     { trigger: 'Receipt rejected by admin', to: 'BAM', subject: 'Receipt not accepted for [month]', auto: true, note: 'Includes the rejection reason so the BAM knows why.' },
     { trigger: 'Receipt approved but below $140 (shortfall)', to: 'BAM', subject: 'Receipt shortfall notice for [month]', auto: true, note: 'Encourages uploading additional receipts before deadline.' },
-    { trigger: 'Admin clicks "Flag & notify Robin" on dashboard', to: 'Robin', cc: 'Nathan', subject: 'Low-spend alert: [BAM] — [month]', auto: false, note: 'Warning #2+ triggers reevaluation notice.' },
-    { trigger: 'Admin sends warning to BAM (from dashboard)', to: 'BAM', cc: 'Robin', subject: 'Spending reminder for [month]', auto: false, note: 'Friendly nudge about using the full $150 allowance.' },
-    { trigger: 'BAM submits a support question', to: 'Robin', subject: 'BLU Portal: support question from [BAM]', auto: true, note: 'YOU control how often: every question, once a day, or not at all. Set it on the Questions page.' },
-    { trigger: 'Invoice sent to AP', to: 'AP', cc: 'Robin, Nathan, BAM', subject: 'Invoice [INV-XX#] for [BAM]', auto: false, note: 'Triggered by admin batch-approve. 1 PDF per email.' },
+    { trigger: 'Admin clicks "Flag & notify" on dashboard', to: 'Program manager', cc: 'Backup admin', subject: 'Low-spend alert: [BAM] — [month]', auto: false, note: 'Warning #2+ triggers reevaluation notice.' },
+    { trigger: 'Admin sends warning to BAM (from dashboard)', to: 'BAM', cc: 'Program manager', subject: 'Spending reminder for [month]', auto: false, note: 'Friendly nudge about using the full $150 allowance.' },
+    { trigger: 'BAM submits a support question', to: 'Program manager', subject: 'BLU Portal: support question from [BAM]', auto: true, note: 'YOU control how often: every question, once a day, or not at all. Set it on the Questions page.' },
+    { trigger: 'Invoice sent to AP', to: 'AP', cc: 'Program managers, BAM', subject: 'Invoice [INV-XX#] for [BAM]', auto: false, note: 'Triggered by admin batch-approve. 1 PDF per email.' },
     { trigger: 'BAM requests invoice copy', to: 'BAM', subject: 'Your BLU invoice copy', auto: true, note: 'Self-service from portal. Only works after email is verified.' },
     { trigger: 'BAM invited to cohort', to: 'BAM', subject: 'Welcome to Bud Light U', auto: false, note: 'Contains one-time onboarding link. Triggered by admin import.' },
   ]
@@ -887,17 +887,18 @@ function EmailsPanel() {
         <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 8 }}>Who needs to do this:</p>
         <div className="table-scroll">
           <table className="admin-table" style={{ fontSize: 13 }}>
-            <thead><tr><th>Person</th><th>Email</th><th>Why they receive BLU emails</th></tr></thead>
+            <thead><tr><th>Who</th><th>Email</th><th>Why they receive BLU emails</th></tr></thead>
             <tbody>
+              {/*
+                Named people used to be listed here. That list went stale the moment
+                somebody left, and the addresses are editable on the Settings page now,
+                so a hardcoded copy is a second source that quietly disagrees with the
+                one actually used. It points at the live values instead.
+              */}
               <tr>
-                <td style={{ fontWeight: 600 }}>Robin Graham</td>
-                <td>robin.graham@ilovesalt.com</td>
+                <td style={{ fontWeight: 600 }}>Program managers on the CC list</td>
+                <td>Settings &rsaquo; Invoice email</td>
                 <td>CC on every AP invoice, low-spend alerts, support questions</td>
-              </tr>
-              <tr>
-                <td style={{ fontWeight: 600 }}>Nathan Brown</td>
-                <td>nb@ilovesalt.com</td>
-                <td>CC on every AP invoice</td>
               </tr>
               <tr>
                 <td style={{ fontWeight: 600 }}>Accounts Payable</td>
