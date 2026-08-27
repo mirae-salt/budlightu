@@ -5,6 +5,7 @@ import { BANK_SEED } from '@/lib/banks'
 // Free text here let a student type "Ontario", which computeHst() throws on at invoice
 // time. The list is derived from the tax table itself, so the two cannot drift.
 import { PROVINCE_CODES } from '@/lib/invoice-payload'
+import { HST_COPY } from '@/lib/hst-declaration'
 
 export default function OnboardingPage() {
   const [loading, setLoading] = useState(true)
@@ -14,7 +15,7 @@ export default function OnboardingPage() {
     first_name: '', last_name: '', phone: '',
     street: '', city: '', prov: '', postal: '', school_id: '',
     bank_name: '', institution_no: '', transit_no: '', account_no: '',
-    hst_number: '', consent_ap_cc: true, consent_terms: false
+    hst_number: '', hst_status: '', hst_attested: false, consent_ap_cc: true, consent_terms: false
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -217,7 +218,79 @@ export default function OnboardingPage() {
               <div className="field"><label>Transit #</label><input inputMode="numeric" maxLength={5} placeholder="5 digits" value={form.transit_no} onChange={e => setForm({...form, transit_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.transit_no ? errStyle : {}} />{fieldErrors.transit_no && <span className="field-err">{fieldErrors.transit_no}</span>}</div>
               <div className="field"><label>Account #</label><input inputMode="numeric" value={form.account_no} onChange={e => setForm({...form, account_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.account_no ? errStyle : {}} />{fieldErrors.account_no && <span className="field-err">{fieldErrors.account_no}</span>}</div>
             </div>
-            <div className="field"><label>HST number <span style={{ fontWeight: 400, color: 'var(--midgray)' }}>(optional)</span></label><input value={form.hst_number} onChange={e => setForm({...form, hst_number: e.target.value})} placeholder="123456789 RT 0001" /></div>
+          </div>
+
+          {/*
+            THE TAX STATUS DECLARATION.
+
+            This replaced a single "HST number (optional)" text box. Everybody left that
+            blank, so tax was $0 on every invoice, but the reason on file was "nobody
+            typed anything" rather than "nobody is registered". Only one of those is
+            something the contractor actually said.
+
+            Every string comes from lib/hst-declaration so the wording lives in one
+            place and carries a version, because this is text somebody ticks a box
+            against.
+          */}
+          <div className="surface" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>{HST_COPY.heading}</h3>
+              <p className="subtle" style={{ margin: 0, fontWeight: 400 }}>{HST_COPY.intro}</p>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: 8 }}>{HST_COPY.question}</label>
+
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 10 }}>
+                <input
+                  type="radio"
+                  name="hst_status"
+                  checked={form.hst_status === 'not_registered'}
+                  onChange={() => setForm({ ...form, hst_status: 'not_registered' })}
+                  style={{ width: 'auto', marginTop: 3, flexShrink: 0 }}
+                />
+                <span className="subtle" style={{ fontWeight: 400 }}>{HST_COPY.notRegistered}</span>
+              </label>
+
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="hst_status"
+                  checked={form.hst_status === 'registered'}
+                  onChange={() => setForm({ ...form, hst_status: 'registered' })}
+                  style={{ width: 'auto', marginTop: 3, flexShrink: 0 }}
+                />
+                <span className="subtle" style={{ fontWeight: 400 }}>{HST_COPY.registered}</span>
+              </label>
+
+              {form.hst_status === 'registered' && (
+                <div style={{ marginTop: 10, marginLeft: 24 }}>
+                  <div className="field">
+                    <label>{HST_COPY.numberLabel}</label>
+                    <input
+                      value={form.hst_number}
+                      onChange={e => setForm({ ...form, hst_number: e.target.value })}
+                      placeholder={HST_COPY.numberPlaceholder}
+                      style={fieldErrors.hst_number ? errStyle : {}}
+                    />
+                    {fieldErrors.hst_number && <span className="field-err">{fieldErrors.hst_number}</span>}
+                  </div>
+                  <p className="subtle" style={{ margin: '6px 0 0', fontWeight: 400, fontSize: 12 }}>
+                    {HST_COPY.verificationNote}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={form.hst_attested}
+                onChange={e => setForm({ ...form, hst_attested: e.target.checked })}
+                style={{ width: 'auto', marginTop: 3, flexShrink: 0 }}
+              />
+              <span className="subtle" style={{ fontWeight: 400 }}>{HST_COPY.attestation}</span>
+            </label>
           </div>
 
           <div className="surface" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -237,7 +310,9 @@ export default function OnboardingPage() {
             </label>
           </div>
 
-          <button onClick={submitForm} disabled={busy || !form.consent_ap_cc || !form.consent_terms}>
+          <button onClick={submitForm} disabled={busy || !form.consent_ap_cc || !form.consent_terms || !form.hst_attested
+            || form.hst_status === ''
+            || (form.hst_status === 'registered' && !form.hst_number.trim())}>
             {busy ? 'Submitting...' : 'Finish onboarding'}
           </button>
           {institutionAsk && (

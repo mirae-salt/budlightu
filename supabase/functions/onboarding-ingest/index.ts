@@ -24,7 +24,7 @@
  */
 import { createHash } from 'crypto'
 import { serviceClient } from '../_shared/supabase-admin'
-import { validateInstitution, validateTransit, validateAccount, isValidHst } from '../../../lib/validation'
+import { validateInstitution, validateTransit, validateAccount } from '../../../lib/validation'
 import { normalizeBankName, lookupBank } from '../../../lib/banks'
 import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 // One source for the version. This file and app/api/onboarding/complete both stamp
@@ -34,6 +34,7 @@ import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 import { TERMS_VERSION } from '../../../lib/terms'
 import { decideInstitution } from '../../../lib/institution-confirm'
 import { ONBOARDING_MAX_PER_IP_PER_DAY } from '../../../lib/rate-limits'
+import { validateHstDeclaration } from '../../../lib/hst-declaration'
 
 type FormPayload = {
   email: string
@@ -49,7 +50,14 @@ type FormPayload = {
   institution_no: string
   transit_no: string
   account_no: string
+  /**
+   * The GST/HST declaration. `hst_number` is only read when hst_status is
+   * 'registered'; a 'not_registered' declaration stores no number, which is what
+   * keeps tax at $0 through the existing path in lib/invoice-payload.
+   */
+  hst_status?: string
   hst_number?: string
+  hst_attested?: boolean
   consent_ap_cc: boolean
   consent_terms?: boolean
   /**
@@ -163,11 +171,21 @@ export async function handler(req: {
     validateInstitution(req.form.institution_no)
     validateTransit(req.form.transit_no)
     validateAccount(req.form.account_no)
-    if (req.form.hst_number && !isValidHst(req.form.hst_number)) {
-      throw new Error('invalid HST number format')
-    }
   } catch (e) {
     return { ok: false, message: `Banking info validation failed: ${(e as Error).message}` }
+  }
+
+  // ── 4b. The GST/HST declaration ───────────────────────────────
+  // Its own step, not part of banking validation, because it is a statement the
+  // contractor makes rather than a field we need in order to pay them. Refused
+  // rather than defaulted: a missing answer is not "not registered".
+  const hst = validateHstDeclaration({
+    status: req.form.hst_status,
+    number: req.form.hst_number,
+    attested: req.form.hst_attested
+  })
+  if (!hst.ok) {
+    return { ok: false, message: hst.message }
   }
 
   const bank = lookupBank(req.form.bank_name)
@@ -315,6 +333,12 @@ export async function handler(req: {
     // client) and versioned so a later revision cannot reinterpret an old accept.
     consent_terms_at: req.form.consent_terms ? new Date().toISOString() : null,
     consent_terms_version: req.form.consent_terms ? TERMS_VERSION : null,
+    // The GST/HST declaration, stamped server-side from the validated result rather
+    // than from the raw form, so the stored status and the stored number can never
+    // disagree. Validated above; `hst` is non-null by the time we get here.
+    hst_status: hst.status,
+    hst_declared_at: new Date().toISOString(),
+    hst_declaration_version: hst.version,
     status:       'active',
     auth_user_id: authUser.user.id,
     invite_token_hash: null                // one-time — burn it
@@ -326,7 +350,10 @@ export async function handler(req: {
     p_institution_no: institutionNo,
     p_transit_no: req.form.transit_no,
     p_account_no: req.form.account_no,
-    p_hst_number: req.form.hst_number ?? null
+    // From the validated declaration. A 'not_registered' answer sends null, so a
+    // number typed and then abandoned when the radio was switched back cannot be
+    // stored and cannot later put tax on an invoice.
+    p_hst_number: hst.number
   })
   if (encErr) {
     console.error('[onboarding-ingest] encrypt_bam_banking failed for bam', pendingBam.id, encErr.message)

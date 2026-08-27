@@ -8,7 +8,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
-import { validateInstitution, validateTransit, validateAccount, isValidHst } from '../../../../lib/validation'
+import { validateInstitution, validateTransit, validateAccount } from '../../../../lib/validation'
+import { validateHstDeclaration } from '../../../../lib/hst-declaration'
 import { lookupBank } from '../../../../lib/banks'
 import { TERMS_VERSION } from '../../../../lib/terms'
 import { decideInstitution } from '../../../../lib/institution-confirm'
@@ -69,11 +70,20 @@ export async function POST(req: NextRequest) {
     validateInstitution(form.institution_no)
     validateTransit(form.transit_no)
     validateAccount(form.account_no)
-    if (form.hst_number && !isValidHst(form.hst_number)) {
-      throw new Error('invalid HST number format')
-    }
   } catch (e) {
     return NextResponse.json({ ok: false, message: `Banking info validation failed: ${(e as Error).message}` }, { status: 400 })
+  }
+
+  // The GST/HST declaration. Same rules as the other onboarding path, from the same
+  // function, because two onboarding entry points disagreeing about what counts as a
+  // valid declaration is how one of them ends up storing a number nobody attested to.
+  const hst = validateHstDeclaration({
+    status: form.hst_status,
+    number: form.hst_number,
+    attested: form.hst_attested
+  })
+  if (!hst.ok) {
+    return NextResponse.json({ ok: false, message: hst.message }, { status: 400 })
   }
 
   const bank = lookupBank(form.bank_name)
@@ -105,7 +115,12 @@ export async function POST(req: NextRequest) {
     // T&C acceptance was collected by the form and thrown away. Stamped
     // server-side, never taken from the client, and versioned (see 0020).
     consent_terms_at: form.consent_terms ? new Date().toISOString() : null,
-    consent_terms_version: form.consent_terms ? TERMS_VERSION : null
+    consent_terms_version: form.consent_terms ? TERMS_VERSION : null,
+    // The GST/HST declaration, from the validated result so the stored status and the
+    // stored number can never disagree.
+    hst_status: hst.status,
+    hst_declared_at: new Date().toISOString(),
+    hst_declaration_version: hst.version
     // status and email_verified_at are set AFTER banking succeeds, below.
   }).eq('id', bam.id)
 
@@ -149,7 +164,8 @@ export async function POST(req: NextRequest) {
     p_institution_no: decision.institutionNo,
     p_transit_no:     form.transit_no,
     p_account_no:     form.account_no,
-    p_hst_number:     form.hst_number ?? null
+    // From the validated declaration, never the raw field.
+    p_hst_number:     hst.number
   })
 
   if (encErr) {
