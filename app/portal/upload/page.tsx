@@ -488,8 +488,8 @@ export default function UploadPage() {
           <div className="surface-header"><span className="surface-title">What happens next</span></div>
           <ol className="stack subtle" style={{ margin: 0, paddingLeft: 20 }}>
             <li>Our AI reads your receipt and pulls the Bud Light items.</li>
-            <li>If everything&rsquo;s clear, it&rsquo;s auto-approved. Anything unclear goes to your program manager for review.</li>
-            <li>On the 16th, your monthly invoice generates automatically with your reimbursement + salary. You&rsquo;ll get a copy by email.</li>
+            <li>If the checks find nothing to flag, it&rsquo;s cleared automatically. Anything unclear goes to your program manager for review.</li>
+            <li>On the 16th, your monthly invoice is prepared with your reimbursement + fee. You&rsquo;ll get a copy by email.</li>
           </ol>
         </div>
       </div>

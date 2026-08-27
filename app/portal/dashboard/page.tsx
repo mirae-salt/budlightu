@@ -122,8 +122,8 @@ export default function Dashboard() {
               <span className={`badge badge-${invoiceLabel.badge}`}>{invoiceLabel.text}</span>
               <p className="muted" style={{ margin: '10px 0 0', fontSize: 13 }}>
                 {state.invoiceStatus
-                  ? 'Your invoice for this month has been generated.'
-                  : 'Your invoice generates automatically around the 16th, once receipts are reviewed.'}
+                  ? 'Your invoice for this month is ready.'
+                  : 'A draft invoice is prepared for you around the 16th, once receipts are reviewed.'}
               </p>
             </>
           )}
@@ -152,7 +152,7 @@ function statusLabel(status: string | null): { text: string; badge: string } {
     case 'paid':  return { text: 'Paid', badge: 'green' }
     case 'void':  return { text: 'Voided', badge: 'red' }
     case 'draft': return { text: 'Being prepared', badge: 'yellow' }
-    default:      return { text: 'Not yet generated', badge: 'yellow' }
+    default:      return { text: 'Not yet prepared', badge: 'yellow' }
   }
 }
 

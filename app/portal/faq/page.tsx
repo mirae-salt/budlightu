@@ -13,7 +13,7 @@ export default function FaqPage() {
         <div className="surface" style={{ marginTop: 20 }}>
           <h3 style={{ marginTop: 0 }}>How much do I get reimbursed each month?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            Up to <strong>$150</strong> for Bud Light purchases (based on your submitted receipts). Your monthly salary is separate and is always paid.
+            Up to <strong>$150</strong> for Bud Light purchases (based on your submitted receipts). Your monthly fee is separate and is always paid.
           </p>
         </div>
 
@@ -51,7 +51,7 @@ export default function FaqPage() {
           <h3 style={{ marginTop: 0 }}>How does payment work?</h3>
           <p className="subtle" style={{ margin: 0 }}>
             Here&rsquo;s the process: you upload your Bud Light receipts by the 15th &rarr;
-            we review them &rarr; your invoice is automatically generated on the 16th with your salary + reimbursement &rarr;
+            we review them &rarr; a draft invoice is prepared on the 16th with your fee + reimbursement &rarr;
             it gets sent to Salt&rsquo;s Accounts Payable team &rarr; you receive payment via <strong>direct deposit within 15 business days</strong>.
             You&rsquo;ll be CC&rsquo;d on the AP email so you can see when your invoice was submitted.
           </p>
