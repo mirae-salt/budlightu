@@ -4,6 +4,7 @@ import { QueueLink } from '../_components/QueueLink'
 import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
+import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
 import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
 import { reasonProblem, MIN_REASON_LENGTH } from '@/lib/reason'
 /**
@@ -17,6 +18,8 @@ import { applyBudLightCorrection, currentBudLightIndices } from '@/lib/receipt-c
 
 type Row = ReceiptRow & {
   id: string
+  cohortId: string | null
+  isTest: boolean
   storageKey?: string
   storageMime?: string
   ocrJson?: OcrData | null
@@ -54,8 +57,9 @@ type DbReceipt = {
   decision_reason: string | null
   storage_key: string | null
   storage_mime: string | null
+  cohort_id: string | null
   ocr_json: OcrData | null
-  bams: { first_name: string; last_name: string } | null
+  bams: { first_name: string; last_name: string; is_test: boolean | null } | null
 }
 
 /**
@@ -89,6 +93,8 @@ function reasonFor(r: DbReceipt): string {
 function mapDbReceipt(r: DbReceipt): Row {
   return {
     id: r.id,
+    cohortId: r.cohort_id ?? null,
+    isTest: r.bams?.is_test === true,
     bam: r.bams ? `${r.bams.first_name} ${r.bams.last_name}` : '—',
     uploadedAt: new Date(r.uploaded_at).toLocaleString('en-US', {
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
@@ -112,8 +118,16 @@ function mapDbReceipt(r: DbReceipt): Row {
 type Tab = 'queue' | 'history'
 
 export default function ReceiptsQueue() {
-  const [queue, setQueue] = useState<Row[]>([])
-  const [history, setHistory] = useState<Row[]>([])
+  /*
+   * One raw list, with `queue` and `history` derived from it.
+   *
+   * They used to be two pieces of state, and the row actions index into them
+   * (`const row = queue[i]`). The moment a filter hides a row, an index taken from
+   * what is on screen stops matching the array being indexed, and Approve acts on
+   * somebody else's receipt. Deriving both lists from one source keeps the rendered
+   * list and the indexed list the same object, so that cannot happen.
+   */
+  const [allRows, setAllRows] = useState<Row[]>([])
   const [useDb, setUseDb] = useState(false)
   const [tab, setTab] = useState<Tab>('queue')
   const [openIdx, setOpenIdx] = useState<number | null>(null)
@@ -145,29 +159,32 @@ export default function ReceiptsQueue() {
       .then(res => res.json())
       .then(({ data }) => {
         if (data && data.length > 0) {
-          const all = (data as DbReceipt[]).map(mapDbReceipt)
-          setQueue(all.filter(r => r.status === 'pending' || r.status === 'review' || r.status === 'ocr_failed'))
-          setHistory(all.filter(r => r.status === 'approved' || r.status === 'rejected' || r.status === 'auto_pass'))
+          setAllRows((data as DbReceipt[]).map(mapDbReceipt))
           setUseDb(true)
         } else {
-          setQueue([])
-          setHistory([])
+          setAllRows([])
         }
       })
-      .catch(() => {
-        setQueue([])
-        setHistory([])
-      })
+      .catch(() => setAllRows([]))
   }
 
   useEffect(() => { loadAll() }, [])
 
-  // Poll while any receipt is pending OCR
+  /* Poll while any receipt is pending OCR.
+   *
+   * Watches allRows, not the filtered queue. OCR keeps running whatever is on screen,
+   * and polling the visible list would mean picking a cohort quietly stops waiting for
+   * a receipt still being read in another one. */
   useEffect(() => {
-    if (!queue.some(r => r.status === 'pending')) return
+    if (!allRows.some(r => r.status === 'pending')) return
     const timer = setInterval(loadAll, 5000)
     return () => clearInterval(timer)
-  }, [queue])
+  }, [allRows])
+
+  const { cohortFilter, hideTest, setFilters, cohortOptions, matches } = useCohortFilter()
+  const visible = allRows.filter(r => matches({ cohortId: r.cohortId, isTest: r.isTest }))
+  const queue   = visible.filter(r => r.status === 'pending' || r.status === 'review' || r.status === 'ocr_failed')
+  const history = visible.filter(r => r.status === 'approved' || r.status === 'rejected' || r.status === 'auto_pass')
 
   const pendingCount   = queue.filter(r => r.status === 'pending').length
   const reviewCount    = queue.filter(r => r.status === 'review').length
@@ -286,8 +303,9 @@ export default function ReceiptsQueue() {
         decidedAt: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
         decidedReason: reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
       }
-      setQueue(q => q.filter((_, idx) => idx !== i))
-      setHistory(h => [decided, ...h])
+      // By id, not by index: `i` came from the rendered list, and the rendered list
+      // is a filtered view of allRows.
+      setAllRows(rows => rows.map(x => (x.id === row.id ? decided : x)))
       setOpenIdx(null)
       setConfirming(null)
       setAmountOverride('')
@@ -360,8 +378,9 @@ export default function ReceiptsQueue() {
         return
       }
 
-      setHistory(h => h.filter(r => r.id !== row.id))
-      setQueue(q => [...q, { ...row, status: 'review', decidedAt: undefined, decidedReason: undefined }])
+      setAllRows(rows => rows.map(x => (
+        x.id === row.id ? { ...x, status: 'review' as const, decidedAt: undefined, decidedReason: undefined } : x
+      )))
       // A reopen that could not recompute the ledger needs attention, not a tick.
       if (j.warning) notify('error', `${row.bam} reopened, but ${j.warning}`)
       else notify('ok', `${row.bam} reopened for review. Reimbursement now $${Number(j.ledger_paid_cad ?? 0).toFixed(2)}`)
@@ -419,6 +438,16 @@ export default function ReceiptsQueue() {
             )}
           </div>
         </div>
+
+        {/* Same control as /admin/roster and /admin/invoices, sharing one stored choice,
+            so picking a cohort on one screen does not leave another showing TEST rows.
+            The tab counts and the badges above are all computed from the filtered list. */}
+        <CohortFilterBar
+          cohortFilter={cohortFilter}
+          hideTest={hideTest}
+          setFilters={setFilters}
+          cohortOptions={cohortOptions}
+        />
 
         {/* Fixed toast. This was a badge hardcoded to badge-green, so failures read as successes. */}
         <Toast notice={notice} onDismiss={() => setNotice(null)} />

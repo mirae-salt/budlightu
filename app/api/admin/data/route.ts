@@ -110,7 +110,7 @@ export async function GET(req: Request) {
 
     case 'receipts': {
       const { data, error } = await admin.from('receipts')
-        .select('id, status, uploaded_at, bud_light_total_incl_tax, ambiguous_flags, decided_at, decision_reason, storage_key, storage_mime, ocr_json, bams(first_name, last_name)')
+        .select('id, status, uploaded_at, cohort_id, bud_light_total_incl_tax, ambiguous_flags, decided_at, decision_reason, storage_key, storage_mime, ocr_json, bams(first_name, last_name, is_test)')
         .order('uploaded_at', { ascending: false })
       if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })
       return NextResponse.json({ data, error: null })
