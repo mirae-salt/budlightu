@@ -23,6 +23,8 @@ import { serviceClient } from '../_shared/supabase-admin'
 import { invoicePdfFilename } from '../../../lib/invoice-numbering'
 import { addressProblem, cleanAddress } from '../../../lib/sanitize'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
+import { bamCopyEmail } from '../../../lib/bam-copy-email'
+import { appBaseUrl } from '../../../lib/app-url'
 import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
 import { sendEmail } from '../../../lib/send-email'
 
@@ -63,25 +65,16 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
   const period = new Date(inv.period)
   const filename = invoicePdfFilename(bam.first_name, bam.last_name, period, inv.invoice_number)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
-  const subject = `Your Bud Light U invoice — ${monthLong}`
   /*
-   * SHORT ON PURPOSE. This said the invoice was attached, that AP had been notified, and
-   * that payment would come on net-15 terms via direct deposit. Two of those the student
-   * cannot act on, and the third was a promise we do not control: Salt's own supplier
-   * checklist states standard terms are net 30, so quoting net-15 here risked telling a
-   * student a payment date that AP never agreed to.
+   * One builder, shared with nothing else now that the duplicate branded route is
+   * gone. Both parts go out: the HTML is what a student sees, and the plain-text
+   * alternative is what a spam filter reads, which matters while the sending
+   * domain is still waiting on the Salt IT allowlist.
    *
-   * What is left is the part they need: the invoice exists, and where to ask.
+   * The PDF is attached below and the send is refused if it cannot be rendered,
+   * so `attached` is true by construction here rather than a guess.
    */
-  const body = [
-    `Hi ${bam.first_name},`,
-    '',
-    `Your ${monthLong} invoice is attached.`,
-    '',
-    'Questions? Ask on the support page in your portal.',
-    '',
-    'Bud Light U'
-  ].join('\n')
+  const mail = bamCopyEmail(bam.first_name, monthLong, inv.invoice_number, `${appBaseUrl()}/portal/invoices`, true)
 
   // F1: shared render+archive path. Reuses the object AP received when pdf_key
   // is already set, so the BAM's copy is byte-identical to the one AP holds.
@@ -112,9 +105,9 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
 
   const sent = await sendEmail({
     to: recipient,
-    subject,
-    text: body,
-    html: `<pre style="font-family: inherit; white-space: pre-wrap; margin: 0;">${escapeHtml(body)}</pre>`,
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html,
     attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
   })
 
@@ -131,7 +124,3 @@ export async function handler(req: { invoice_id: string; mode: 'draft' | 'live' 
   return { ok: true, mode: req.mode, message_id: messageId, warning: warning || undefined }
 }
 
-/** The body is plain text; escape it before dropping it into the HTML part. */
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}

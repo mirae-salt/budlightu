@@ -28,6 +28,7 @@ import { parseAmount } from '../../../../lib/admin-input'
 
 const SEND_MODES = ['dryrun', 'live']
 const BAM_COPY_MODES = ['off', 'draft', 'live']
+const ROLLOVER_MODES = ['forfeit', 'accumulate']
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin()
@@ -146,10 +147,27 @@ export async function PATCH(req: NextRequest) {
   const { id, ...patch } = body
   if (!id) return NextResponse.json({ ok: false, message: 'id required' }, { status: 400 })
 
+  /*
+   * rollover_mode and first_cohort_all_review were held out of this list on
+   * purpose, on the grounds that they are program-wide decisions rather than
+   * per-cohort settings. That reasoning did not survive contact: when Class of
+   * 2027 turned up on 2026-09-02 holding the wrong values for both, there was no
+   * way to correct them from the screen that displays them, and the fix had to be
+   * a script against production.
+   *
+   * They are editable now, and the defaults are unchanged, so nothing moves
+   * unless somebody deliberately moves it. Both change how much money a BAM is
+   * paid, so both are validated against a closed set and the change is written to
+   * audit_log with its before and after.
+   */
   const allowed = [
     'name', 'program_label', 'po_number', 'send_mode', 'bam_copy_mode',
-    'start_date', 'end_date', 'reimbursement_max', 'salary_default'
+    'start_date', 'end_date', 'reimbursement_max', 'salary_default',
+    'rollover_mode', 'first_cohort_all_review'
   ]
+
+  /** The four fields that decide what a BAM is paid. Changes to these are logged. */
+  const MONEY_FIELDS = ['salary_default', 'reimbursement_max', 'rollover_mode', 'first_cohort_all_review'] as const
   const cleanPatch: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in patch) cleanPatch[key] = patch[key]
@@ -187,8 +205,56 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, message: `bam_copy_mode must be one of ${BAM_COPY_MODES.join(', ')}` }, { status: 400 })
   }
 
+  if ('rollover_mode' in cleanPatch && !ROLLOVER_MODES.includes(String(cleanPatch.rollover_mode))) {
+    return NextResponse.json({ ok: false, message: `rollover_mode must be one of ${ROLLOVER_MODES.join(', ')}` }, { status: 400 })
+  }
+
+  // JSON can carry "true" as a string, and the column is NOT NULL boolean. An
+  // unrecognised value is refused rather than coerced: "false" is truthy, and
+  // coercing it would silently switch every receipt in the cohort into review.
+  if ('first_cohort_all_review' in cleanPatch) {
+    const raw = cleanPatch.first_cohort_all_review
+    if (raw === true || raw === 'true') cleanPatch.first_cohort_all_review = true
+    else if (raw === false || raw === 'false') cleanPatch.first_cohort_all_review = false
+    else return NextResponse.json({ ok: false, message: 'first_cohort_all_review must be true or false' }, { status: 400 })
+  }
+
   const admin = serviceClient()
+
+  // Read the current row BEFORE writing. Without it a revert is guesswork, and
+  // the audit entry would only be able to say what the value became.
+  const touchedMoney = MONEY_FIELDS.filter(f => f in cleanPatch)
+  let before: Record<string, unknown> | null = null
+  if (touchedMoney.length > 0) {
+    const { data: prior, error: priorErr } = await admin.from('cohorts')
+      .select(MONEY_FIELDS.join(', ')).eq('id', id).single()
+    if (priorErr || !prior) {
+      return NextResponse.json(
+        { ok: false, message: `could not read the cohort before changing it (${priorErr?.message ?? 'no row'}), so nothing was written` },
+        { status: 500 }
+      )
+    }
+    before = prior as unknown as Record<string, unknown>
+  }
+
   const { data, error } = await admin.from('cohorts').update(cleanPatch).eq('id', id).select().single()
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+
+  if (before) {
+    // Logged from `data`, the row the database handed back, not from the request
+    // body: the entry records what is true rather than what was asked for.
+    const after = Object.fromEntries(touchedMoney.map(f => [f, (data as Record<string, unknown>)[f]]))
+    const { error: auditErr } = await admin.from('audit_log').insert({
+      actor_id: auth.devBypass ? null : auth.userId,
+      actor_role: auth.role,
+      entity: 'cohort',
+      entity_id: id,
+      action: 'cohort_money_rules_changed',
+      before_json: Object.fromEntries(touchedMoney.map(f => [f, before![f]])),
+      after_json: after
+    })
+    if (auditErr) console.error('[admin/cohorts PATCH] audit_log insert failed:', auditErr.message)
+  }
+
   return NextResponse.json({ ok: true, data })
 }

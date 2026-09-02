@@ -571,38 +571,105 @@ export default function Cohorts() {
                               Nothing above is saved until you press Save settings.
                             </span>
 
+                            {/*
+                              These four decide what a BAM is paid, and they used to be
+                              read-only here with a note saying Mirae changes them
+                              elsewhere. On 2026-09-02 Class of 2027 was created holding
+                              the wrong value for two of them, and the only way to correct
+                              it was a script against production. The screen that shows a
+                              value should be able to change it.
+
+                              Each control saves on click and the row is rebuilt from what
+                              the server returned, so the panel shows what is stored rather
+                              than what was clicked. The API writes every change here to
+                              audit_log with its before and after.
+                            */}
                             <div style={{ borderTop: '1px solid var(--stone)', paddingTop: 14, marginTop: 8 }}>
                               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--bl-navy)' }}>Money rules</div>
-                              <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-                                <tbody>
-                                  <tr>
-                                    <td style={{ padding: '3px 0', color: 'var(--slate)' }}>Monthly salary</td>
-                                    <td style={{ padding: '3px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(c.salaryDefault)}</td>
-                                  </tr>
-                                  <tr>
-                                    <td style={{ padding: '3px 0', color: 'var(--slate)' }}>Reimbursement cap</td>
-                                    <td style={{ padding: '3px 0', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{money(c.reimbursementMax)}</td>
-                                  </tr>
-                                  <tr>
-                                    <td style={{ padding: '3px 0', color: 'var(--slate)' }}>Unspent reimbursement</td>
-                                    <td style={{ padding: '3px 0', textAlign: 'right' }}>
-                                      {c.rolloverMode === null ? 'not set'
-                                        : c.rolloverMode === 'forfeit' ? 'no carryover'
-                                        : 'carries over'}
-                                    </td>
-                                  </tr>
-                                  <tr>
-                                    <td style={{ padding: '3px 0', color: 'var(--slate)' }}>First 3 months all reviewed</td>
-                                    <td style={{ padding: '3px 0', textAlign: 'right' }}>
-                                      {c.firstCohortAllReview === null ? 'not set' : c.firstCohortAllReview ? 'yes' : 'no'}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                              <span className="muted" style={{ fontSize: 11, marginTop: 6, display: 'block', lineHeight: 1.5 }}>
-                                Read-only. Salary is set when the cohort is created. Carryover and the
-                                review rule are program-wide decisions, so they are changed by Mirae, not here.
-                              </span>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                                <div className="field">
+                                  <label style={{ fontSize: 12 }}>Monthly salary</label>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    defaultValue={c.salaryDefault ?? ''}
+                                    disabled={busy}
+                                    onBlur={e => {
+                                      const v = e.target.value.trim()
+                                      if (v === '' || Number(v) === Number(c.salaryDefault)) return
+                                      patchCohort(c, { salary_default: v }, 'Monthly salary')
+                                    }}
+                                  />
+                                  <span className="muted" style={{ fontSize: 11 }}>218.75 school year, 250 summer</span>
+                                </div>
+                                <div className="field">
+                                  <label style={{ fontSize: 12 }}>Reimbursement cap</label>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    defaultValue={c.reimbursementMax ?? ''}
+                                    disabled={busy}
+                                    onBlur={e => {
+                                      const v = e.target.value.trim()
+                                      if (v === '' || Number(v) === Number(c.reimbursementMax)) return
+                                      patchCohort(c, { reimbursement_max: v }, 'Reimbursement cap')
+                                    }}
+                                  />
+                                  <span className="muted" style={{ fontSize: 11 }}>per month, per BAM</span>
+                                </div>
+                              </div>
+
+                              <div className="field">
+                                <label style={{ fontSize: 12 }}>Unspent reimbursement</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                                  {([['forfeit', 'No carryover'], ['accumulate', 'Carries over']] as const).map(([m, text]) => (
+                                    <button
+                                      key={m}
+                                      className={c.rolloverMode === m ? 'btn-navy' : 'btn-ghost'}
+                                      style={{ fontSize: 12 }}
+                                      disabled={busy}
+                                      onClick={() => patchCohort(c, { rollover_mode: m }, 'Carryover')}
+                                    >
+                                      {text}
+                                    </button>
+                                  ))}
+                                </div>
+                                <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block' }}>
+                                  {c.rolloverMode === 'forfeit'
+                                    ? 'The cap resets every month. Robin confirmed this on 2026-08-04.'
+                                    : c.rolloverMode === 'accumulate'
+                                      ? 'Unspent allowance is added to next month, so the cap rises above the figure above.'
+                                      : 'not set'}
+                                </span>
+                              </div>
+
+                              <div className="field" style={{ marginTop: 10 }}>
+                                <label style={{ fontSize: 12 }}>Receipt review</label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                                  {([[false, 'Flagged only'], [true, 'Review every one']] as const).map(([v, text]) => (
+                                    <button
+                                      key={String(v)}
+                                      className={c.firstCohortAllReview === v ? 'btn-navy' : 'btn-ghost'}
+                                      style={{ fontSize: 12 }}
+                                      disabled={busy}
+                                      onClick={() => patchCohort(c, { first_cohort_all_review: v }, 'Receipt review')}
+                                    >
+                                      {text}
+                                    </button>
+                                  ))}
+                                </div>
+                                {/* The column is named first_cohort_all_review and the old label
+                                    here said "first 3 months". There is no date window in the
+                                    code (lib/classify-receipt.ts): it stays on until turned off. */}
+                                <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block', lineHeight: 1.5 }}>
+                                  {c.firstCohortAllReview === true
+                                    ? 'Every receipt waits for you, clean ones included. Stays on until you turn it off, there is no 3-month timer.'
+                                    : c.firstCohortAllReview === false
+                                      ? 'Clean receipts clear themselves. You still get anything with no Bud Light found, low confidence, a duplicate, a total near the cap, or an amount we could not corroborate.'
+                                      : 'not set'}
+                                </span>
+                              </div>
                             </div>
 
                             <div style={{ borderTop: '1px solid var(--stone)', paddingTop: 14, marginTop: 14 }}>
