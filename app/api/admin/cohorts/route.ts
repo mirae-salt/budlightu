@@ -88,7 +88,30 @@ export async function POST(req: NextRequest) {
      */
     bam_copy_mode: 'off',
     salary_default: salary.value,
-    reimbursement_max: reimbursementMax
+    reimbursement_max: reimbursementMax,
+    /*
+     * Both of these used to be left to the column default, and one of the defaults
+     * was stale. `Class of 2027` was created through this route on 2026-09-02 and
+     * came back with first_cohort_all_review = true, because 0001 declared that
+     * default back when review-everything was the plan. lib/policy.ts had said
+     * false since 2026-08-10; the column won, because api/receipts/ocr reads the
+     * cohort row. Nothing failed, receipts just stopped auto-approving.
+     *
+     * Written out here so the rule a new cohort gets is visible in the code that
+     * creates it, rather than in a migration from July. 0032 moves the column
+     * default to match, and these two lines mean a future drift between the two
+     * cannot reach a cohort.
+     *
+     *   rollover_mode           forfeit  flat $150/month, no carryover (Robin, 2026-08-04)
+     *   first_cohort_all_review false    clean receipts clear themselves; the
+     *                                    no-Bud-Light, low-confidence, duplicate,
+     *                                    near-cap and uncorroborated checks all
+     *                                    still send a receipt to Robin
+     *
+     * Both stay editable per cohort in the database for a deliberate exception.
+     */
+    rollover_mode: 'forfeit',
+    first_cohort_all_review: false
   }).select().single()
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })

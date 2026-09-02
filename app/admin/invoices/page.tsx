@@ -5,6 +5,7 @@ import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
 import { type InvoiceRow } from '../_lib/dummy'
+import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
 
 type PayloadLine = { qty: number; description: string; unitPrice: number; total: number }
 
@@ -118,7 +119,12 @@ function draftLineTotal(d: LineDraft): number {
 type Notice = ToastNotice
 
 export default function InvoiceBatch() {
-  const [invoices, setInvoices] = useState<Row[]>([])
+  /* The raw list. `invoices` below is the filtered view, and EVERY derived value
+     hangs off that view on purpose: the count, the total, the CSV, the ZIP and
+     the batch approval all act on exactly what is on screen. A filter that hid
+     rows from the table but left them in "Approve selected" would be a way to
+     send a payment you were not looking at. */
+  const [allInvoices, setAllInvoices] = useState<Row[]>([])
   const [useDb, setUseDb] = useState(false)
   const [batchConfirming, setBatchConfirming] = useState(false)
   const [batchNotice, setBatchNotice] = useState<Notice | null>(null)
@@ -161,7 +167,7 @@ export default function InvoiceBatch() {
       .then(res => res.json())
       .then(({ data }) => {
         if (data && data.length > 0) {
-          setInvoices((data as DbInvoice[]).map(mapDbInvoice))
+          setAllInvoices((data as DbInvoice[]).map(mapDbInvoice))
           setUseDb(true)
         }
       })
@@ -173,6 +179,10 @@ export default function InvoiceBatch() {
       .then(j => { if (typeof j?.me?.email === 'string') setTestSendAddress(j.me.email) })
       .catch(() => {})
   }, [])
+
+  const { cohortFilter, hideTest, setFilters, cohortOptions, matches } = useCohortFilter()
+  const invoices = allInvoices.filter(inv => matches({ cohortId: inv.cohort_id ?? null }))
+  const hiddenCount = allInvoices.length - invoices.length
 
   const draftInvoices = invoices.filter(inv => inv.status === 'draft')
   // Approved but not yet sent to AP. batch-approve only records the approval
@@ -244,7 +254,7 @@ export default function InvoiceBatch() {
 
   async function confirmVoid(inv: Row) {
     if (!useDb) {
-      setInvoices(list => list.map(i => i.number === inv.number ? { ...i, status: 'void' as const } : i))
+      setAllInvoices(list => list.map(i => i.number === inv.number ? { ...i, status: 'void' as const } : i))
       setVoidingNumber(null)
       reportRow('ok', `${inv.number} voided (local preview only, no database).`)
       return
@@ -259,7 +269,7 @@ export default function InvoiceBatch() {
       if (!res.ok || json.ok === false) {
         reportRow('error', json.message || json.error || 'Void failed')
       } else {
-        setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'void' as const } : i))
+        setAllInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'void' as const } : i))
         // The route says whether a cancellation draft actually exists. Claiming
         // one unconditionally is P1-16.
         reportRow('ok', `${inv.number} voided. ${json.note ?? ''}`.trim())
@@ -316,7 +326,7 @@ export default function InvoiceBatch() {
         reportRow('error', json.message || `Edit not saved (HTTP ${res.status}).`)
       } else {
         // Show what the SERVER stored, not what was typed.
-        setInvoices(list => list.map(i => i.id === inv.id ? {
+        setAllInvoices(list => list.map(i => i.id === inv.id ? {
           ...i,
           lines: json.lines ?? i.lines,
           subtotal: json.subtotal,
@@ -484,7 +494,7 @@ export default function InvoiceBatch() {
           else reportRow('error', `Test send did not go out: ${reason}`)
         } else if (json.sent === 1) {
           reportRow('ok', `${inv.number} sent to AP.`)
-          setInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'sent' as const } : i))
+          setAllInvoices(list => list.map(i => i.id === inv.id ? { ...i, status: 'sent' as const } : i))
         } else if (json.blocked) {
           // Not an error in the operator's sense: the system refused on purpose and the reason is the
           // useful part. Says NOT SENT explicitly, because that is the fact being corrected here.
@@ -549,6 +559,20 @@ export default function InvoiceBatch() {
             </button>
           </div>
         </div>
+
+        {/* Sits above the batch controls, not below the table, because the count and
+            the total in the header line already describe the filtered view and the
+            Approve button acts on it. */}
+        <CohortFilterBar
+          cohortFilter={cohortFilter}
+          hideTest={hideTest}
+          setFilters={setFilters}
+          cohortOptions={cohortOptions}
+          showTestToggle={false}
+          shown={invoices.length}
+          hidden={hiddenCount}
+          noun="invoices"
+        />
 
         {batchConfirming && (
           <div className="card" style={{ marginBottom: 16 }}>

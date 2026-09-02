@@ -8,6 +8,17 @@ import { PROVINCE_CODES } from '@/lib/invoice-payload'
 import { Toast } from '../_components/Toast'
 import { BAMS, type BamRow } from '../_lib/dummy'
 import { BANK_SEED } from '@/lib/banks'
+import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
+import {
+  type CsvRow,
+  type ColumnMap,
+  parseCsvGrid,
+  splitHeaderAndRows,
+  autoMapColumns,
+  mapColumnsByContent,
+  toCsvRows,
+  hasRequiredColumns as columnsAreMapped,
+} from '@/lib/roster-import'
 
 const SCHOOL_LIST = [
   'U of Toronto', 'Queen\'s U', 'McMaster', 'York U', 'Western',
@@ -117,54 +128,6 @@ function rowFromSaved(saved: SavedBam, cohortName: string | undefined): FullRow 
 
 type EditForm = { name: string; email: string; bank: string; status: string; cohortId: string; school: string } & Address
 
-// --- CSV parsing ---
-type CsvRow = { first_name: string; last_name: string; email: string; school?: string; full_name?: string }
-
-const COLUMN_ALIASES: Record<string, keyof CsvRow> = {
-  'first_name': 'first_name', 'first name': 'first_name', 'firstname': 'first_name', 'first': 'first_name', 'prénom': 'first_name',
-  'last_name': 'last_name', 'last name': 'last_name', 'lastname': 'last_name', 'last': 'last_name', 'surname': 'last_name', 'nom': 'last_name',
-  'email': 'email', 'email address': 'email', 'e-mail': 'email', 'mail': 'email',
-  'full_name': 'full_name', 'full name': 'full_name', 'fullname': 'full_name', 'name': 'full_name',
-  'school': 'school', 'school_id': 'school', 'university': 'school', 'campus': 'school',
-}
-
-function parseCsv(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) return { headers: [], rows: [] }
-  const headers = splitCsvLine(lines[0])
-  const rows = lines.slice(1).map(splitCsvLine).filter(r => r.some(c => c.trim()))
-  return { headers, rows }
-}
-
-function splitCsvLine(line: string): string[] {
-  const result: string[] = []
-  let current = ''
-  let inQuotes = false
-  for (const ch of line) {
-    if (ch === '"') { inQuotes = !inQuotes; continue }
-    if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; continue }
-    current += ch
-  }
-  result.push(current.trim())
-  return result
-}
-
-function autoMapColumns(headers: string[]): Record<number, keyof CsvRow | null> {
-  const mapping: Record<number, keyof CsvRow | null> = {}
-  const used = new Set<keyof CsvRow>()
-  for (let i = 0; i < headers.length; i++) {
-    const h = headers[i].toLowerCase().trim()
-    const mapped = COLUMN_ALIASES[h]
-    if (mapped && !used.has(mapped)) {
-      mapping[i] = mapped
-      used.add(mapped)
-    } else {
-      mapping[i] = null
-    }
-  }
-  return mapping
-}
-
 type CohortOption = { id: string; name: string }
 
 export default function Roster() {
@@ -184,12 +147,19 @@ export default function Roster() {
   // selects say so rather than offering an option that cannot be stored.
   const [cohortOptions, setCohortOptions] = useState<CohortOption[]>([])
 
+  /* Shared with /admin/invoices so the two screens cannot disagree about which
+     cohort is being looked at. See app/admin/_components/CohortFilter.tsx. */
+  const { cohortFilter, hideTest, setFilters, matches } = useCohortFilter()
+
   // CSV import state
   const [importStep, setImportStep] = useState<'idle' | 'preview' | 'sending' | 'done'>('idle')
   const [csvHeaders, setCsvHeaders] = useState<string[]>([])
   const [csvRows, setCsvRows] = useState<string[][]>([])
-  const [columnMap, setColumnMap] = useState<Record<number, keyof CsvRow | null>>({})
+  const [columnMap, setColumnMap] = useState<ColumnMap>({})
   const [importCohort, setImportCohort] = useState('')
+  /** False means the file brought no column names and row 1 is a person. The
+   *  preview says so, because the alternative is an admin importing 57 of 58. */
+  const [headerDetected, setHeaderDetected] = useState(true)
   const [importResult, setImportResult] = useState<{ ok: boolean; message?: string; created?: number; skipped?: number; errors?: string[]; email_results?: Array<{ email: string; sent: boolean; error?: string }> } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -219,7 +189,8 @@ export default function Roster() {
   const cohortName = (id: string | null | undefined) =>
     cohortOptions.find(c => c.id === id)?.name
 
-  const rows = bams
+  const rows = bams.filter(b => matches({ cohortId: b.cohortId, isTest: b.isTest }))
+  const hiddenCount = bams.length - rows.length
 
   const active   = rows.filter(b => b.status === 'active').length
   const pending  = rows.filter(b => b.status === 'pending').length
@@ -378,6 +349,23 @@ export default function Roster() {
   }
 
   // --- CSV import handlers ---
+
+  /** One landing point for both file formats, so Excel and CSV cannot disagree
+   *  about whether the first row was a person. */
+  function loadGrid(grid: string[][]) {
+    const { headers, rows: dataRows, headerDetected } = splitHeaderAndRows(grid)
+    if (dataRows.length === 0) {
+      report('error', 'Could not parse that file. Check the format.')
+      return
+    }
+    setCsvHeaders(headers)
+    setCsvRows(dataRows)
+    setHeaderDetected(headerDetected)
+    setColumnMap(headerDetected ? autoMapColumns(headers) : mapColumnsByContent(dataRows, headers.length))
+    setImportStep('preview')
+    setImportResult(null)
+  }
+
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -389,59 +377,21 @@ export default function Roster() {
         const wb = XLSX.read(reader.result, { type: 'array' })
         const ws = wb.Sheets[wb.SheetNames[0]]
         const json = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 })
-        const nonEmpty = (json as string[][]).filter(r => r.some(c => c != null && String(c).trim()))
-        if (nonEmpty.length < 2) {
-          report('error', 'Could not parse that file. Check the format.')
-          return
-        }
-        const headers = nonEmpty[0].map(h => String(h ?? ''))
-        const dataRows = nonEmpty.slice(1).map(r => headers.map((_, i) => String(r[i] ?? '').trim()))
-        setCsvHeaders(headers)
-        setCsvRows(dataRows)
-        setColumnMap(autoMapColumns(headers))
-        setImportStep('preview')
-        setImportResult(null)
+        loadGrid(json as string[][])
       }
       reader.readAsArrayBuffer(file)
     } else {
       const reader = new FileReader()
       reader.onload = () => {
-        const text = reader.result as string
-        const { headers, rows: dataRows } = parseCsv(text)
-        if (headers.length === 0) {
-          report('error', 'Could not parse that file. Check the format.')
-          return
-        }
-        setCsvHeaders(headers)
-        setCsvRows(dataRows)
-        setColumnMap(autoMapColumns(headers))
-        setImportStep('preview')
-        setImportResult(null)
+        loadGrid(parseCsvGrid(reader.result as string))
       }
       reader.readAsText(file)
     }
     e.target.value = ''
   }
 
-  function mappedCsvRows(): CsvRow[] {
-    return csvRows.map(row => {
-      const out: Record<string, string> = {}
-      for (let i = 0; i < row.length; i++) {
-        const field = columnMap[i]
-        if (field) out[field] = row[i]
-      }
-      if (out.full_name && !out.first_name) {
-        const parts = out.full_name.trim().split(/\s+/)
-        out.first_name = parts[0] || ''
-        out.last_name = parts.slice(1).join(' ') || ''
-      }
-      return out as unknown as CsvRow
-    }).filter(r => r.first_name && r.email)
-  }
-
-  const cols = Object.values(columnMap)
-  const hasName = (cols.includes('first_name') && cols.includes('last_name')) || cols.includes('full_name')
-  const hasRequiredColumns = hasName && cols.includes('email')
+  const mappedCsvRows = (): CsvRow[] => toCsvRows(csvRows, columnMap)
+  const hasRequiredColumns = columnsAreMapped(columnMap)
 
   async function submitImport() {
     if (!importCohort) return
@@ -473,6 +423,7 @@ export default function Roster() {
     setColumnMap({})
     setImportCohort('')
     setImportResult(null)
+    setHeaderDetected(true)
   }
 
   return (
@@ -536,6 +487,14 @@ export default function Roster() {
                   <h3 style={{ margin: 0, fontSize: 15 }}>Import preview: {csvRows.length} rows</h3>
                   <button className="btn-ghost" onClick={resetImport} style={{ fontSize: 12 }}>Cancel</button>
                 </div>
+
+                {!headerDetected && (
+                  <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, background: 'var(--bl-silver)', fontSize: 12.5 }}>
+                    <strong>No column names in this file.</strong> Row 1 is being read as a person,
+                    not as a heading, so all {csvRows.length} rows are included. Set the columns below
+                    before importing.
+                  </div>
+                )}
 
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Column mapping</label>
@@ -735,6 +694,19 @@ export default function Roster() {
           </div>
         )}
 
+        {/* The counts above this bar describe the filtered view, so the bar sits
+            where the two can be read together. */}
+        <CohortFilterBar
+          cohortFilter={cohortFilter}
+          hideTest={hideTest}
+          setFilters={setFilters}
+          cohortOptions={cohortOptions}
+          showNoCohort={bams.some(b => !b.cohortId)}
+          shown={rows.length}
+          hidden={hiddenCount}
+          noun="BAMs"
+        />
+
         <div className="table-scroll">
           <table className="admin-table">
             <thead>
@@ -743,6 +715,13 @@ export default function Roster() {
               </tr>
             </thead>
             <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="muted" style={{ padding: 24, textAlign: 'center' }}>
+                    {bams.length === 0 ? 'No BAMs on the roster yet.' : 'No BAMs match this filter.'}
+                  </td>
+                </tr>
+              )}
               {rows.map((b) => (
                 <Fragment key={b.id}>
                   <tr>
