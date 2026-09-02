@@ -5,6 +5,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
+import { parseReason } from '@/lib/receipt-reason'
 import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
 import { reasonProblem, MIN_REASON_LENGTH } from '@/lib/reason'
 /**
@@ -113,6 +114,35 @@ function mapDbReceipt(r: DbReceipt): Row {
     storageMime: r.storage_mime ?? undefined,
     ocrJson: r.ocr_json ?? undefined,
   }
+}
+
+/**
+ * One finding per line, with the machine code turned into a short label.
+ *
+ * A stored reason joins every check that fired with " | ", so rendered as plain text two
+ * separate problems look like one sentence and the codes read as noise. Nothing is
+ * dropped: free-text clauses with no code show as their own line, and the full stored
+ * string stays in the database untouched.
+ */
+function ReasonList({ reason, compact = false }: { reason: string; compact?: boolean }) {
+  const parts = parseReason(reason)
+  if (parts.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 4 : 6 }}>
+      {parts.map((p, i) => (
+        <div key={i} style={{ lineHeight: 1.45 }}>
+          {/* A real space, not only a margin: a margin does not survive being copied
+              out of the table or read aloud by a screen reader. */}
+          {p.label && (
+            <>
+              <span style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{p.label}</span>{' '}
+            </>
+          )}
+          <span>{p.detail}</span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 type Tab = 'queue' | 'history'
@@ -515,7 +545,7 @@ export default function ReceiptsQueue() {
                       </div>
                     )}
                   </td>
-                  <td className="muted" style={{ fontSize: 12.5, maxWidth: 320 }}>{r.reason}</td>
+                  <td className="muted" style={{ fontSize: 12.5, maxWidth: 360 }}><ReasonList reason={r.reason} compact /></td>
                   <td>
                     {r.status === 'pending'
                       ? <span className="badge badge-blue">PENDING</span>
@@ -571,7 +601,7 @@ export default function ReceiptsQueue() {
                         )}
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.bam} · {r.total}</div>
-                          <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>{r.reason}</div>
+                          <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}><ReasonList reason={r.reason} /></div>
 
                           {r.ocrJson && r.ocrJson.lines && (
                             <div style={{ marginBottom: 12 }}>

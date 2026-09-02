@@ -97,7 +97,8 @@ function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
     const expected = subtotal + tax
     const diff = Math.abs(expected - grandTotal)
     if (diff > 2.00 && diff / grandTotal > 0.03)
-      flags.push(`total_mismatch: subtotal($${subtotal.toFixed(2)}) + tax($${tax.toFixed(2)}) = $${expected.toFixed(2)} but grand_total is $${grandTotal.toFixed(2)}`)
+      // Written to be read: "grand_total" is a column name, not a thing on a receipt.
+      flags.push(`total_mismatch: subtotal ($${subtotal.toFixed(2)}) plus tax ($${tax.toFixed(2)}) comes to $${expected.toFixed(2)}, but the receipt total is $${grandTotal.toFixed(2)}`)
   }
 
   return flags
