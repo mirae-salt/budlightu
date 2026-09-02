@@ -18,6 +18,18 @@ import { WORK_AUTH_COPY, BANKING_ATTESTATION_COPY, AI_DISCLOSURE_COPY } from '@/
  * OTP is requested automatically as soon as the form is submitted, and the code
  * is entered right here, so finishing onboarding lands them in the portal.
  */
+/*
+ * The five ticks the form will not submit without. They sit in three different
+ * sections (banking, tax, consents), so "agree to all" has to name them in one place
+ * or it silently stops covering whichever one gets added next.
+ *
+ * ai_training is NOT in this list and must never be. It is the one consent here that
+ * can be refused, and sweeping a refusable consent into an "agree to all" is exactly
+ * the bundling Shane Deen flagged on 2026-08-27 as failing the meaningful-consent
+ * standard. It stays its own question with its own answer.
+ */
+const REQUIRED_TICKS = ['consent_terms', 'consent_ap_cc', 'hst_attested', 'work_auth', 'banking_owner'] as const
+
 export default function OnboardingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const [checking, setChecking] = useState(true)
@@ -31,6 +43,13 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
     hst_number: '', hst_status: '', hst_attested: false, consent_ap_cc: true, consent_terms: false,
     work_auth: false, banking_owner: false, ai_training: false
   })
+
+  /* True only when every required tick is on, so the master box tracks reality. */
+  const allRequiredTicked = REQUIRED_TICKS.every(k => form[k] === true)
+
+  function setAllRequired(on: boolean) {
+    setForm(f => ({ ...f, ...Object.fromEntries(REQUIRED_TICKS.map(k => [k, on])) }))
+  }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The server refuses the write when the institution number the BAM typed disagrees
@@ -389,6 +408,35 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
           </div>
 
           <div className="surface" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/*
+              Ticking all five one at a time is five clicks for statements a student has
+              already read once. This is the same control Korean consent forms use, with
+              the same rule about scope: it covers the required ones and nothing else,
+              and it says which.
+
+              It is derived, not stored. Unticking any one below turns this back off,
+              which is the honest state to show rather than leaving a master tick lit
+              over an unticked box.
+            */}
+            <label
+              style={{
+                display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer',
+                paddingBottom: 12, marginBottom: 4, borderBottom: '1px solid var(--stone)'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={allRequiredTicked}
+                onChange={e => setAllRequired(e.target.checked)}
+                style={{ width: 'auto', flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                Agree to all of the below
+                <span className="muted" style={{ display: 'block', fontSize: 11, fontWeight: 400, marginTop: 2 }}>
+                  Required to finish. The optional question further down is separate.
+                </span>
+              </span>
+            </label>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.consent_terms} onChange={e => setForm({...form, consent_terms: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
               <span className="subtle" style={{ fontWeight: 400 }}>
