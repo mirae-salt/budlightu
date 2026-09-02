@@ -34,7 +34,7 @@
  * Bump this whenever the text below changes in a way that affects what someone is
  * agreeing to. Fixing a typo does not need a bump; changing a rule does.
  */
-export const TERMS_VERSION = '2026-08-14'
+export const TERMS_VERSION = '2026-09-02'
 
 /**
  * Why this looks like it went backwards.
@@ -63,6 +63,13 @@ export const TERMS_VERSION = '2026-08-14'
  * yet, so there is no acceptance stranded between the two edits.
  *
  * Per rule 3 above, the one row holding '2026-09-01' keeps it. It is a test account.
+ *
+ * Bumped again on 2026-09-02: "Your invoices" now opens with the student authorising
+ * Bud Light U to submit invoices to accounts payable on their behalf. That is new
+ * authority, not a rewording, and it is the gap Robin raised in Teams on 2026-08-27.
+ * Timing is deliberate. Three real students have accepted a prior version; the other
+ * 57 are still `pending` and will accept this one at onboarding, so almost nobody
+ * ends up holding the version that never asked.
  */
 
 export type TermsSection = {
@@ -145,11 +152,26 @@ export const TERMS_SECTIONS: readonly TermsSection[] = [
   {
     heading: 'Your invoices',
     body: [
-      'Your invoices are generated for you from your roster record and your approved receipts. You do not write them, and you cannot change the amounts, the invoice number, or the dates.',
+      /*
+       * Robin, Teams, 2026-08-27: "Maybe we could add a terms and conditions pop up to
+       * the portal that they need to agree to outlining that they give permission for
+       * the portal to submit invoices on behalf of them."
+       *
+       * This is the authority the signed BAM contract does not grant. That contract says
+       * "Brand Activation Manager shall submit a written invoice to Company", and this
+       * system prepares the invoice and sends it to accounts payable without the student
+       * touching it. Nothing in the app asked them to agree to that until now.
+       *
+       * It goes first in the section because it is the sentence that matters. Robin also
+       * asked whether the 57 signed contracts need re-signing: they do not, because every
+       * one of those students is still `pending` and accepts this at onboarding.
+       */
+      'You authorise Bud Light U to prepare your monthly invoices and submit them to accounts payable on your behalf. You do not send them yourself.',
+      'Invoices are built from your roster record and your approved receipts. You cannot change the amounts, the invoice number, or the dates.',
       'You can see your invoices in the portal and have a copy emailed to yourself.',
       'If something on an invoice looks wrong, contact your program manager rather than trying to correct it yourself.'
     ],
-    enforcedAt: 'lib/invoice-payload.ts (system-generated); app/api/portal/invoices/*'
+    enforcedAt: 'lib/invoice-payload.ts (system-generated); app/api/admin/send-ap; app/api/portal/invoices/*'
   },
   {
     heading: 'Your information',

@@ -601,7 +601,7 @@ export default function Cohorts() {
                                       patchCohort(c, { salary_default: v }, 'Monthly salary')
                                     }}
                                   />
-                                  <span className="muted" style={{ fontSize: 11 }}>218.75 school year, 250 summer</span>
+                                  <span className="muted" style={{ fontSize: 11 }}>218.75 school year / 250 summer</span>
                                 </div>
                                 <div className="field">
                                   <label style={{ fontSize: 12 }}>Reimbursement cap</label>
@@ -616,7 +616,7 @@ export default function Cohorts() {
                                       patchCohort(c, { reimbursement_max: v }, 'Reimbursement cap')
                                     }}
                                   />
-                                  <span className="muted" style={{ fontSize: 11 }}>per month, per BAM</span>
+                                  <span className="muted" style={{ fontSize: 11 }}>per BAM per month</span>
                                 </div>
                               </div>
 
@@ -637,9 +637,9 @@ export default function Cohorts() {
                                 </div>
                                 <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block' }}>
                                   {c.rolloverMode === 'forfeit'
-                                    ? 'The cap resets every month. Robin confirmed this on 2026-08-04.'
+                                    ? 'Cap resets each month.'
                                     : c.rolloverMode === 'accumulate'
-                                      ? 'Unspent allowance is added to next month, so the cap rises above the figure above.'
+                                      ? 'Unspent rolls into next month.'
                                       : 'not set'}
                                 </span>
                               </div>
@@ -662,11 +662,11 @@ export default function Cohorts() {
                                 {/* The column is named first_cohort_all_review and the old label
                                     here said "first 3 months". There is no date window in the
                                     code (lib/classify-receipt.ts): it stays on until turned off. */}
-                                <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block', lineHeight: 1.5 }}>
+                                <span className="muted" style={{ fontSize: 11, marginTop: 3, display: 'block' }}>
                                   {c.firstCohortAllReview === true
-                                    ? 'Every receipt waits for you, clean ones included. Stays on until you turn it off, there is no 3-month timer.'
+                                    ? 'Every receipt waits for you. No timer.'
                                     : c.firstCohortAllReview === false
-                                      ? 'Clean receipts clear themselves. You still get anything with no Bud Light found, low confidence, a duplicate, a total near the cap, or an amount we could not corroborate.'
+                                      ? 'Clean receipts auto-approve. Flagged ones still reach you.'
                                       : 'not set'}
                                 </span>
                               </div>

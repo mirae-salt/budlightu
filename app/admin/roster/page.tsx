@@ -513,9 +513,8 @@ export default function Roster() {
 
                 {!headerDetected && (
                   <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, background: 'var(--bl-silver)', fontSize: 12.5 }}>
-                    <strong>No column names in this file.</strong> Row 1 is being read as a person,
-                    not as a heading, so all {csvRows.length} rows are included. Set the columns below
-                    before importing.
+                    <strong>No column names in this file.</strong> Row 1 is a person, so all
+                    {' '}{csvRows.length} rows are included. Set the columns below.
                   </div>
                 )}
 
@@ -701,8 +700,7 @@ export default function Roster() {
                 live-cohort row, believing it made the row harmless.
               */}
               <span style={{ fontSize: 11, color: 'var(--midgray)' }}>
-                -- shows a TEST badge and can upload after the deadline. Still invoiced and still
-                counted in totals, so keep it in the TEST cohort.
+                Can upload after the deadline. Still invoiced, so keep it in the TEST cohort.
               </span>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
