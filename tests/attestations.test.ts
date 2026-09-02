@@ -88,7 +88,7 @@ describe('the wording', () => {
   it('tells people a human reviews and that they can ask for one', () => {
     // Quebec Law 25 s.12.1. Robin confirmed 8 BAMs at Quebec schools.
     const all = AI_DISCLOSURE_COPY.body.join(' ')
-    expect(all).toMatch(/person reviews/i)
+    expect(all).toMatch(/a person reviews/i)
     expect(all).toMatch(/ask a person/i)
   })
 

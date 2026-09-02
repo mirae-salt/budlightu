@@ -463,11 +463,11 @@ export default function UploadPage() {
                * so nothing downstream depended on this and nothing changes except that the
                * checklist stops asking for something students could not do.
                */
-              { icon: '🍺', title: 'Bud Light products only', desc: 'Only Bud Light purchases count toward your $150 reimbursement.' },
-              { icon: '✨', title: 'Mixed receipt? Highlight BL items', desc: 'If your receipt has non-BL items, circle or highlight the Bud Light products before uploading.' },
-              { icon: '📸', title: 'Clear, readable photos', desc: 'Make sure the store name, date, items, and total are all legible. No blurry or cropped images.' },
-              { icon: '💰', title: 'Purchase $150 worth per month', desc: 'Aim for $150 (tax included). Under ~$140 may be flagged for review.' },
-              { icon: '📅', title: 'Submit by the 15th', desc: 'Receipts are due by the 15th of each month. Late submissions may delay reimbursement.' },
+              { icon: '🍺', title: 'Bud Light products only', desc: 'Anything else on the receipt is ignored.' },
+              { icon: '✨', title: 'Mixed receipt? Highlight BL items', desc: 'Circle them before you upload.' },
+              { icon: '📸', title: 'Clear, readable photos', desc: 'Store, date, items and total must be readable.' },
+              { icon: '💰', title: 'Purchase $150 worth per month', desc: 'Tax included. Under $140 may be flagged.' },
+              { icon: '📅', title: 'Submit by the 15th', desc: 'After that the month closes and the portal will not take it.' },
             ].map((item, i) => (
               <li key={i} style={{
                 display: 'flex', gap: 12, alignItems: 'flex-start',
@@ -488,8 +488,8 @@ export default function UploadPage() {
           <div className="surface-header"><span className="surface-title">What happens next</span></div>
           <ol className="stack subtle" style={{ margin: 0, paddingLeft: 20 }}>
             <li>Our AI reads your receipt and pulls the Bud Light items.</li>
-            <li>If the checks find nothing to flag, it&rsquo;s cleared automatically. Anything unclear goes to your program manager for review.</li>
-            <li>On the 16th, your monthly invoice is prepared with your reimbursement + fee. You&rsquo;ll get a copy by email.</li>
+            <li>Clear receipts are approved automatically. Anything unclear goes to your program manager.</li>
+            <li>On the 16th your invoice is prepared with your reimbursement and fee, and emailed to you.</li>
           </ol>
         </div>
       </div>

@@ -46,11 +46,9 @@ export const WORK_AUTH_COPY = {
    * wrong, so the specific case is named.
    */
   checkbox:
-    'I am legally entitled to do self-employed contractor work in Canada. ' +
-    'If I hold a study or work permit, my permit allows self-employment.',
-  help:
-    'Not sure? Leave this unticked and ask your program contact. ' +
-    'Off-campus work rules for study permits usually do not cover self-employment.'
+    'I can legally do self-employed contractor work in Canada. ' +
+    'If I hold a study or work permit, it allows self-employment.',
+  help: 'Not sure? Leave it unticked and ask us. Study permits often do not cover self-employment.'
 } as const
 
 export const BANKING_ATTESTATION_COPY = {
@@ -59,8 +57,7 @@ export const BANKING_ATTESTATION_COPY = {
    * already on screen. This is the statement that makes a wrong account the payee's
    * problem rather than an open question.
    */
-  checkbox:
-    'This account is in my name or my business name, and I am authorised to be paid into it.'
+  checkbox: 'This account is in my name, and I can be paid into it.'
 } as const
 
 export const AI_DISCLOSURE_COPY = {
@@ -75,9 +72,9 @@ export const AI_DISCLOSURE_COPY = {
    * without Robin approving the batch.
    */
   body: [
-    'We use automated tools to read your receipts and prepare your invoice drafts.',
-    'A person reviews anything the tools flag, and no payment goes out without a program manager approving it.',
-    'You can ask how a receipt was assessed, and ask a person to look at it again.'
+    'Automated tools read your receipts and draft your invoices.',
+    'A person reviews anything flagged. No payment goes out without a manager approving it.',
+    'You can ask how a receipt was read, or ask a person to look again.'
   ],
   /*
    * A SEPARATE tick, not folded into the program terms. Shane: "bundling it into general
@@ -85,10 +82,8 @@ export const AI_DISCLOSURE_COPY = {
    * refusable, so this one is optional and a "no" is recorded as a no rather than as
    * silence.
    */
-  trainingCheckbox:
-    'Optional: you may use my support messages to improve the help content and automated replies.',
-  trainingHelp:
-    'You can say no. It changes nothing about your pay, your receipts, or your invoices.'
+  trainingCheckbox: 'Optional: use my support messages to improve help content.',
+  trainingHelp: 'You can say no. Nothing about your pay changes.'
 } as const
 
 export type AttestationInput = {

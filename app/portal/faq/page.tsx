@@ -60,7 +60,7 @@ export default function FaqPage() {
         <div style={{ marginTop: 32 }}>
           <p className="eyebrow">CONTENT &amp; POSTING</p>
           <h2 style={{ marginTop: 4 }}>Labatt Legal: Do&rsquo;s &amp; Don&rsquo;ts</h2>
-          <p className="subtle" style={{ marginBottom: 16 }}>All BAM social content must follow Labatt&rsquo;s alcohol advertising rules. Violations can get posts taken down or jeopardize the program.</p>
+          <p className="subtle" style={{ marginBottom: 16 }}>All BAM social content must follow Labatt&rsquo;s alcohol advertising rules. Breaking them can get posts pulled.</p>
         </div>
 
         <div className="surface">
