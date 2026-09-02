@@ -182,7 +182,6 @@ export default function InvoiceBatch() {
 
   const { cohortFilter, hideTest, setFilters, cohortOptions, matches } = useCohortFilter()
   const invoices = allInvoices.filter(inv => matches({ cohortId: inv.cohort_id ?? null }))
-  const hiddenCount = allInvoices.length - invoices.length
 
   const draftInvoices = invoices.filter(inv => inv.status === 'draft')
   // Approved but not yet sent to AP. batch-approve only records the approval
@@ -560,18 +559,14 @@ export default function InvoiceBatch() {
           </div>
         </div>
 
-        {/* Sits above the batch controls, not below the table, because the count and
-            the total in the header line already describe the filtered view and the
-            Approve button acts on it. */}
+        {/* Sits above the batch controls, not below the table: the count and total in
+            the header line describe the filtered view, and Approve acts on it. */}
         <CohortFilterBar
           cohortFilter={cohortFilter}
           hideTest={hideTest}
           setFilters={setFilters}
           cohortOptions={cohortOptions}
           showTestToggle={false}
-          shown={invoices.length}
-          hidden={hiddenCount}
-          noun="invoices"
         />
 
         {batchConfirming && (

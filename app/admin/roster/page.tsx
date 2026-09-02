@@ -28,16 +28,30 @@ const SCHOOL_LIST = [
   'Brock', 'Ryerson', 'Lakehead', 'Trent', 'UOIT',
 ].sort()
 
+/**
+ * The school picker.
+ *
+ * SCHOOL_LIST is 25 hardcoded names and the real roster is wider than that, so a
+ * school the list has never heard of has to survive being looked at. It gets its
+ * own option below.
+ *
+ * The select used to read `value={isKnown ? value : ''}`, which forced it to
+ * "Select..." for exactly those schools, while rendering an option for them two
+ * lines down that nothing could ever select. Grace Deets is at University of
+ * Saskatchewan; the roster row said so and her edit form said "Select...". The
+ * stored value was never lost (the form state kept it, so saving without
+ * touching this field preserved it), but the screen said a field was empty when
+ * it was not, which is the kind of thing somebody fixes by filling it in wrong.
+ */
 function SchoolSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const isKnown = SCHOOL_LIST.includes(value)
+  const known = SCHOOL_LIST.includes(value)
+  const custom = !known && value && value !== EMPTY_CELL ? value : null
 
   return (
-    <select value={isKnown ? value : ''} onChange={e => onChange(e.target.value)}>
+    <select value={custom ?? (known ? value : '')} onChange={e => onChange(e.target.value)}>
       <option value="">Select…</option>
       {SCHOOL_LIST.map(s => <option key={s} value={s}>{s}</option>)}
-      {!isKnown && value && value !== '—' && (
-        <option value={value}>{value}</option>
-      )}
+      {custom && <option value={custom}>{custom}</option>}
     </select>
   )
 }
@@ -190,16 +204,22 @@ export default function Roster() {
     cohortOptions.find(c => c.id === id)?.name
 
   const rows = bams.filter(b => matches({ cohortId: b.cohortId, isTest: b.isTest }))
-  const hiddenCount = bams.length - rows.length
 
-  const active   = rows.filter(b => b.status === 'active').length
-  const pending  = rows.filter(b => b.status === 'pending').length
-  const archived = rows.filter(b => b.status === 'archived').length
+  /* A test account's status column reads TEST, not ACTIVE or PENDING, so the
+     counts have to agree with the column: a row showing TEST while being tallied
+     under ACTIVE makes the header lie about a number somebody checks. Its real
+     onboarding status is still there, one click away in Edit. */
+  const realRows = rows.filter(b => !b.isTest)
+  const active   = realRows.filter(b => b.status === 'active').length
+  const pending  = realRows.filter(b => b.status === 'pending').length
+  const archived = realRows.filter(b => b.status === 'archived').length
+  const testCount = rows.length - realRows.length
 
-  const badgeFor = (s: 'active' | 'pending' | 'archived') =>
-      s === 'active'   ? <span className="badge badge-green">ACTIVE</span>
-    : s === 'pending'  ? <span className="badge badge-yellow">PENDING</span>
-                       : <span className="badge badge-red">ARCHIVED</span>
+  const badgeFor = (b: FullRow) =>
+      b.isTest            ? <span className="badge" style={{ background: 'var(--amber)', color: '#fff' }}>TEST</span>
+    : b.status === 'active'   ? <span className="badge badge-green">ACTIVE</span>
+    : b.status === 'pending'  ? <span className="badge badge-yellow">PENDING</span>
+                              : <span className="badge badge-red">ARCHIVED</span>
 
   /** Success notices clear themselves; failures stay until the next action. */
   function report(kind: 'ok' | 'error', text: string) {
@@ -466,6 +486,9 @@ export default function Roster() {
             <span className="badge badge-green">ACTIVE · {active}</span>
             <span className="badge badge-yellow">PENDING · {pending}</span>
             <span className="badge badge-red">ARCHIVED · {archived}</span>
+            {testCount > 0 && (
+              <span className="badge" style={{ background: 'var(--amber)', color: '#fff' }}>TEST · {testCount}</span>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileSelect} style={{ display: 'none' }} />
@@ -694,17 +717,12 @@ export default function Roster() {
           </div>
         )}
 
-        {/* The counts above this bar describe the filtered view, so the bar sits
-            where the two can be read together. */}
         <CohortFilterBar
           cohortFilter={cohortFilter}
           hideTest={hideTest}
           setFilters={setFilters}
           cohortOptions={cohortOptions}
           showNoCohort={bams.some(b => !b.cohortId)}
-          shown={rows.length}
-          hidden={hiddenCount}
-          noun="BAMs"
         />
 
         <div className="table-scroll">
@@ -725,10 +743,9 @@ export default function Roster() {
               {rows.map((b) => (
                 <Fragment key={b.id}>
                   <tr>
-                    <td style={{ fontWeight: 600 }}>
-                      {b.name}
-                      {b.isTest && <span className="badge" style={{ marginLeft: 6, background: 'var(--amber)', color: '#fff', fontSize: 9, padding: '1px 5px', verticalAlign: 'middle' }}>TEST</span>}
-                    </td>
+                    {/* The TEST marker used to sit here as well. It lives in the status
+                        column now, which is the column somebody scans for it. */}
+                    <td style={{ fontWeight: 600 }}>{b.name}</td>
                     <td className="muted" style={{ fontSize: 12.5 }}>{b.email}</td>
                     <td className="muted">{b.school}</td>
                     <td className="muted">{b.cohort}</td>
@@ -736,7 +753,7 @@ export default function Roster() {
                     <td style={{ fontFamily: 'monospace', color: 'var(--bl-navy)', fontWeight: 600 }}>
                       {b.invoiceCode ?? <span className="muted">—</span>}
                     </td>
-                    <td>{badgeFor(b.status)}</td>
+                    <td>{badgeFor(b)}</td>
                     <td>
                       <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => startEdit(b)}>
                         Edit

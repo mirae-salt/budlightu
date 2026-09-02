@@ -70,6 +70,16 @@ export function useCohortFilter() {
   return { ...filters, setFilters, cohortOptions, matches }
 }
 
+/**
+ * Segmented buttons rather than a select, matching the send-mode control on the
+ * cohorts page (btn-navy for the active choice, btn-ghost for the rest).
+ *
+ * This also replaces the "Showing 57 of 68, 11 hidden" line that used to sit
+ * beside it. That line existed because a filter's failure mode is a short list
+ * that looks complete, and with a collapsed dropdown the active filter was one
+ * unread word. Here the chosen cohort is lit up on screen at all times, so the
+ * state is visible without a sentence explaining it.
+ */
 export function CohortFilterBar({
   cohortFilter,
   hideTest,
@@ -77,9 +87,6 @@ export function CohortFilterBar({
   cohortOptions,
   showTestToggle = true,
   showNoCohort = false,
-  shown,
-  hidden,
-  noun,
 }: {
   cohortFilter: string
   hideTest: boolean
@@ -88,45 +95,33 @@ export function CohortFilterBar({
   /** The invoices screen has no per-BAM test flag, so it hides this checkbox. */
   showTestToggle?: boolean
   showNoCohort?: boolean
-  shown: number
-  hidden: number
-  noun: string
 }) {
+  const choices: CohortOption[] = [
+    { id: 'all', name: 'All' },
+    ...cohortOptions,
+    ...(showNoCohort ? [{ id: 'none', name: 'No cohort' }] : []),
+  ]
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '4px 0 14px' }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-        <span className="muted">Cohort</span>
-        <select
-          value={cohortFilter}
-          onChange={e => setFilters({ cohortFilter: e.target.value })}
-          style={{ maxWidth: 220 }}
-        >
-          <option value="all">All cohorts</option>
-          {cohortOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          {showNoCohort && <option value="none">No cohort</option>}
-        </select>
-      </label>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '2px 0 14px' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {choices.map(c => (
+          <button
+            key={c.id}
+            className={cohortFilter === c.id ? 'btn-navy' : 'btn-ghost'}
+            style={{ fontSize: 12, padding: '5px 14px' }}
+            onClick={() => setFilters({ cohortFilter: c.id })}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
 
       {showTestToggle && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 400, cursor: 'pointer', color: 'var(--slate)' }}>
           <input type="checkbox" checked={hideTest} onChange={e => setFilters({ hideTest: e.target.checked })} />
           Hide test accounts
         </label>
-      )}
-
-      {/* Hidden rows are always announced. A filter's failure mode is a short list
-          that looks complete, and on the invoices screen that list is money. */}
-      {hidden > 0 && (
-        <span className="muted" style={{ fontSize: 12 }}>
-          Showing {shown} of {shown + hidden} {noun}, {hidden} hidden
-          <button
-            className="btn-ghost"
-            style={{ fontSize: 11, padding: '2px 8px', marginLeft: 8 }}
-            onClick={() => setFilters({ cohortFilter: 'all', hideTest: false })}
-          >
-            Show all
-          </button>
-        </span>
       )}
     </div>
   )
