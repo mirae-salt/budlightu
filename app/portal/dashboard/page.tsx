@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { browserClient } from '@/lib/supabase-browser'
+import { AttestationPrompt } from '../_components/AttestationPrompt'
 
 const DEFAULT_CAP = 150
 
@@ -77,6 +78,10 @@ export default function Dashboard() {
 
   return (
     <>
+      {/* Shows only for people who onboarded before these questions existed. It sits
+          after the redirect gates above, so nobody sees it before verifying. */}
+      <AttestationPrompt />
+
       <div className="topbar">
         <div className="crumbs"><span className="now">Dashboard</span></div>
       </div>

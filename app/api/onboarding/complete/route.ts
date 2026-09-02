@@ -10,6 +10,7 @@ import { cookies } from 'next/headers'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { validateInstitution, validateTransit, validateAccount } from '../../../../lib/validation'
 import { validateHstDeclaration } from '../../../../lib/hst-declaration'
+import { validateAttestations, ATTESTATION_VERSION } from '../../../../lib/attestations'
 import { lookupBank } from '../../../../lib/banks'
 import { TERMS_VERSION } from '../../../../lib/terms'
 import { decideInstitution } from '../../../../lib/institution-confirm'
@@ -77,6 +78,15 @@ export async function POST(req: NextRequest) {
   // The GST/HST declaration. Same rules as the other onboarding path, from the same
   // function, because two onboarding entry points disagreeing about what counts as a
   // valid declaration is how one of them ends up storing a number nobody attested to.
+  const attest = validateAttestations({
+    workAuth: form.work_auth,
+    bankingOwner: form.banking_owner,
+    aiTraining: form.ai_training
+  })
+  if (!attest.ok) {
+    return NextResponse.json({ ok: false, message: attest.error }, { status: 400 })
+  }
+
   const hst = validateHstDeclaration({
     status: form.hst_status,
     number: form.hst_number,
@@ -101,6 +111,7 @@ export async function POST(req: NextRequest) {
   // Now: profile fields first, then banking, and status flips to 'active' only after
   // the banking write is confirmed. A failure anywhere leaves the row 'pending', which
   // is exactly the state that lets them try again.
+  const nowIso = new Date().toISOString()
   const { error: updErr } = await db.from('bams').update({
     first_name:    form.first_name,
     last_name:     form.last_name,
@@ -119,8 +130,19 @@ export async function POST(req: NextRequest) {
     // The GST/HST declaration, from the validated result so the stored status and the
     // stored number can never disagree.
     hst_status: hst.status,
-    hst_declared_at: new Date().toISOString(),
-    hst_declaration_version: hst.version
+    hst_declared_at: nowIso,
+    hst_declaration_version: hst.version,
+    // Work authorisation and banking ownership (Shane Deen, 2026-08-27). Stamped
+    // server-side from the validated result, like every other consent on this row.
+    work_auth_attested_at: nowIso,
+    work_auth_version: ATTESTATION_VERSION,
+    banking_attested_at: nowIso,
+    banking_version: ATTESTATION_VERSION,
+    // Optional and refusable, so a "no" is stored as false rather than left looking
+    // like a question nobody asked.
+    consent_ai_training: attest.aiTraining,
+    consent_ai_training_at: attest.aiTraining === null ? null : nowIso,
+    consent_ai_training_version: attest.aiTraining === null ? null : ATTESTATION_VERSION
     // status and email_verified_at are set AFTER banking succeeds, below.
   }).eq('id', bam.id)
 

@@ -35,6 +35,7 @@ import { TERMS_VERSION } from '../../../lib/terms'
 import { decideInstitution } from '../../../lib/institution-confirm'
 import { ONBOARDING_MAX_PER_IP_PER_DAY } from '../../../lib/rate-limits'
 import { validateHstDeclaration } from '../../../lib/hst-declaration'
+import { validateAttestations, ATTESTATION_VERSION } from '../../../lib/attestations'
 
 type FormPayload = {
   email: string
@@ -60,6 +61,9 @@ type FormPayload = {
   hst_attested?: boolean
   consent_ap_cc: boolean
   consent_terms?: boolean
+  work_auth?: boolean
+  banking_owner?: boolean
+  ai_training?: boolean
   /**
    * Set by the form after the student has been shown that their institution number
    * disagrees with our table and has said to use theirs. See lib/institution-confirm.ts.
@@ -179,6 +183,13 @@ export async function handler(req: {
   // Its own step, not part of banking validation, because it is a statement the
   // contractor makes rather than a field we need in order to pay them. Refused
   // rather than defaulted: a missing answer is not "not registered".
+  const attest = validateAttestations({
+    workAuth: req.form.work_auth,
+    bankingOwner: req.form.banking_owner,
+    aiTraining: req.form.ai_training
+  })
+  if (!attest.ok) return { ok: false, message: attest.error }
+
   const hst = validateHstDeclaration({
     status: req.form.hst_status,
     number: req.form.hst_number,
@@ -312,6 +323,7 @@ export async function handler(req: {
   const authUser = { user: { id: authUserId } }
 
   // ── 6. Upsert BAM row (banking via encrypted helper) ──────────
+  const nowIso = new Date().toISOString()
   const { error: updErr } = await db.from('bams').update({
     // P1-6 / rule 7.6: normalize on WRITE, not just on read. `email` is written
     // back in canonical form so a roster row that was created with a trailing
@@ -337,8 +349,19 @@ export async function handler(req: {
     // than from the raw form, so the stored status and the stored number can never
     // disagree. Validated above; `hst` is non-null by the time we get here.
     hst_status: hst.status,
-    hst_declared_at: new Date().toISOString(),
+    hst_declared_at: nowIso,
     hst_declaration_version: hst.version,
+    // Work authorisation and banking ownership (Shane Deen, 2026-08-27). Stamped
+    // server-side from the validated result, like every other consent on this row.
+    work_auth_attested_at: nowIso,
+    work_auth_version: ATTESTATION_VERSION,
+    banking_attested_at: nowIso,
+    banking_version: ATTESTATION_VERSION,
+    // Optional and refusable, so a "no" is stored as false rather than left looking
+    // like a question nobody asked.
+    consent_ai_training: attest.aiTraining,
+    consent_ai_training_at: attest.aiTraining === null ? null : nowIso,
+    consent_ai_training_version: attest.aiTraining === null ? null : ATTESTATION_VERSION,
     status:       'active',
     auth_user_id: authUser.user.id,
     invite_token_hash: null                // one-time — burn it

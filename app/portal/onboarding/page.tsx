@@ -6,6 +6,7 @@ import { BANK_SEED } from '@/lib/banks'
 // time. The list is derived from the tax table itself, so the two cannot drift.
 import { PROVINCE_CODES } from '@/lib/invoice-payload'
 import { HST_COPY } from '@/lib/hst-declaration'
+import { WORK_AUTH_COPY, BANKING_ATTESTATION_COPY, AI_DISCLOSURE_COPY } from '@/lib/attestations'
 
 export default function OnboardingPage() {
   const [loading, setLoading] = useState(true)
@@ -15,7 +16,8 @@ export default function OnboardingPage() {
     first_name: '', last_name: '', phone: '',
     street: '', city: '', prov: '', postal: '', school_id: '',
     bank_name: '', institution_no: '', transit_no: '', account_no: '',
-    hst_number: '', hst_status: '', hst_attested: false, consent_ap_cc: true, consent_terms: false
+    hst_number: '', hst_status: '', hst_attested: false, consent_ap_cc: true, consent_terms: false,
+    work_auth: false, banking_owner: false, ai_training: false
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -204,6 +206,19 @@ export default function OnboardingPage() {
           <div className="surface">
             <h2 style={{ marginTop: 0, fontSize: 14 }}>Direct deposit</h2>
             <p className="muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>Encrypted at rest. Only Salt&rsquo;s payment system can decrypt.</p>
+            {/* Sits under the account fields on purpose: this is a statement about the
+                numbers immediately above it, and it reads as nonsense anywhere else. */}
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 12 }}>
+              <input
+                type="checkbox"
+                checked={form.banking_owner}
+                onChange={e => setForm({ ...form, banking_owner: e.target.checked })}
+                style={{ width: 'auto', marginTop: 3, flexShrink: 0 }}
+              />
+              <span style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5 }}>
+                {BANKING_ATTESTATION_COPY.checkbox}
+              </span>
+            </label>
             <div className="field">
               <label>Bank</label>
               <select value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} style={fieldErrors.bank_name ? errStyle : {}}>
@@ -308,9 +323,38 @@ export default function OnboardingPage() {
                 I consent to Salt XC processing my banking information for paying my monthly BAM invoice.
               </span>
             </label>
+
+            {/* Nothing in the signed BAM contract covers work authorisation, and a study
+                permit's off-campus allowance generally does not extend to self-employment.
+                Shane Deen, 2026-08-27, called this the highest-value new attestation. */}
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.work_auth} onChange={e => setForm({...form, work_auth: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5 }}>
+                {WORK_AUTH_COPY.checkbox}
+                <span style={{ display: 'block', fontSize: 11, marginTop: 3 }}>{WORK_AUTH_COPY.help}</span>
+              </span>
+            </label>
+          </div>
+
+          {/* Kept out of the block above, and out of the program terms, because it is the
+              one thing here that can be refused. Bundling refusable consent into terms
+              somebody must accept to get paid is how consent stops meaning anything. */}
+          <div className="surface" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{AI_DISCLOSURE_COPY.heading}</span>
+            {AI_DISCLOSURE_COPY.body.map((line, i) => (
+              <p key={i} className="muted" style={{ fontSize: 12, margin: 0, lineHeight: 1.5 }}>{line}</p>
+            ))}
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', marginTop: 4 }}>
+              <input type="checkbox" checked={form.ai_training} onChange={e => setForm({...form, ai_training: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5 }}>
+                {AI_DISCLOSURE_COPY.trainingCheckbox}
+                <span style={{ display: 'block', fontSize: 11, marginTop: 3 }}>{AI_DISCLOSURE_COPY.trainingHelp}</span>
+              </span>
+            </label>
           </div>
 
           <button onClick={submitForm} disabled={busy || !form.consent_ap_cc || !form.consent_terms || !form.hst_attested
+            || !form.work_auth || !form.banking_owner
             || form.hst_status === ''
             || (form.hst_status === 'registered' && !form.hst_number.trim())}>
             {busy ? 'Submitting...' : 'Finish onboarding'}

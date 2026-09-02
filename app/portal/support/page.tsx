@@ -18,6 +18,7 @@
  * the list is empty, so the empty state opens it directly.
  */
 import { useState } from 'react'
+import { AI_DISCLOSURE_COPY } from '@/lib/attestations'
 import { QuestionHistory } from './QuestionHistory'
 
 export default function SupportPage() {
@@ -128,6 +129,27 @@ export default function SupportPage() {
         {err && <p style={{ color: '#A31212', marginTop: 16 }}>{err}</p>}
 
         <QuestionHistory refreshKey={historyKey} onCount={setCount} />
+
+        {/*
+          Shane Deen, 2026-08-27, item F: a disclosure covering PIPEDA and Quebec Law 25
+          s.12.1, which gives a person the right to be told when a decision about them is
+          made by automated means and to ask a human to look again. Robin confirmed on the
+          same thread that 8 BAMs are at Quebec schools, so this is load-bearing rather
+          than boilerplate.
+
+          It says what this system actually does. Consent to use support messages as
+          training data is asked separately at setup, because that one can be refused.
+        */}
+        <div className="surface" style={{ marginTop: 20 }}>
+          <div className="surface-header">
+            <span className="surface-title">{AI_DISCLOSURE_COPY.heading}</span>
+          </div>
+          {AI_DISCLOSURE_COPY.body.map((line, i) => (
+            <p key={i} className="muted" style={{ fontSize: 12, margin: i === 0 ? 0 : '6px 0 0', lineHeight: 1.6 }}>
+              {line}
+            </p>
+          ))}
+        </div>
       </div>
     </>
   )
