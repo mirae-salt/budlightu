@@ -18,7 +18,7 @@
  */
 import { useEffect, useState } from 'react'
 
-export type CohortOption = { id: string; name: string }
+export type CohortOption = { id: string; name: string; start_date?: string | null }
 
 export type Filters = { cohortFilter: string; hideTest: boolean }
 
@@ -46,7 +46,15 @@ export function useCohortFilter() {
     setFiltersState(readFilters())
     fetch('/api/admin/data?table=cohorts')
       .then(res => res.json())
-      .then(({ data }) => setCohortOptions(Array.isArray(data) ? data.map((c: CohortOption) => ({ id: c.id, name: c.name })) : []))
+      .then(({ data }) => setCohortOptions(
+        Array.isArray(data)
+          ? (data as CohortOption[])
+              .map(c => ({ id: c.id, name: c.name, start_date: c.start_date ?? null }))
+              // Newest first, so the cohort somebody is actually working in is
+              // the one that survives the overflow cut below.
+              .sort((a, b) => String(b.start_date ?? '').localeCompare(String(a.start_date ?? '')) || a.name.localeCompare(b.name))
+          : []
+      ))
       .catch(() => setCohortOptions([]))
   }, [])
 
@@ -70,15 +78,53 @@ export function useCohortFilter() {
   return { ...filters, setFilters, cohortOptions, matches }
 }
 
+/** Most rows fit on one line, so most of the time this is buttons. */
+export const MAX_PILLS = 4
+
 /**
- * Segmented buttons rather than a select, matching the send-mode control on the
- * cohorts page (btn-navy for the active choice, btn-ghost for the rest).
+ * Decides which choices get a button and which fold into a select.
  *
- * This also replaces the "Showing 57 of 68, 11 hidden" line that used to sit
- * beside it. That line existed because a filter's failure mode is a short list
- * that looks complete, and with a collapsed dropdown the active filter was one
- * unread word. Here the chosen cohort is lit up on screen at all times, so the
- * state is visible without a sentence explaining it.
+ * A cohort is added every school year, so the row grows on its own and would
+ * eventually wrap into a block of buttons nobody reads. Up to MAX_PILLS nothing
+ * folds and the row looks exactly as it does today.
+ *
+ * The active choice is always a button, even when it belongs to the folded set.
+ * That is the whole reason this is not just a select: a filter you cannot see at
+ * a glance is what makes a short list look like a complete one, and on the
+ * invoices screen that list is money.
+ *
+ * Exported and pure so the swap can be tested without a browser or a login.
+ */
+export function splitPills(
+  choices: CohortOption[],
+  activeId: string,
+  max: number = MAX_PILLS
+): { pills: CohortOption[]; folded: CohortOption[] } {
+  if (choices.length <= max) return { pills: choices, folded: [] }
+
+  const pills = choices.slice(0, max)
+  const folded = choices.slice(max)
+
+  const active = folded.find(c => c.id === activeId)
+  if (!active) return { pills, folded }
+
+  // Swap the active choice into the last visible slot, and send the choice it
+  // displaced to the front of the folded list so nothing is lost.
+  return {
+    pills: [...pills.slice(0, max - 1), active],
+    folded: [pills[max - 1], ...folded.filter(c => c.id !== activeId)]
+  }
+}
+
+/**
+ * Segmented buttons, matching the send-mode control on the cohorts page
+ * (btn-navy for the active choice, btn-ghost for the rest), with a select for
+ * the overflow once there are enough cohorts to need one.
+ *
+ * This replaced a "Showing 57 of 68, 11 hidden" line that used to sit beside a
+ * plain dropdown. That line existed because a collapsed dropdown left the active
+ * filter as one unread word. A lit-up button says the same thing without a
+ * sentence explaining it.
  */
 export function CohortFilterBar({
   cohortFilter,
@@ -102,10 +148,12 @@ export function CohortFilterBar({
     ...(showNoCohort ? [{ id: 'none', name: 'No cohort' }] : []),
   ]
 
+  const { pills, folded } = splitPills(choices, cohortFilter)
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '2px 0 14px' }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {choices.map(c => (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {pills.map(c => (
           <button
             key={c.id}
             className={cohortFilter === c.id ? 'btn-navy' : 'btn-ghost'}
@@ -115,6 +163,17 @@ export function CohortFilterBar({
             {c.name}
           </button>
         ))}
+
+        {folded.length > 0 && (
+          <select
+            value=""
+            onChange={e => { if (e.target.value) setFilters({ cohortFilter: e.target.value }) }}
+            style={{ fontSize: 12, padding: '5px 8px', maxWidth: 150 }}
+          >
+            <option value="">{folded.length} more…</option>
+            {folded.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
       </div>
 
       {showTestToggle && (
