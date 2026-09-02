@@ -120,6 +120,7 @@ export function AttestationPrompt() {
 
         {askAiTraining && (
           <div style={{ borderTop: '1px solid var(--stone)', marginTop: 16, paddingTop: 14 }}>
+            <p style={{ fontSize: 13, margin: '0 0 8px', fontWeight: 600 }}>{AI_DISCLOSURE_COPY.trainingQuestion}</p>
             <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
               <input
                 type="checkbox"

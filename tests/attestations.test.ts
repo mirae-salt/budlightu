@@ -80,8 +80,8 @@ describe('the wording', () => {
     expect(WORK_AUTH_COPY.help).toMatch(/not sure/i)
   })
 
-  it('says the optional consent is refusable and costs nothing', () => {
-    expect(AI_DISCLOSURE_COPY.trainingCheckbox).toMatch(/optional/i)
+  it('asks the optional consent as a question, so a no is an available answer', () => {
+    expect(AI_DISCLOSURE_COPY.trainingQuestion).toMatch(/\?$/)
     expect(AI_DISCLOSURE_COPY.trainingHelp).toMatch(/say no/i)
   })
 
@@ -96,7 +96,8 @@ describe('the wording', () => {
     const strings = [
       WORK_AUTH_COPY.heading, WORK_AUTH_COPY.checkbox, WORK_AUTH_COPY.help,
       BANKING_ATTESTATION_COPY.checkbox,
-      AI_DISCLOSURE_COPY.heading, AI_DISCLOSURE_COPY.trainingCheckbox, AI_DISCLOSURE_COPY.trainingHelp,
+      AI_DISCLOSURE_COPY.heading, AI_DISCLOSURE_COPY.trainingQuestion,
+      AI_DISCLOSURE_COPY.trainingCheckbox, AI_DISCLOSURE_COPY.trainingHelp,
       ...AI_DISCLOSURE_COPY.body
     ]
     for (const s of strings) expect(s).not.toContain('—')

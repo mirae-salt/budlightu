@@ -82,7 +82,14 @@ export const AI_DISCLOSURE_COPY = {
    * refusable, so this one is optional and a "no" is recorded as a no rather than as
    * silence.
    */
-  trainingCheckbox: 'Optional: use my support messages to improve help content.',
+  /*
+   * Asked as a question with the tick as the answer, rather than as a statement the
+   * tick agrees to. "Optional: use my support messages to improve help content" is a
+   * sentence fragment about somebody else's plans; a question invites the no that
+   * makes the consent meaningful in the first place.
+   */
+  trainingQuestion: 'Can we use your support messages to improve our help content?',
+  trainingCheckbox: 'Yes, that is fine.',
   trainingHelp: 'You can say no. Nothing about your pay changes.'
 } as const
 

@@ -344,7 +344,8 @@ export default function OnboardingPage() {
             {AI_DISCLOSURE_COPY.body.map((line, i) => (
               <p key={i} className="muted" style={{ fontSize: 12, margin: 0, lineHeight: 1.5 }}>{line}</p>
             ))}
-            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', marginTop: 4 }}>
+            <p style={{ fontSize: 13, margin: '6px 0 0', fontWeight: 600 }}>{AI_DISCLOSURE_COPY.trainingQuestion}</p>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.ai_training} onChange={e => setForm({...form, ai_training: e.target.checked})} style={{ width: 'auto', marginTop: 3, flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.5 }}>
                 {AI_DISCLOSURE_COPY.trainingCheckbox}
