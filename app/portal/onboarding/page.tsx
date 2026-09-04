@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
-import { BANK_SEED } from '@/lib/banks'
+import { BANK_SEED, otherBankNameProblem } from '@/lib/banks'
 // Free text here let a student type "Ontario", which computeHst() throws on at invoice
 // time. The list is derived from the tax table itself, so the two cannot drift.
 import { PROVINCE_CODES } from '@/lib/invoice-payload'
@@ -27,7 +27,7 @@ export default function OnboardingPage() {
   const [form, setForm] = useState({
     first_name: '', last_name: '', phone: '',
     street: '', city: '', prov: '', postal: '', school_id: '',
-    bank_name: '', institution_no: '', transit_no: '', account_no: '',
+    bank_name: '', bank_name_other: '', institution_no: '', transit_no: '', account_no: '',
     hst_number: '', hst_status: '', hst_attested: false, consent_ap_cc: true, consent_terms: false,
     work_auth: false, banking_owner: false, ai_training: false
   })
@@ -86,6 +86,10 @@ export default function OnboardingPage() {
     if (!form.postal.trim()) e.postal = 'Required'
     if (!form.school_id.trim()) e.school_id = 'Required'
     if (!form.bank_name) e.bank_name = 'Select a bank'
+    if (form.bank_name === 'Other') {
+      const problem = otherBankNameProblem(form.bank_name_other)
+      if (problem) e.bank_name_other = problem
+    }
     if (form.bank_name && form.bank_name !== 'Other') {
       if (form.institution_no.length !== 3) e.institution_no = 'Must be 3 digits'
       if (form.transit_no.length !== 5) e.transit_no = 'Must be 5 digits'
@@ -243,10 +247,28 @@ export default function OnboardingPage() {
               <select value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} style={fieldErrors.bank_name ? errStyle : {}}>
                 <option value="">Select...</option>
                 {BANK_SEED.map(b => <option key={b.normalized} value={b.displayName}>{b.displayName}</option>)}
-                <option value="Other">Other (contact your program manager)</option>
+                <option value="Other">Other (type your bank name)</option>
               </select>
               {fieldErrors.bank_name && <span className="field-err">{fieldErrors.bank_name}</span>}
             </div>
+            {form.bank_name === 'Other' && (
+              <div className="field">
+                <label>Your bank name</label>
+                <input
+                  value={form.bank_name_other}
+                  onChange={e => setForm({ ...form, bank_name_other: e.target.value })}
+                  placeholder="e.g. Kawartha Credit Union"
+                  style={fieldErrors.bank_name_other ? errStyle : {}}
+                />
+                {fieldErrors.bank_name_other && <span className="field-err">{fieldErrors.bank_name_other}</span>}
+                {/* The cross-check only exists for banks on our list. Say so, rather
+                    than letting a typo in the institution number look checked. */}
+                <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 4, lineHeight: 1.5 }}>
+                  Your bank is not on our list, so we cannot check the institution number for you.
+                  Copy all three numbers straight off a void cheque or your direct deposit form.
+                </span>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12 }}>
               <div className="field"><label>Institution #</label><input inputMode="numeric" maxLength={3} placeholder="3 digits" value={form.institution_no} onChange={e => setForm({...form, institution_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.institution_no ? errStyle : {}} />{fieldErrors.institution_no && <span className="field-err">{fieldErrors.institution_no}</span>}</div>
               <div className="field"><label>Transit #</label><input inputMode="numeric" maxLength={5} placeholder="5 digits" value={form.transit_no} onChange={e => setForm({...form, transit_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.transit_no ? errStyle : {}} />{fieldErrors.transit_no && <span className="field-err">{fieldErrors.transit_no}</span>}</div>

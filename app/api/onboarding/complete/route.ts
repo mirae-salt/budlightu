@@ -11,7 +11,7 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { validateInstitution, validateTransit, validateAccount } from '../../../../lib/validation'
 import { validateHstDeclaration } from '../../../../lib/hst-declaration'
 import { validateAttestations, ATTESTATION_VERSION } from '../../../../lib/attestations'
-import { lookupBank } from '../../../../lib/banks'
+import { lookupBank, OTHER_BANK, otherBankNameProblem } from '../../../../lib/banks'
 import { TERMS_VERSION } from '../../../../lib/terms'
 import { decideInstitution } from '../../../../lib/institution-confirm'
 
@@ -96,9 +96,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: hst.message }, { status: 400 })
   }
 
-  const bank = lookupBank(form.bank_name)
-  if (!bank) {
-    return NextResponse.json({ ok: false, message: `Bank "${form.bank_name}" not in our lookup. Please contact your program manager.` }, { status: 400 })
+  /*
+   * "Other" is a real answer, not a failed lookup.
+   *
+   * The dropdown has offered it for a while and the server refused it, so a student
+   * whose credit union is not on our list was told to contact their program manager and
+   * could go no further. Janet reported two of them by name on 2026-09-04.
+   *
+   * With no table entry there is no institution number to compare against, so the
+   * cross-check is skipped rather than faked. The form says as much on screen. Every
+   * other guard is unchanged: the number is still format-checked, still stored as text
+   * so a leading zero survives, and still encrypted.
+   */
+  let bank: { displayName: string; institutionNo: string } | null = null
+  let bankIsUnlisted = false
+
+  if (form.bank_name === OTHER_BANK) {
+    const problem = otherBankNameProblem(form.bank_name_other)
+    if (problem) return NextResponse.json({ ok: false, message: problem }, { status: 400 })
+    bank = { displayName: String(form.bank_name_other).trim(), institutionNo: '' }
+    bankIsUnlisted = true
+  } else {
+    bank = lookupBank(form.bank_name)
+    if (!bank) {
+      return NextResponse.json({ ok: false, message: `Bank "${form.bank_name}" not in our lookup. Choose "Other" and type the name.` }, { status: 400 })
+    }
   }
 
   // ORDER MATTERS. This used to write status:'active' first and encrypt banking
@@ -156,34 +178,43 @@ export async function POST(req: NextRequest) {
   // typed. That routes their money by our mistake whenever the table is wrong, and hides
   // it. A disagreement now stops the write and asks them once; if they confirm, we store
   // exactly what they typed.
-  const decision = decideInstitution({
-    bankName: bank.displayName,
-    submitted: form.institution_no,
-    // Same place as onboarding-ingest expects it, so the form sends one shape to both.
-    confirmed: form?.institution_confirmed === true
-  })
-  if (decision.kind === 'confirm') {
-    console.warn(
-      `[onboarding/complete] institution mismatch for "${decision.bankName}": ` +
-      `submitted ${decision.submitted}, table has ${decision.ours}. Asking the student.`
-    )
-    // Nothing has been written yet: the profile update is below.
-    return NextResponse.json(
-      {
-        ok: false,
-        needsInstitutionConfirm: true,
-        submittedInstitution: decision.submitted,
-        ourInstitution: decision.ours,
-        message: decision.message
-      },
-      { status: 409 }
-    )
+  /*
+   * The number that gets stored is the student's own. For a bank on our list a
+   * disagreement with the table stops the write and asks them once; for an unlisted
+   * bank there is nothing to disagree with, so there is nothing to ask.
+   */
+  let institutionToStore = form.institution_no
+  if (!bankIsUnlisted) {
+    const decision = decideInstitution({
+      bankName: bank.displayName,
+      submitted: form.institution_no,
+      // Same place as onboarding-ingest expects it, so the form sends one shape to both.
+      confirmed: form?.institution_confirmed === true
+    })
+    if (decision.kind === 'confirm') {
+      console.warn(
+        `[onboarding/complete] institution mismatch for "${decision.bankName}": ` +
+        `submitted ${decision.submitted}, table has ${decision.ours}. Asking the student.`
+      )
+      // Nothing has been written yet: the profile update is below.
+      return NextResponse.json(
+        {
+          ok: false,
+          needsInstitutionConfirm: true,
+          submittedInstitution: decision.submitted,
+          ourInstitution: decision.ours,
+          message: decision.message
+        },
+        { status: 409 }
+      )
+    }
+    institutionToStore = decision.institutionNo
   }
 
   // Encrypt banking fields
   const { error: encErr } = await db.rpc('encrypt_bam_banking', {
     p_bam_id: bam.id,
-    p_institution_no: decision.institutionNo,
+    p_institution_no: institutionToStore,
     p_transit_no:     form.transit_no,
     p_account_no:     form.account_no,
     // From the validated declaration, never the raw field.

@@ -25,7 +25,7 @@
 import { createHash } from 'crypto'
 import { serviceClient } from '../_shared/supabase-admin'
 import { validateInstitution, validateTransit, validateAccount } from '../../../lib/validation'
-import { normalizeBankName, lookupBank } from '../../../lib/banks'
+import { normalizeBankName, lookupBank, OTHER_BANK, otherBankNameProblem } from '../../../lib/banks'
 import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
 // One source for the version. This file and app/api/onboarding/complete both stamp
 // consent_terms_version, and they held separate copies of the string. They agreed --
@@ -48,6 +48,7 @@ type FormPayload = {
   postal: string
   school_id: string
   bank_name: string
+  bank_name_other?: string
   institution_no: string
   transit_no: string
   account_no: string
@@ -199,9 +200,26 @@ export async function handler(req: {
     return { ok: false, message: hst.message }
   }
 
-  const bank = lookupBank(req.form.bank_name)
-  if (!bank) {
-    return { ok: false, message: `Bank "${req.form.bank_name}" not in our lookup. Please contact your program manager.` }
+  /*
+   * "Other" is a real answer, not a failed lookup. The dropdown offered it and this
+   * function refused it, so a student whose credit union is not on our list could not
+   * finish. With no table entry there is nothing to compare their institution number
+   * against, so the cross-check is skipped rather than faked; the form says so on
+   * screen. Format checks, leading-zero preservation and encryption are unchanged.
+   */
+  let bank: { displayName: string; institutionNo: string } | null = null
+  let bankIsUnlisted = false
+
+  if (req.form.bank_name === OTHER_BANK) {
+    const problem = otherBankNameProblem(req.form.bank_name_other)
+    if (problem) return { ok: false, message: problem }
+    bank = { displayName: String(req.form.bank_name_other).trim(), institutionNo: '' }
+    bankIsUnlisted = true
+  } else {
+    bank = lookupBank(req.form.bank_name)
+    if (!bank) {
+      return { ok: false, message: `Bank "${req.form.bank_name}" not in our lookup. Choose "Other" and type the name.` }
+    }
   }
 
   // An institution number is a property of the BANK, not something a student knows.
@@ -212,26 +230,34 @@ export async function handler(req: {
   // value instead, warning only to a console log. That routes a student's money by our
   // mistake whenever our table is wrong -- which it has been twice -- and hides the
   // mistake at the same time. Now a disagreement stops the write and asks them, once.
-  const decision = decideInstitution({
-    bankName: bank.displayName,
-    submitted: req.form.institution_no,
-    confirmed: req.form.institution_confirmed === true
-  })
-  if (decision.kind === 'confirm') {
-    console.warn(
-      `[onboarding-ingest] institution mismatch for "${decision.bankName}": ` +
-      `submitted ${decision.submitted}, table has ${decision.ours}. Asking the student.`
-    )
-    // NOTHING has been written at this point: the auth user is created below.
-    return {
-      ok: false,
-      needsInstitutionConfirm: true,
-      submittedInstitution: decision.submitted,
-      ourInstitution: decision.ours,
-      message: decision.message
+  /*
+   * The number that gets stored is the student's own. For a bank on our list a
+   * disagreement with the table stops the write and asks them once; for an unlisted
+   * bank there is nothing to disagree with, so there is nothing to ask.
+   */
+  let institutionToStore = req.form.institution_no
+  if (!bankIsUnlisted) {
+    const decision = decideInstitution({
+      bankName: bank.displayName,
+      submitted: req.form.institution_no,
+      confirmed: req.form.institution_confirmed === true
+    })
+    if (decision.kind === 'confirm') {
+      console.warn(
+        `[onboarding-ingest] institution mismatch for "${decision.bankName}": ` +
+        `submitted ${decision.submitted}, table has ${decision.ours}. Asking the student.`
+      )
+      // NOTHING has been written at this point: the auth user is created below.
+      return {
+        ok: false,
+        needsInstitutionConfirm: true,
+        submittedInstitution: decision.submitted,
+        ourInstitution: decision.ours,
+        message: decision.message
+      }
     }
+    institutionToStore = decision.institutionNo
   }
-  const institutionNo = decision.institutionNo
 
   // ── 5. Create Supabase Auth user ──────────────────────────────
   // email_confirm: true — we already verified the email matches the roster
@@ -370,7 +396,7 @@ export async function handler(req: {
 
   const { error: encErr } = await db.rpc('encrypt_bam_banking', {
     p_bam_id: pendingBam.id,
-    p_institution_no: institutionNo,
+    p_institution_no: institutionToStore,
     p_transit_no: req.form.transit_no,
     p_account_no: req.form.account_no,
     // From the validated declaration. A 'not_registered' answer sends null, so a

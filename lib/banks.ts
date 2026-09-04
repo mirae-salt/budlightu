@@ -224,3 +224,41 @@ export function lookupBank(rawName: string, seed: BankLookup[] = BANK_SEED): Ban
 
   return null
 }
+
+/**
+ * The name a student types when their institution is not on the list.
+ *
+ * Janet, 2026-09-04: "Some BAMs' financial institutions are not listed in the portal.
+ * Noah: Kawartha Credit Union. Emma Thompson: Your Credit Union. Could an 'Other'
+ * option be added for unlisted banks?"
+ *
+ * The dropdown already offered "Other" and the server then refused it, because
+ * lookupBank returns null for anything unlisted and the caller hard-fails. That
+ * hard-fail is right for a name we half-recognise; it is wrong for a name we were never
+ * going to recognise.
+ *
+ * WHY NO NEW SEED ENTRIES. Adding "Kawartha Credit Union -> 828" would put a routing
+ * number in the table that nobody verified. This file's own header records that nine of
+ * the original twenty-two were wrong for exactly that reason, all of them credit unions
+ * assumed onto their provincial central. Looking Kawartha up turned out to matter for a
+ * different reason too: their site says they amalgamated into Libro on 2026-01-01 and
+ * now trade as Kawartha Financial Services, so even the name is mid-move. A free-text
+ * entry with no cross-check is honest about what we know. A seeded number would not be.
+ *
+ * The trade is real and is stated on screen: with no entry in the table there is nothing
+ * to check the student's institution number against, so that number is theirs alone to
+ * get right.
+ */
+export const OTHER_BANK = 'Other'
+
+export function otherBankNameProblem(raw: unknown): string | null {
+  if (typeof raw !== 'string') return 'Enter your bank name.'
+  const name = stripInvisible(raw).trim()
+  if (name.length < 2) return 'Enter your bank name.'
+  if (name.length > 80) return 'That bank name is too long.'
+  // It must not be one of ours under a different spelling: a student who types "TD"
+  // here should get TD's entry and its cross-check, not a free-text row.
+  if (lookupBank(name)) return `That is on our list. Choose "${name}" from the dropdown instead so we can check your institution number.`
+  if (name.toLowerCase() === OTHER_BANK.toLowerCase()) return 'Enter your bank name.'
+  return null
+}
