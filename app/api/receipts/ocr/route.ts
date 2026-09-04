@@ -67,7 +67,7 @@ function checkExif(_bytes: Uint8Array, _mediaType: string): string[] {
   return []
 }
 
-function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
+function checkOcrPatterns(ocr: Record<string, unknown>, mixedLines: boolean): string[] {
   const flags: string[] = []
   const store = ((ocr.store as string) ?? '').trim()
   const date = ((ocr.date as string) ?? '').trim()
@@ -79,8 +79,21 @@ function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
   if (receiptType === 'not_a_receipt')
     flags.push('not_a_receipt: image is not a product receipt (bus ticket, ride receipt, bank notification, etc.)')
 
-  if (receiptType === 'bar_restaurant')
-    flags.push('bar_restaurant: this is a bar or restaurant receipt, not a retail purchase -- not eligible for reimbursement')
+  /*
+   * Robin, 2026-09-04: "BAM purchases made at bars or restaurants are being flagged.
+   * Can we make it so that they are only be flagged if they are part of a mixed
+   * receipt?"
+   *
+   * A bar tab of nothing but Bud Light is the program working. Thomas Levesque's SHAKER
+   * receipt was three glasses of Bud Light for $17.97 and went to the review queue with
+   * "not eligible for reimbursement", which was both wrong and discouraging.
+   *
+   * The flag survives for the case it was written for: a tab with food and other drinks
+   * on it, where somebody has to decide what part of the bill was Bud Light. That is
+   * what `mixedLines` says, so it is passed in rather than re-derived here.
+   */
+  if (receiptType === 'bar_restaurant' && mixedLines)
+    flags.push('bar_restaurant: this bar or restaurant bill has items that are not Bud Light, so the Bud Light share needs checking')
 
   if (receiptType === 'delivery_app')
     flags.push('delivery_app: this is a delivery app order (Uber Eats, Instacart, etc.) -- needs admin review')
@@ -485,7 +498,12 @@ export async function POST(req: Request) {
   }
 
   // 6. OCR pattern + price checks (on parsed JSON)
-  fraudFlags.push(...checkOcrPatterns(ocr))
+  /*
+   * `mixedLines` is the server's own recount, not the model's word for it: a bar bill
+   * only needs a human when something on it is not Bud Light.
+   */
+  const mixedLines = recomputeBudLightTotal(ocr as Parameters<typeof recomputeBudLightTotal>[0]).nonBudLightLineCount > 0
+  fraudFlags.push(...checkOcrPatterns(ocr, mixedLines))
   fraudFlags.push(...checkPriceReasonableness(ocr))
 
   // 7. Cohort policy + spendable cap.

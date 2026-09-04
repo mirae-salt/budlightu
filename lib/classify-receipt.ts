@@ -53,6 +53,8 @@ export type ClassifyInput = {
 }
 
 export type RecomputeBasis =
+  | 'lines_all_bud_light' // every product is Bud Light → the printed receipt total, exactly what was paid
+  | 'lines_deposit_aware' // bottle deposits present and untaxed → taxable Bud Light grossed up, deposit added at face value
   | 'lines_incl_tax'      // line totals reconcile to grand_total → already tax-inclusive
   | 'lines_grossed_up'    // ALL lines are Bud Light and reconcile to the pre-tax subtotal → grossed up by the receipt's own tax rate
   | 'lines_mixed_rate_validated' // mixed receipt, reported figure implies a real rate inside the bounds → accepted (F9)
@@ -156,6 +158,49 @@ function reconcileTolerance(reference: number): number {
 }
 
 /**
+ * A bottle deposit line.
+ *
+ * Quebec receipts print the deposit as its own line ("Dépôt", "CONSIGNE 2.40$"), and
+ * the deposit is NOT taxed. Read off two real receipts on 2026-09-04:
+ *
+ *   PETRO-CANADA   BUD LIGHT 45.99 + Dépôt 3.00, TPS 5% = 2.30, TVQ 9.975% = 4.59
+ *                  45.99 x 0.05 = 2.30 and 45.99 x 0.09975 = 4.59, so the 3.00 is
+ *                  outside the tax base. Total 55.88.
+ *   COUCHE-TARD    BUD LIGHT 79.98 + CONSIGNE 4.80 + promo 15.00 - 15.02,
+ *                  TPS 4.00 and TVQ 7.98 on 79.96, deposit again outside. Total 96.74.
+ *
+ * Mixing the deposit into the taxable Bud Light sum is what broke these. It drags the
+ * implied rate below the blended lower bound, validateModelRate rejects the figure, and
+ * the whole receipt falls back to its PRE-TAX sum. Roman Lombardi lost the entire
+ * $12.88 of tax that way.
+ *
+ * ONTARIO NOTE: LCBO deposits are also untaxed, so this is not a Quebec special case.
+ */
+const DEPOSIT_PATTERN = /\b(consigne|d[ée]p[oô]t|deposit|bottle\s*deposit)\b/i
+
+export function isDepositLine(desc: unknown): boolean {
+  return typeof desc === 'string' && DEPOSIT_PATTERN.test(desc)
+}
+
+/**
+ * A discount, rebate or promo line rather than a thing that was bought.
+ *
+ * These decide whether a receipt is "mixed". COUCHE-TARD prints a promotion as two
+ * lines, CARTE-RABAIS 15.00 and MXM BIERES -15.02, which net to two cents; counting
+ * them as other products makes a receipt of nothing but beer look mixed. Metro prints
+ * RABAIS -10.00 against the beer.
+ *
+ * A negative total is a discount whatever it is called, which catches the ones our word
+ * list has never seen.
+ */
+const DISCOUNT_PATTERN = /\b(rabais|remise|discount|promo|promotion|coupon|carte-rabais)\b/i
+
+export function isDiscountLine(desc: unknown, total: number): boolean {
+  if (total < 0) return true
+  return typeof desc === 'string' && DISCOUNT_PATTERN.test(desc)
+}
+
+/**
  * P0-F (a)(b)(c): re-derive the Bud Light total from the line items.
  *
  * The model is asked for `bud_light_total_incl_tax`, but on a mixed receipt it
@@ -196,22 +241,58 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   let budLightLineCount = 0
   let nonBudLightLineCount = 0
 
+  /*
+   * Deposits are tracked apart from product, because they are not taxed. `allDeposits`
+   * is every deposit on the receipt, which is what has to come out of the tax base;
+   * `blDeposit` is the part attributable to the Bud Light, which is added back at face
+   * value. A deposit counts as Bud Light's when the model marked it so, and also when
+   * the only product on the receipt is Bud Light: on a receipt of nothing but beer, the
+   * deposit is the beer's whatever the model ticked.
+   */
+  let allDeposits = 0
+  let blDepositMarked = 0
+  let blProductCount = 0
+  let otherProductCount = 0
+  let discountCount = 0
+
   for (const l of lines) {
     const t = parseMoney(l?.total)
+    const isBl = l?.is_bud_light === true
+    const isDeposit = isDepositLine(l?.desc)
+
     if (t === null) {
       unparsableLines++
-      if (l?.is_bud_light === true) budLightLineCount++
+      if (isBl) budLightLineCount++
       else nonBudLightLineCount++
       continue
     }
     allSum = round2(allSum + t)
-    if (l?.is_bud_light === true) {
+    if (isBl) {
       blSum = round2(blSum + t)
       budLightLineCount++
     } else {
       nonBudLightLineCount++
     }
+
+    if (isDeposit) {
+      allDeposits = round2(allDeposits + t)
+      if (isBl) blDepositMarked = round2(blDepositMarked + t)
+    } else if (isDiscountLine(l?.desc, t)) {
+      // Neither a product nor a deposit. Counting it as another product is what made a
+      // beer-only receipt look mixed.
+      discountCount++
+    } else if (isBl) {
+      blProductCount++
+    } else {
+      otherProductCount++
+    }
   }
+
+  /** Nothing but Bud Light was bought, so every deposit on it is Bud Light's. */
+  const allProductIsBudLight = blProductCount > 0 && otherProductCount === 0
+  const blDeposit = allProductIsBudLight ? allDeposits : blDepositMarked
+  /** The Bud Light that tax actually applies to: product only, deposits removed. */
+  const blTaxable = round2(blSum - blDepositMarked)
   if (unparsableLines > 0) {
     notes.push(`${unparsableLines} line total(s) could not be read as a number`)
   }
@@ -225,11 +306,104 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   let basis: RecomputeBasis = 'lines_raw'
   let total = blSum
 
-  if (grandTotal !== null && grandTotal > 0 && Math.abs(allSum - grandTotal) <= reconcileTolerance(grandTotal)) {
+  /*
+   * Deposit-aware gross-up, added 2026-09-04 after Janet reported that tax was missing
+   * from French receipts. Read off the receipts themselves rather than inferred: on both
+   * the PETRO-CANADA and COUCHE-TARD photos the printed TPS and TVQ are exactly the
+   * rates applied to the product line ALONE, with the deposit outside the base.
+   *
+   * So the tax base is `subtotal - every deposit`, and the answer is the taxable Bud
+   * Light grossed up at that rate, plus the Bud Light deposit back at face value. This
+   * runs before the blended-rate reasoning below, because on these receipts there is no
+   * blend to reason about: the deposit was never the problem the old bounds were
+   * guarding against.
+   *
+   * Checked against all three receipts held on 2026-09-04:
+   *   PETRO-CANADA  45.99 x 1.14975 + 3.00 = 55.88, the printed total
+   *   COUCHE-TARD   79.96 x 1.14975 + 4.80 = 96.74, the printed total
+   *   MAXI (Isla)   25.69 x 1.14975 + 1.20 = 30.74, on a genuinely mixed receipt
+   */
+  /*
+   * WHOLE RECEIPT IS BUD LIGHT.
+   *
+   * Then the answer is the printed total and there is nothing to infer: that is what the
+   * student paid, tax and deposit and any discount included. Verified against the
+   * PETRO-CANADA and COUCHE-TARD photos on 2026-09-04, where 45.99 x 1.14975 + 3.00 and
+   * 79.96 x 1.14975 + 4.80 come out at 55.88 and 96.74, the printed totals exactly.
+   *
+   * Taking the total directly rather than rebuilding it is also the only version that
+   * cannot overpay. Grossing up the product and adding the deposit ignores discounts:
+   * on Thomas Levesque's Metro receipt, 79.98 grossed up plus 4.80 of deposit is 96.76
+   * against a printed total of 85.26, because a RABAIS of -10.00 sits between them. That
+   * would have paid out 11.50 more than the student spent.
+   */
+  /*
+   * A sanity band on grand_total before it is trusted as the amount. It has to be at
+   * least the sum of the lines, and no more than 30% above it: tax plus deposit cannot
+   * plausibly exceed that anywhere in Canada (15% HST plus deposit). A decimal misread
+   * turning 55.88 into 552.88 is refused and falls through to the arithmetic below.
+   *
+   * The gap it DOES allow is the real one: Jake Hooper's Beer Store receipt prints a
+   * 43.27 total against 36.96 of lines and 4.81 of tax, because the 1.50 deposit is not
+   * itemised anywhere. He paid 43.27 for Bud Light.
+   */
+  const grandTotalIsSane =
+    grandTotal !== null && grandTotal > 0 &&
+    grandTotal >= allSum - 0.01 &&
+    grandTotal <= round2(allSum * 1.3) + 0.01
+
+  if (allProductIsBudLight && grandTotalIsSane && grandTotal !== null) {
+    basis = 'lines_all_bud_light'
+    total = grandTotal
+    notes.push(
+      `every product on this receipt is Bud Light${discountCount > 0 ? ' (the remaining lines are discounts or promotions)' : ''}` +
+      `${allDeposits > 0 ? ` plus $${allDeposits.toFixed(2)} of deposit` : ''}, so the amount is the receipt total of $${grandTotal.toFixed(2)}.`
+    )
+  } else if (
+    /*
+     * MIXED RECEIPT WITH DEPOSITS.
+     *
+     * Deposits are not taxed, so the tax base is the subtotal less every deposit. The
+     * taxable Bud Light is grossed up at the receipt's own rate and its deposit added
+     * back at face value. Mixing the deposit into the taxable sum is what broke these:
+     * it drags the implied rate below the blended lower bound, validateModelRate
+     * rejects, and the receipt falls back to its PRE-TAX sum.
+     */
+    allDeposits > 0 &&
+    subtotal !== null && subtotal > 0 &&
+    tax !== null && tax > 0 &&
+    blTaxable > 0 &&
+    Math.abs(allSum - subtotal) <= reconcileTolerance(subtotal) &&
+    (() => {
+      const taxBase = round2(subtotal - allDeposits)
+      if (taxBase <= 0) return false
+      const r = tax / taxBase
+      return CANADIAN_TAX_RATES.some(x => Math.abs(r - x) <= RATE_TOLERANCE)
+    })()
+  ) {
+    const taxBase = round2(subtotal - allDeposits)
+    const depositRate = tax / taxBase
+    const matched = CANADIAN_TAX_RATES.find(r => Math.abs(depositRate - r) <= RATE_TOLERANCE) as number
+    basis = 'lines_deposit_aware'
+    const grossed = round2(blTaxable * (1 + matched) + blDeposit)
+    // Never above what the receipt says was paid, whatever the arithmetic produces.
+    total = grandTotal !== null && grandTotal > 0 ? Math.min(grossed, grandTotal) : grossed
+    notes.push(
+      `deposits of $${allDeposits.toFixed(2)} are not taxed, so the tax base is $${taxBase.toFixed(2)} ` +
+      `and the receipt's own rate is ${(depositRate * 100).toFixed(2)}%, matching the standard ` +
+      `${(matched * 100).toFixed(2)}%. Bud Light product $${blTaxable.toFixed(2)} grossed up plus ` +
+      `$${blDeposit.toFixed(2)} of deposit at face value.`
+    )
+  }
+
+  const alreadyAnswered = basis === 'lines_all_bud_light' || basis === 'lines_deposit_aware'
+
+  if (!alreadyAnswered && grandTotal !== null && grandTotal > 0 && Math.abs(allSum - grandTotal) <= reconcileTolerance(grandTotal)) {
     basis = 'lines_incl_tax'
     total = blSum
     notes.push('line totals reconcile to grand_total, so they are already tax-inclusive')
   } else if (
+    !alreadyAnswered &&
     subtotal !== null && subtotal > 0 && tax !== null &&
     Math.abs(allSum - subtotal) <= reconcileTolerance(subtotal)
   ) {
@@ -281,7 +455,7 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
         )
       }
     }
-  } else {
+  } else if (!alreadyAnswered) {
     notes.push('line totals do not reconcile to subtotal or grand_total, using the raw sum of Bud Light lines')
   }
 

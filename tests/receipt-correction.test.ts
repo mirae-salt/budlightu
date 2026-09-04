@@ -178,7 +178,10 @@ describe('a toggled-on line raises the total', () => {
     const corr = applyBudLightCorrection(METRO, all)
     // No line is left out, so `tax / subtotal` IS the rate for the whole basket and
     // recomputeBudLightTotal grosses up. 73.92 * (1 + 7.62/73.92) = 81.54.
-    expect(corr.recomputed.basis).toBe('lines_grossed_up')
+    // Basis renamed 2026-09-04: an all-Bud-Light receipt now takes the printed total
+    // directly (lines_all_bud_light) instead of rebuilding it from the rate. Same
+    // number, and it is the version that cannot miss an unitemised deposit.
+    expect(corr.recomputed.basis).toBe('lines_all_bud_light')
     expect(corr.recomputed.total).toBeCloseTo(81.54, 2)
     expect(corr.recomputed.total).toBeGreaterThan(58.45)
     expect(corr.added).toEqual([1, 3, 5, 6, 7])

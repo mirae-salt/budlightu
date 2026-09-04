@@ -140,7 +140,10 @@ describe('F9: mixed-receipt gross-up (the Ontario worked example)', () => {
       bud_light_total_incl_tax: 113.0, overall_confidence: 0.98
     }
     const rc = recomputeBudLightTotal(allBl as any)
-    expect(rc.basis).toBe('lines_grossed_up')
+    // Basis renamed 2026-09-04: an all-Bud-Light receipt now takes the printed total
+    // directly (lines_all_bud_light) instead of rebuilding it from the rate. Same
+    // number, and it is the version that cannot miss an unitemised deposit.
+    expect(rc.basis).toBe('lines_all_bud_light')
     expect(rc.mixedPreTax).toBe(false)
     expect(rc.total).toBe(113)
     expect(rc.mismatch).toBe(false)
