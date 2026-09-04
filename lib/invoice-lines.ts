@@ -90,6 +90,40 @@ export function isReimbursementLine(line: PayloadLineish | InvoiceLine): boolean
   return typeof line?.description === 'string' && /reimbursement/i.test(line.description)
 }
 
+/**
+ * The salary line, which the generator writes as
+ * "Brand Activation Manager monthly payment (September Payment)".
+ *
+ * Matched on "monthly payment" rather than the whole string because the month changes,
+ * and the amount can be corrected in place without the wording moving.
+ */
+export function isSalaryLine(line: PayloadLineish | InvoiceLine): boolean {
+  return typeof line?.description === 'string' && /monthly payment/i.test(line.description)
+}
+
+/**
+ * A line the generator produces. Everything else on an invoice was put there by a
+ * person: a bar tab, onboarding parking, an Uber.
+ *
+ * This exists because both writers touch the same `payload_json`. The line editor
+ * (lib/invoice-lines.ts) puts an admin's ad-hoc line in it, and upsertDraftInvoice
+ * rebuilds that field WHOLE every time a receipt lands. Before this, Thomas Ambrosio's
+ * "BLU Onboarding (Hotel Parking) $60" would have vanished the moment he uploaded his
+ * next receipt, with nothing on screen to say it had gone.
+ *
+ * Erring towards "system" would delete a person's work; erring towards "ad-hoc" would
+ * duplicate a salary line, which is visible and fixable. So anything unrecognised is
+ * treated as ad-hoc and kept.
+ */
+export function isSystemLine(line: PayloadLineish | InvoiceLine): boolean {
+  return isSalaryLine(line) || isReimbursementLine(line)
+}
+
+/** The hand-added lines on an existing payload, in the order a person put them in. */
+export function adHocLines<T extends PayloadLineish>(lines: readonly T[] | null | undefined): T[] {
+  return (lines ?? []).filter(l => !isSystemLine(l))
+}
+
 // ── line parsing / validation ────────────────────────────────────────────────
 
 /**

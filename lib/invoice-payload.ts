@@ -94,6 +94,14 @@ export function generateInvoicePayload(input: {
   seq: number
   revision?: number              // >1 after a void+reissue → "INV-LG3-R2" (P1-22)
   generatedAt: Date
+  /**
+   * Lines a person added by hand, carried over from the invoice being rebuilt.
+   *
+   * They are passed IN rather than appended afterwards so that the subtotal and the tax
+   * below are computed over the whole invoice. Appending them to the finished payload
+   * would leave a document whose lines do not add up to its own total.
+   */
+  extraLines?: InvoicePayload['lines']
 }): InvoicePayload {
   const { bam, cohort, ledger, period, seq, generatedAt } = input
   const revision = input.revision ?? 1
@@ -146,6 +154,10 @@ export function generateInvoicePayload(input: {
       total: ledger.paidCad
     })
   }
+
+  // Hand-added lines sit after the ones the generator owns, in the order a person put
+  // them in, and are inside the arithmetic from here on.
+  for (const extra of input.extraLines ?? []) lines.push(extra)
 
   const subtotal = round2(lines.reduce((s, l) => s + l.total, 0))
   // TODO (Robin/AP, open question from AUDIT-2026-08-07 P1-10): tax is applied to

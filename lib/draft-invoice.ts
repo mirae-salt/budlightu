@@ -26,6 +26,7 @@
 import { generateInvoicePayload } from './invoice-payload'
 import { ensureInitialsResolved } from './ensure-initials'
 import { lookupReimbursement } from './invoice-ledger'
+import { adHocLines } from './invoice-lines'
 import { resolveSeqAndRevision } from './invoice-sequence'
 import { notifyAdmin } from './notify-admin'
 
@@ -141,6 +142,24 @@ export async function upsertDraftInvoice(
   // ── 5. seq + revision (P1-22) ─────────────────────────────────────────────
   const sequence = await resolveSeqAndRevision(db, bamId, cohortId, period)
   if (!sequence.ok) return block(sequence.error)
+  /*
+   * The lines a person added to the invoice that is already there. Read BEFORE the new
+   * payload is generated, because generating it is what discards them.
+   *
+   * A read failure is a block, not a shrug: carrying on would produce an invoice that
+   * silently lost somebody's bar tab, which is the exact bug this is here to stop.
+   */
+  let existingAdHoc: Array<{ qty: number; description: string; unitPrice: number; total: number }> = []
+  if (sequence.existingId) {
+    // Array form, not maybeSingle: the house style in this file, and the only shape the
+    // callers' clients implement.
+    const { data: prior, error: priorErr } = await db.from('invoices')
+      .select('payload_json').eq('id', sequence.existingId)
+    if (priorErr) return block(`could not read the invoice being rebuilt (${priorErr.message}), so its added lines could not be carried over`)
+    const priorLines = ((prior ?? [])[0] as { payload_json?: { lines?: unknown } } | undefined)?.payload_json?.lines
+    if (Array.isArray(priorLines)) existingAdHoc = priorLines as typeof existingAdHoc
+  }
+
   if (sequence.existingStatus && sequence.existingStatus !== 'draft') {
     return block(
       `invoice ${sequence.existingNumber ?? sequence.existingId} for this period is already ${sequence.existingStatus} — ` +
@@ -178,7 +197,15 @@ export async function upsertDraftInvoice(
       period: new Date(period),
       seq: sequence.seq,
       revision: sequence.revision,
-      generatedAt: new Date()
+      generatedAt: new Date(),
+      /*
+       * Carried over from the invoice we are about to overwrite. This function replaces
+       * payload_json whole, and the line editor writes into that same field, so without
+       * this every rebuild silently deleted whatever an admin had added. That is the
+       * mechanism behind Janet's request to add rows before a receipt exists: the row
+       * has to survive the receipt arriving.
+       */
+      extraLines: adHocLines(existingAdHoc)
     })
   } catch (e) {
     return block(`payload generation failed: ${e instanceof Error ? e.message : String(e)}`)
