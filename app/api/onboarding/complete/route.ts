@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   // Find the BAM record linked to this auth user
   const { data: bam, error: bamErr } = await db
     .from('bams')
-    .select('id, status')
+    .select('id, status, cohort_id')
     .eq('auth_user_id', user.id)
     .single()
 
@@ -257,6 +257,31 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     )
+  }
+
+  /*
+   * Give them this month's draft invoice straight away.
+   *
+   * The monthly job opens every active BAM's invoice on the 1st, which leaves anyone
+   * onboarding mid-month with nothing to edit until the next one. Janet's ask was to be
+   * able to put a bar tab on a student's invoice before they submit anything, and a
+   * student who joins on the 12th is exactly who that is for.
+   *
+   * A failure here is logged, not returned. Their onboarding IS complete: banking is
+   * stored and the row is active. Turning a successful signup into an error screen over
+   * a draft invoice, which the 1st-of-month job will create anyway, would be the wrong
+   * trade.
+   */
+  try {
+    const { seedPeriodInvoice, periodOf } = await import('../../../../lib/seed-period-invoice')
+    const seeded = await seedPeriodInvoice(db, {
+      bamId: bam.id,
+      cohortId: bam.cohort_id,
+      period: periodOf(new Date())
+    })
+    if (!seeded.ok) console.warn('[onboarding/complete] no draft invoice for', bam.id, '-', seeded.reason)
+  } catch (e) {
+    console.warn('[onboarding/complete] seeding the draft invoice failed for', bam.id, '-', e)
   }
 
   return NextResponse.json({ ok: true, message: 'Onboarding complete.' })

@@ -24,6 +24,7 @@ import { runDailyDigest } from '../../../lib/run-daily-digest'
 import { runStudentReminders } from '../../../lib/run-student-reminders'
 import { handler as runAudit } from '../../../supabase/functions/scheduler-audit/index'
 import { handler as runGenerate } from '../../../supabase/functions/scheduler-generate/index'
+import { runSeedInvoices as runSeed } from '../../../lib/run-seed-invoices'
 import { requireAdmin } from '../../../lib/admin-auth'
 import { envString } from '../../../lib/sanitize'
 
@@ -44,12 +45,13 @@ import { envString } from '../../../lib/sanitize'
  * If these are ever set to the SAME day, the branch below must be changed too: it is an
  * else-if chain, so audit would run and generate would never fire.
  */
+const SEED_DAY = 1
 const AUDIT_DAY = 16
 const GENERATE_DAY = 17
 
 export const maxDuration = 300
 
-type JobName = 'audit' | 'generate'
+type JobName = 'audit' | 'generate' | 'seed'
 
 async function isAuthorized(req: NextRequest): Promise<{ ok: true; via: string } | { ok: false; status: number; message: string }> {
   const secret = envString('CRON_SECRET')
@@ -122,8 +124,21 @@ export async function GET(req: NextRequest) {
     jobs = [forced]
   } else if (forced === 'both') {
     jobs = ['audit', 'generate']
+  } else if (forced === 'seed') {
+    jobs = ['seed']
   } else if (forced) {
-    return NextResponse.json({ ok: false, message: `unknown job "${forced}" (use audit, generate or both)` }, { status: 400 })
+    return NextResponse.json({ ok: false, message: `unknown job "${forced}" (use seed, audit, generate or both)` }, { status: 400 })
+  } else if (day === SEED_DAY) {
+    /*
+     * Day one: every active BAM gets that month's draft invoice, so Robin and Janet can
+     * put a bar tab or an Uber on it before any receipt exists. Janet asked for this on
+     * 2026-09-04; without it the only editable invoices were the ones a receipt had
+     * already created.
+     *
+     * It sits ahead of AUDIT_DAY in this chain for the same reason those two are
+     * separate days: one branch, one job, and adding a day must not shadow another.
+     */
+    jobs = ['seed']
   } else if (day === AUDIT_DAY) {
     jobs = ['audit']
   } else if (day === GENERATE_DAY) {
@@ -136,7 +151,7 @@ export async function GET(req: NextRequest) {
       ran: [],
       digest,
       reminders,
-      note: `nothing due on day ${day} (audit runs on the ${AUDIT_DAY}th, generate on the ${GENERATE_DAY}th, UTC)`,
+      note: `nothing due on day ${day} (invoices seeded on the ${SEED_DAY}st, audit on the ${AUDIT_DAY}th, generate on the ${GENERATE_DAY}th, UTC)`,
       authorized_via: auth.via
     })
   }
@@ -145,7 +160,9 @@ export async function GET(req: NextRequest) {
 
   for (const job of jobs) {
     try {
-      const out = job === 'audit' ? await runAudit({ period }) : await runGenerate({ period })
+      const out = job === 'seed'
+        ? await runSeed({ period })
+        : job === 'audit' ? await runAudit({ period }) : await runGenerate({ period })
       // Both handlers return { ok: errors.length === 0, ... }, so a partial failure
       // is already reported honestly. Pass it through rather than flattening it.
       results.push({ job, ok: Boolean((out as { ok?: boolean })?.ok), result: out })
