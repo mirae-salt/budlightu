@@ -34,6 +34,23 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ ok: false, message: `File too large. Maximum size is ${MAX_BYTES / 1024 / 1024} MB.` }, { status: 400 })
   }
+  /*
+   * There was an upper bound and no lower one, so an empty file was accepted, stored, and
+   * only failed much later when the model was handed a data URL with no image in it. What
+   * Jackson Bennett got on 2026-09-05 was a receipt stuck on "OCR endpoint returned 500 /
+   * OpenRouter 400: Invalid image data-url", which blames the wrong thing and tells him
+   * nothing he can act on. It was his only submission for the month.
+   *
+   * A kilobyte is far under any real photo: the smallest genuine upload on file is 165 KB.
+   * Anything below it is a picker that handed back nothing, and the student needs to hear
+   * that now, while they still have the receipt in their hand.
+   */
+  if (file.size < 1024) {
+    return NextResponse.json({
+      ok: false,
+      message: 'That file came through empty. Please pick the photo again, or take a new one.'
+    }, { status: 400 })
+  }
 
   // Verify bam_id against authenticated session (skip in dev with nil UUID)
   if (isDev && bamId === NIL_UUID) {
