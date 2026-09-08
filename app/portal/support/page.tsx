@@ -18,11 +18,13 @@
  * the list is empty, so the empty state opens it directly.
  */
 import { useState } from 'react'
+import { AttachmentPicker, type PickedAttachment } from '@/app/_components/SupportAttachment'
 import { AI_DISCLOSURE_COPY } from '@/lib/attestations'
 import { QuestionHistory } from './QuestionHistory'
 
 export default function SupportPage() {
   const [question, setQuestion] = useState('')
+  const [file, setFile] = useState<PickedAttachment | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
@@ -39,13 +41,14 @@ export default function SupportPage() {
       const res = await fetch('/api/portal/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question })
+        body: JSON.stringify({ question, attachment: file })
       })
       const json = await res.json()
       if (!res.ok || !json.ok) { setErr(json.message ?? 'Something went wrong'); return }
       // Straight back to the list, with the new question in it. A separate confirmation screen hid
       // the one piece of evidence worth showing: the question, now visibly received.
       setQuestion('')
+      setFile(null)
       setComposing(false)
       setJustSent(true)
       setHistoryKey(k => k + 1)
@@ -108,6 +111,9 @@ export default function SupportPage() {
               placeholder="What's going on?"
               aria-label="Your question"
             />
+            {/* The thread was text only, so the one thing that would have explained Theo
+                Cliche's broken upload on 2026-09-04 was the one thing he could not send. */}
+            <AttachmentPicker value={file} onChange={setFile} disabled={busy} />
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={submit} disabled={busy || question.trim().length < 5}>
                 {busy ? 'Sending...' : 'Send'}
@@ -117,7 +123,7 @@ export default function SupportPage() {
                 <button
                   className="btn-ghost"
                   disabled={busy}
-                  onClick={() => { setComposing(false); setErr(null) }}
+                  onClick={() => { setComposing(false); setErr(null); setFile(null) }}
                 >
                   Cancel
                 </button>

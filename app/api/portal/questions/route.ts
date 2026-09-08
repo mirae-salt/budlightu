@@ -18,6 +18,7 @@ import { NextResponse } from 'next/server'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
 import { devBypassBam } from '../../../../lib/dev-bam'
+import { parseAttachmentInput } from '../../../../lib/support-attachment'
 import { alertAdminsAboutQuestion } from '../../../../lib/question-alert'
 import { appBaseUrl } from '../../../../lib/app-url'
 
@@ -67,7 +68,7 @@ export async function GET() {
   // anything still reading them works, but the messages are what render.
   const { data, error } = await db
     .from('portal_questions')
-    .select('id, question, answer, answered_at, submitted_at, portal_question_messages(id, author, body, created_at)')
+    .select('id, question, answer, answered_at, submitted_at, portal_question_messages(id, author, body, created_at, attachment_key, attachment_mime, attachment_name, attachment_bytes)')
     .eq('bam_id', bamId)
     .order('submitted_at', { ascending: false })
     .limit(50)
@@ -124,7 +125,12 @@ export async function POST(req: Request) {
   const questionId = typeof b.question_id === 'string' ? b.question_id.trim() : ''
   const text = typeof b.body === 'string' ? b.body.trim() : ''
   if (!questionId) return NextResponse.json({ ok: false, message: 'Which thread?' }, { status: 400 })
-  if (text.length < 2) return NextResponse.json({ ok: false, message: 'Type your message first.' }, { status: 400 })
+  // A photo on its own is a message. Requiring words as well would have told Theo Cliche
+  // to describe the screenshot he was already sending.
+  const hasFile = typeof (b.attachment as { key?: unknown } | undefined)?.key === 'string'
+  if (text.length < 2 && !hasFile) {
+    return NextResponse.json({ ok: false, message: 'Type your message, or attach a file.' }, { status: 400 })
+  }
 
   let db
   try {
@@ -154,10 +160,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, message: 'That thread is not yours.' }, { status: 403 })
   }
 
+  // Re-checked against the session even though we minted the key, because it came back
+  // through the client on the way here.
+  const att = parseAttachmentInput(b.attachment, bamId)
+  if (!att.ok) return NextResponse.json({ ok: false, message: att.message }, { status: 400 })
+
   const { data: made, error: insErr } = await db
     .from('portal_question_messages')
-    .insert({ question_id: questionId, author: 'bam', body: text })
-    .select('id, author, body, created_at')
+    .insert({ question_id: questionId, author: 'bam', body: text, ...(att.columns ?? {}) })
+    .select('id, author, body, created_at, attachment_key, attachment_mime, attachment_name')
   if (insErr) {
     console.error('[portal/questions POST] insert failed:', insErr.message)
     return NextResponse.json({ ok: false, message: 'That did not send. Please try again.' }, { status: 500 })

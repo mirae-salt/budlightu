@@ -12,6 +12,7 @@ import { getSessionUser, isDevBypass } from '../../../../lib/admin-auth'
 import { devBypassBam } from '../../../../lib/dev-bam'
 import { appBaseUrl } from '../../../../lib/app-url'
 import { alertAdminsAboutQuestion } from '../../../../lib/question-alert'
+import { parseAttachmentInput } from '../../../../lib/support-attachment'
 
 export async function POST(req: NextRequest) {
   // The dev bypass now requires BOTH NODE_ENV=development AND an explicit opt-in
@@ -152,10 +153,22 @@ export async function POST(req: NextRequest) {
    * read, so a lost message here degrades rather than loses the record.
    */
   if (questionId) {
+    /*
+     * A file, if they attached one. It was uploaded straight to Storage before this
+     * request, under a key we minted for this student, and re-checked here because the key
+     * travelled back through the client.
+     *
+     * Never fatal. The question is already saved; refusing it over an attachment would
+     * throw away what they wrote.
+     */
+    const att = bamId ? parseAttachmentInput((body as { attachment?: unknown }).attachment, bamId) : { ok: true, columns: null } as const
+    if (!att.ok) console.error('[portal/support] attachment refused:', att.message)
+
     const { error: msgErr } = await admin.from('portal_question_messages').insert({
       question_id: questionId,
       author: 'bam',
-      body: question.trim()
+      body: question.trim(),
+      ...(att.ok ? (att.columns ?? {}) : {})
     })
     if (msgErr) console.error('[portal/support] could not add the question as a thread message:', msgErr.message)
   }

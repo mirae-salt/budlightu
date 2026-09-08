@@ -16,6 +16,7 @@
  * box would be a worse promise than none.
  */
 import { useEffect, useState } from 'react'
+import { AttachmentView } from '@/app/_components/SupportAttachment'
 import Link from 'next/link'
 import { TopBar } from '../_components/TopBar'
 import {
@@ -31,7 +32,10 @@ type DbQuestion = {
   answered_at: string | null
   answer: string | null
   /** Every message in the thread. Migration 0027. Order is not guaranteed by the join. */
-  portal_question_messages?: Array<{ id: string; author: 'bam' | 'admin'; body: string; created_at: string }>
+  portal_question_messages?: Array<{
+    id: string; author: 'bam' | 'admin'; body: string; created_at: string
+    attachment_key?: string | null; attachment_mime?: string | null; attachment_name?: string | null; attachment_bytes?: number | null
+  }>
   bams: {
     first_name: string | null
     last_name: string | null
@@ -48,7 +52,10 @@ type DbQuestion = {
  * never renders empty. The join does not order, and a thread showing the reply above the question is
  * not a thread.
  */
-function threadOf(r: DbQuestion): Array<{ id: string; author: 'bam' | 'admin'; body: string; created_at: string }> {
+function threadOf(r: DbQuestion): Array<{
+  id: string; author: 'bam' | 'admin'; body: string; created_at: string
+  attachment_key?: string | null; attachment_mime?: string | null; attachment_name?: string | null; attachment_bytes?: number | null
+}> {
   const m = r.portal_question_messages
   if (Array.isArray(m) && m.length > 0) {
     return [...m].sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -466,6 +473,14 @@ export default function QuestionsPage() {
                       }}>
                         {m.body}
                       </div>
+                      {m.attachment_key && (
+                        <AttachmentView
+                          attachmentKey={m.attachment_key}
+                          mime={m.attachment_mime ?? null}
+                          name={m.attachment_name}
+                          bytes={m.attachment_bytes}
+                        />
+                      )}
                     </div>
                   ))}
 

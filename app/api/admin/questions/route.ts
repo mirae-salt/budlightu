@@ -70,7 +70,7 @@ export async function PUT(req: NextRequest) {
     .from('portal_questions')
     // Messages come along so the email can quote what they ACTUALLY last said. Quoting the original
     // question in reply to a third follow-up reads as not having read it.
-    .select('id, bam_id, question, answered_at, bams(first_name, last_name, email), portal_question_messages(author, body, created_at)')
+    .select('id, bam_id, question, answered_at, bams(first_name, last_name, email), portal_question_messages(author, body, created_at, attachment_key, attachment_mime, attachment_name, attachment_bytes)')
     .eq('id', id)
     .limit(1)
   if (readErr) {

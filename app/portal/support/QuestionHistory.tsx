@@ -16,8 +16,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { AttachmentPicker, AttachmentView, type PickedAttachment } from '@/app/_components/SupportAttachment'
 
-type Message = { id: string; author: 'bam' | 'admin'; body: string; created_at: string }
+type Message = {
+  id: string; author: 'bam' | 'admin'; body: string; created_at: string
+  attachment_key?: string | null
+  attachment_mime?: string | null
+  attachment_name?: string | null
+  attachment_bytes?: number | null
+}
 
 type Row = {
   id: string
@@ -47,6 +54,7 @@ export function QuestionHistory({
   const [error, setError] = useState<string | null>(null)
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
+  const [replyFile, setReplyFile] = useState<PickedAttachment | null>(null)
   const [busy, setBusy] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   /** Bumped locally so a sent follow-up appears without waiting for the parent. */
@@ -59,7 +67,7 @@ export function QuestionHistory({
       const res = await fetch('/api/portal/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question_id: questionId, body: replyText })
+        body: JSON.stringify({ question_id: questionId, body: replyText, attachment: replyFile })
       })
       const j = await res.json()
       if (!res.ok || !j?.ok) {
@@ -68,6 +76,7 @@ export function QuestionHistory({
       }
       setReplyingTo(null)
       setReplyText('')
+      setReplyFile(null)
       // Refetch rather than pushing the local message in: the thread also reopened server-side, and
       // the badge has to reflect that.
       setLocalKey(k => k + 1)
@@ -196,6 +205,14 @@ export function QuestionHistory({
                 }}>
                   {m.body}
                 </div>
+                {m.attachment_key && (
+                  <AttachmentView
+                    attachmentKey={m.attachment_key}
+                    mime={m.attachment_mime ?? null}
+                    name={m.attachment_name}
+                    bytes={m.attachment_bytes}
+                  />
+                )}
               </div>
             ))}
 
@@ -215,14 +232,17 @@ export function QuestionHistory({
                     resize: 'vertical'
                   }}
                 />
+                <AttachmentPicker questionId={r.id} value={replyFile} onChange={setReplyFile} disabled={busy} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <button
-                    disabled={busy || replyText.trim().length < 2}
+                    /* A photo on its own is a message. Requiring words as well would tell
+                       somebody to describe the screenshot they are already sending. */
+                    disabled={busy || (replyText.trim().length < 2 && !replyFile)}
                     onClick={() => void sendFollowUp(r.id)}
                   >
                     {busy ? 'Sending...' : 'Send'}
                   </button>
-                  <button className="btn-ghost" disabled={busy} onClick={() => { setReplyingTo(null); setReplyText('') }}>
+                  <button className="btn-ghost" disabled={busy} onClick={() => { setReplyingTo(null); setReplyText(''); setReplyFile(null) }}>
                     Cancel
                   </button>
                   {sendError && <span style={{ fontSize: 13, color: '#991b1b' }}>{sendError}</span>}
