@@ -349,6 +349,30 @@ export async function POST(req: NextRequest) {
   }
 
   /*
+   * The receipt has been decided, so the notification that asked for a decision is done.
+   *
+   * Nothing used to close one. The bell only ever counted up, and by 2026-09-08 thirteen
+   * of its twenty-seven unread items were for work already finished. syncAdminNotifications
+   * checks whether anything of this BAM's is still open for the month before closing
+   * anything, because Emma Crowder had two receipts in review at once and shutting both
+   * notifications on the first decision would have buried the second.
+   *
+   * Backgrounded and never fatal: a decision that was recorded must not be reported as
+   * failed because a bell count did not update.
+   */
+  scheduleBackground(async () => {
+    try {
+      const { syncAdminNotifications } = await import('@/lib/notify-admin')
+      const out = await syncAdminNotifications(admin, {
+        bamId: receipt.bam_id, period: receipt.period
+      })
+      if (!out.ok) console.error('[decide] notification sync failed:', out.error)
+    } catch (e) {
+      console.error('[decide] notification sync threw:', e)
+    }
+  })
+
+  /*
    * Shortfall: record it, show it, do not mail about it.
    *
    * Approving a receipt under the floor used to fire TWO automatic emails, one to the
@@ -382,11 +406,25 @@ export async function POST(req: NextRequest) {
 
     scheduleBackground(async () => {
       try {
-        const { notifyAdmin } = await import('@/lib/notify-admin')
+        const { notifyAdmin, hasOpenNotification } = await import('@/lib/notify-admin')
+        /*
+         * One open shortfall per person per month.
+         *
+         * This fires on every approval, so three receipts produced three notifications
+         * each quoting a different running total, and only the last was ever true. Thomas
+         * Levesque got "$24.32 spent" and "$109.58 spent" on the same day. The monthly
+         * audit on the 16th is what produces the shortfall list Robin acts on
+         * (supabase/functions/scheduler-audit); this is an early heads-up, and one is
+         * enough.
+         */
+        if (await hasOpenNotification(admin, {
+          type: 'shortfall', bamId: receipt.bam_id, period: receipt.period
+        })) return
+
         await notifyAdmin({
           type: 'shortfall',
           title: 'Shortfall detected',
-          body: `$${totalSpentThisPeriod.toFixed(2)} spent, under the $${softFloorValue.toFixed(2)} soft floor`,
+          body: `$${totalSpentThisPeriod.toFixed(2)} spent so far, under the $${softFloorValue.toFixed(2)} soft floor. The month is not over.`,
           bam_id: receipt.bam_id,
           cohort_id: receipt.cohort_id,
           period: receipt.period,

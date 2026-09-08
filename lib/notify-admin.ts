@@ -84,3 +84,88 @@ export async function notifyAdminOrThrow(n: AdminNotification): Promise<string |
   if (!res.ok) throw new Error(`admin notification failed: ${res.error}`)
   return res.id
 }
+
+/*
+ * CLOSING NOTIFICATIONS, added 2026-09-08.
+ *
+ * Until now the bell only counted up. A notification became read when somebody clicked it
+ * or clicked "mark all read", and nothing ever closed one because the work behind it was
+ * finished. On 2026-09-08 the bell said 27 and 13 of those were for receipts that had
+ * already been decided, including nine cleared by a script an hour earlier.
+ *
+ * A counter that is mostly wrong is worse than no counter, because the number stops
+ * meaning "things waiting for you" and starts meaning "things that have ever happened",
+ * and then nobody opens it.
+ *
+ * This closes them from the state rather than from the click: it asks whether anything is
+ * still open for that BAM and month, and only then marks the notifications read. Safe to
+ * call from anywhere and safe to call twice.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type NotifyDb = { from: (...args: any[]) => any }
+
+export type SyncResult = { ok: true; closed: number } | { ok: false; error: string }
+
+/** Receipt states that keep a `receipt_review` / `ocr_failed` notification open. */
+const OPEN_STATE_FOR: Partial<Record<NotifType, string>> = {
+  receipt_review: 'review',
+  ocr_failed: 'ocr_failed'
+}
+
+/**
+ * Marks a BAM's open receipt notifications read once no receipt of theirs is still in
+ * that state for the period.
+ *
+ * The per-BAM-and-period check matters: Emma Crowder had two receipts in review at once,
+ * and closing her notifications when the first was decided would have hidden the second.
+ */
+export async function syncAdminNotifications(
+  db: NotifyDb,
+  args: { bamId: string; period: string }
+): Promise<SyncResult> {
+  const { data: receipts, error: rErr } = await db.from('receipts')
+    .select('status')
+    .eq('bam_id', args.bamId)
+    .eq('period', args.period)
+  if (rErr) return { ok: false, error: `receipts unreadable: ${rErr.message}` }
+
+  const statuses = new Set((receipts ?? []).map((r: { status: string }) => r.status))
+  const finished = (Object.keys(OPEN_STATE_FOR) as NotifType[])
+    .filter(type => !statuses.has(OPEN_STATE_FOR[type] as string))
+  if (finished.length === 0) return { ok: true, closed: 0 }
+
+  const { data, error } = await db.from('admin_notifications')
+    .update({ read: true })
+    .eq('bam_id', args.bamId)
+    .eq('period', args.period)
+    .eq('read', false)
+    .in('type', finished)
+    .select('id')
+  if (error) return { ok: false, error: `notifications not closed: ${error.message}` }
+
+  return { ok: true, closed: (data ?? []).length }
+}
+
+/**
+ * Is there already an unread notification saying this?
+ *
+ * Three receipts in a month produced three "Shortfall detected" for the same person, two
+ * of them on the same day, each quoting a different running total. Only the last one was
+ * ever true. A second copy of an open item is not new information.
+ */
+export async function hasOpenNotification(
+  db: NotifyDb,
+  args: { type: NotifType; bamId?: string | null; period?: string | null }
+): Promise<boolean> {
+  if (!args.bamId || !args.period) return false
+  const { data, error } = await db.from('admin_notifications')
+    .select('id')
+    .eq('type', args.type)
+    .eq('bam_id', args.bamId)
+    .eq('period', args.period)
+    .eq('read', false)
+    .limit(1)
+  // Unreadable means unknown, and a duplicate notification is better than a lost one.
+  if (error) return false
+  return (data ?? []).length > 0
+}

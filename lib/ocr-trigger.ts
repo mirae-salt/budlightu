@@ -55,11 +55,32 @@ export async function markOcrUnstarted(
     return
   }
   try {
-    const { notifyAdmin } = await import('./notify-admin')
+    const { notifyAdmin, hasOpenNotification } = await import('./notify-admin')
+    const { serviceClient } = await import('../supabase/functions/_shared/supabase-admin')
+    const db = serviceClient()
+
+    /*
+     * Who it belongs to. This used to be sent with no bam_id at all, so the bell said
+     * "Receipt OCR did not run" and Robin had no way to tell whose receipt it was, or to
+     * find it. It also meant nothing could ever close the notification, because there was
+     * nothing to match it against: two copies of the same failed receipt sat unread for
+     * three days.
+     */
+    const { data: owner } = await db.from('receipts')
+      .select('bam_id, cohort_id, period').eq('id', receiptId).single()
+
+    if (await hasOpenNotification(db, { type: 'ocr_failed', bamId: owner?.bam_id, period: owner?.period })) {
+      // A retry that fails again is the same open item, not a new one.
+      return
+    }
+
     await notifyAdmin({
       type: 'ocr_failed',
       title: 'Receipt OCR did not run',
-      body: `Receipt ${receiptId.slice(0, 8)} needs a manual retry. ${reason}`,
+      body: reason,
+      bam_id: owner?.bam_id,
+      cohort_id: owner?.cohort_id,
+      period: owner?.period,
       link: '/admin/receipts'
     })
   } catch (e) {

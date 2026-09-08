@@ -743,13 +743,17 @@ export async function POST(req: Request) {
     scheduleBackground(async () => {
       try {
         const { notifyAdmin } = await import('@/lib/notify-admin')
-        const bamLabel = thisReceipt?.bam_id ? `BAM ${thisReceipt.bam_id.slice(0, 8)}` : 'Unknown BAM'
+        /*
+         * No "BAM 6e93581e:" prefix any more. The row already carries bam_id and the bell
+         * resolves it to a name, so the id was a raw UUID eating the front of every
+         * preview, exactly where the reason should be.
+         */
         await notifyAdmin({
           type: 'receipt_review',
           title: ledgerError ? 'Auto-passed receipt held for review' : 'Receipt needs review',
           body: ledgerError
-            ? `${bamLabel}: the receipt passed every check, but its reimbursement could not be recorded (${ledgerError}), so it is waiting on a decision instead of being paid.`
-            : `${bamLabel}: ${decisionReason}`,
+            ? `The receipt passed every check, but its reimbursement could not be recorded (${ledgerError}), so it is waiting on a decision instead of being paid.`
+            : decisionReason,
           bam_id: thisReceipt?.bam_id,
           cohort_id: thisReceipt?.cohort_id,
           period: thisReceipt?.period,
@@ -757,6 +761,28 @@ export async function POST(req: Request) {
         })
       } catch (e) {
         console.error('[ocr] notifyAdmin failed:', e)
+      }
+    })
+  }
+
+  /*
+   * A read that worked closes the notification about a read that did not.
+   *
+   * A retry succeeding used to leave "Receipt OCR did not run" unread forever, because
+   * nothing anywhere marked a notification done. syncAdminNotifications only closes what
+   * is genuinely finished: it looks at whether any of this BAM's receipts for the month
+   * are still in that state first.
+   */
+  if (thisReceipt?.bam_id && thisReceipt?.period) {
+    scheduleBackground(async () => {
+      try {
+        const { syncAdminNotifications } = await import('@/lib/notify-admin')
+        const out = await syncAdminNotifications(db, {
+          bamId: thisReceipt.bam_id as string, period: thisReceipt.period as string
+        })
+        if (!out.ok) console.error('[ocr] notification sync failed:', out.error)
+      } catch (e) {
+        console.error('[ocr] notification sync threw:', e)
       }
     })
   }
