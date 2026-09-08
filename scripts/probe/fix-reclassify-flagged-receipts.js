@@ -37,6 +37,19 @@
 const { serviceClient, pass, fail, info, verdict, loadTs } = require('./_lib')
 
 const APPLY = process.argv.includes('--apply')
+
+/**
+ * Include receipts an admin reopened by hand.
+ *
+ * Off by default, because a reopen is a person deciding to look and the system should not
+ * overrule that. It exists because of Eloise Bergeron: Janet reopened both of hers on
+ * 2026-09-04 giving the reason "System did not read receipt correctly", and that reading
+ * was the deposit bug. The amounts now match the printed totals on her two photos, so the
+ * condition Janet reopened them for is gone. Deciding that is still a person's call, which
+ * is why it is a flag and not a rule.
+ */
+const INCLUDE_REOPENED = process.argv.includes('--include-reopened')
+
 const NOTE = 'recleared 2026-09-08: the bottle deposit is not a totals mismatch'
 
 /** The fraud flags today's rules would no longer raise, given the recorded OCR figures. */
@@ -71,8 +84,8 @@ async function main() {
     const pol = r.ambiguous_flags?.policy
     if (!r.ocr_json?.lines || !Number.isFinite(cap) || !pol) continue
 
-    if (r.reverted_count > 0) {
-      info(`${who}: an admin reopened this one, leaving it alone`)
+    if (r.reverted_count > 0 && !INCLUDE_REOPENED) {
+      info(`${who}: an admin reopened this one, leaving it alone (--include-reopened to override)`)
       continue
     }
 
@@ -116,11 +129,35 @@ async function main() {
   }
   pass(`all ${clearing.length} affected invoices are still draft`)
 
+  /*
+   * Each receipt was judged against the cap that was left when IT arrived, and clearing
+   * several at once can put a BAM over that cap between them. No money escapes, because
+   * the ledger caps what is paid, but the over-balance check that would fire on a fresh
+   * submission does not fire on a replay. Say so, rather than let it pass silently.
+   */
+  const byPeriod = new Map()
+  for (const c of clearing) {
+    const key = `${c.r.bam_id}|${c.r.period}`
+    if (!byPeriod.has(key)) byPeriod.set(key, { who: c.who, period: c.r.period, sum: 0 })
+    byPeriod.get(key).sum += Number(c.now.budLightTotalInclTax)
+  }
+  for (const [key, v] of byPeriod) {
+    const bamId = key.split('|')[0]
+    const { data: led } = await db.from('reimbursement_ledger')
+      .select('spent_cad, spendable_cap_cad').eq('bam_id', bamId).eq('period', v.period)
+    const already = Number(led?.[0]?.spent_cad ?? 0)
+    const cap = Number(led?.[0]?.spendable_cap_cad ?? 0)
+    if (cap > 0 && already + v.sum > cap + 0.01) {
+      info(`NOTE  ${v.who} ${v.period}: these clear to $${(already + v.sum).toFixed(2)} against a $${cap.toFixed(2)} cap, so she is paid the cap. Nobody was asked about going over.`)
+    }
+  }
+
   for (const { r, now, who } of clearing) {
     const before = Number(r.bud_light_total_incl_tax ?? 0)
     const moves = Math.abs(now.budLightTotalInclTax - before) > 0.01
     info(`${who} ${r.period}: review -> auto_pass at $${now.budLightTotalInclTax.toFixed(2)}` +
-      `${moves ? ` (amount also moves from $${before.toFixed(2)})` : ''}`)
+      `${moves ? ` (amount also moves from $${before.toFixed(2)})` : ''}` +
+      `${r.reverted_count > 0 ? '  [OVERRIDES an admin reopen]' : ''}`)
 
     if (!APPLY) { info('  dry run, nothing written'); continue }
 

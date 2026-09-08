@@ -148,7 +148,19 @@ function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
 }
 
 const BL_UNIT_MIN = 2.00
-const BL_UNIT_MAX = 70.00
+/*
+ * A single Bud Light line item above this is treated as a misread rather than a price.
+ *
+ * It was $70, which is under what the big-box formats actually cost. Thomas Ambrosio's
+ * Costco receipt prints "1012471 BUD LIGHT 89.99" twice, a legitimate 36-pack price, and
+ * it was flagged twice. The largest genuine line seen on the receipts we hold is that
+ * $89.99, with a Real Canadian Liquorstore 36-can at $62.00 behind it.
+ *
+ * $120 is a judgement call, not a researched ceiling: enough headroom above the biggest
+ * real pack to stop flagging them, low enough that a decimal misread ($899.90) still
+ * lands outside. Nothing is paid on this flag either way; it decides who looks.
+ */
+const BL_UNIT_MAX = 120.00
 
 function checkPriceReasonableness(ocr: Record<string, unknown>): string[] {
   const flags: string[] = []
@@ -159,8 +171,12 @@ function checkPriceReasonableness(ocr: Record<string, unknown>): string[] {
     const total = line.total ?? 0
     const qty = line.qty ?? 1
     const unitPrice = qty > 0 ? total / qty : total
-    if (unitPrice > 0 && (unitPrice < BL_UNIT_MIN || unitPrice > BL_UNIT_MAX))
-      flags.push(`price_outlier: "${line.desc}" at $${unitPrice.toFixed(2)}/unit outside expected range ($${BL_UNIT_MIN}–$${BL_UNIT_MAX})`)
+    if (unitPrice > 0 && (unitPrice < BL_UNIT_MIN || unitPrice > BL_UNIT_MAX)) {
+      // The same product twice on one receipt is one thing to look at, not two. Costco
+      // printed "1012471 BUD LIGHT" on two lines and the queue showed the warning twice.
+      const flag = `price_outlier: "${line.desc}" at $${unitPrice.toFixed(2)}/unit outside expected range ($${BL_UNIT_MIN}–$${BL_UNIT_MAX})`
+      if (!flags.includes(flag)) flags.push(flag)
+    }
   }
 
   return flags
