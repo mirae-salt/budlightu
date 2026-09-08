@@ -11,7 +11,7 @@
  * Override via OPENROUTER_MODEL env var (e.g. google/gemini-2.0-flash-001).
  */
 import { serviceClient } from '../_shared/supabase-admin'
-import { recomputeBudLightTotal, depositShapedGap, type OcrResult } from '../../../lib/classify-receipt'
+import { recomputeBudLightTotal, depositShapedGap, isDepositLine, type OcrResult } from '../../../lib/classify-receipt'
 import { parseConfidence } from '../../../lib/money'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -168,8 +168,21 @@ function checkPriceReasonableness(ocr: Record<string, unknown>): string[] {
 
   for (const line of lines) {
     if (!line.is_bud_light) continue
+    /*
+     * A deposit is not a price, and the floor was never meant for one. Isla O'Sullivan's
+     * receipt was flagged because a $1.20 deposit the model had ticked as Bud Light came
+     * in under the $2 minimum. Both times this check has fired on real data it was wrong,
+     * and this was one of them.
+     */
+    if (isDepositLine(line.desc)) continue
     const total = line.total ?? 0
     const qty = line.qty ?? 1
+    /*
+     * Named a unit price, but `qty` on these receipts counts PACKS, so this is a pack
+     * price. The bounds are therefore a plausibility band on a line total rather than
+     * anything about what a can costs, and they are chosen, not derived. Worth knowing
+     * before widening or trusting them.
+     */
     const unitPrice = qty > 0 ? total / qty : total
     if (unitPrice > 0 && (unitPrice < BL_UNIT_MIN || unitPrice > BL_UNIT_MAX)) {
       // The same product twice on one receipt is one thing to look at, not two. Costco

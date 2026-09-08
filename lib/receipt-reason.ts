@@ -56,7 +56,9 @@ const LABELS: Record<string, string> = {
   first_cohort_all_review: 'Review-everything policy',
   low_confidence: 'Low confidence',
   exif_missing: 'No photo metadata',
-  price_unreasonable: 'Price looks wrong'
+  price_unreasonable: 'Price looks wrong',
+  ocr_not_started: 'Could not read this file',
+  ocr_failed: 'Could not read this file'
 }
 
 /** bar_restaurant -> "Bar restaurant". Last resort, for a code nobody has labelled. */
@@ -97,6 +99,51 @@ function cleanDetail(text: string): string {
     .join('. ')
 }
 
+/*
+ * What an OCR failure stores is the upstream error verbatim, JSON and all:
+ *
+ *   ocr_not_started: OCR endpoint returned 500. {"ok":false,"error":"OpenRouter 400:
+ *   {\"error\":{\"message\":\"Invalid image data-url\",\"code\":400,...
+ *
+ * Robin was shown that. It names two vendors she has no relationship with, gives her no
+ * idea what went wrong, and runs off the edge of the column. Meanwhile the actual cause
+ * of the one on file was that the uploaded file was zero bytes.
+ *
+ * The raw string stays in the database. It is the audit record, and it is what tells us
+ * which vendor failed. This decides what a person is shown in its place.
+ */
+const OCR_FAILURE_SIGNATURES: Array<[RegExp, string]> = [
+  // A data URL with no image behind it. Nearly always an empty or truncated upload.
+  [/invalid image data.?url|could not (be )?decode|unsupported image/i,
+    'The file did not contain a readable image. Ask them to upload it again.'],
+  [/\b(429|rate.?limit|too many requests)\b/i,
+    'The reader was busy. Retrying usually works.'],
+  [/\b(timeout|timed out|etimedout|deadline)\b/i,
+    'The reader took too long to answer. Retrying usually works.'],
+  [/\b(413|payload too large|file too large)\b/i,
+    'The file was too large for the reader.'],
+  [/\b(401|403|unauthorized|forbidden|invalid api key)\b/i,
+    'The reader rejected our credentials. This one is on us, not the student.'],
+  [/\b5\d\d\b|internal server error|bad gateway|service unavailable/i,
+    'The reader failed on its side. Retrying usually works.']
+]
+
+/**
+ * A short, actionable sentence for a failed read.
+ *
+ * `storageBytes` wins when it is zero, because that is the cause rather than a symptom
+ * and it is the only version that tells someone what to do about it.
+ */
+export function explainOcrFailure(raw: string, storageBytes?: number | null): string {
+  if (storageBytes === 0) {
+    return 'The uploaded file is empty (0 bytes). Ask them to upload the receipt again.'
+  }
+  for (const [pattern, message] of OCR_FAILURE_SIGNATURES) {
+    if (pattern.test(raw)) return message
+  }
+  return 'The reader could not process this file. Try again, or ask them to re-upload it.'
+}
+
 /**
  * Splits a stored reason into its findings.
  *
@@ -105,7 +152,10 @@ function cleanDetail(text: string): string {
  * sentence ("No Bud Light items detected on this receipt") and dropping those, or
  * mangling them into a fake code, would lose the only thing the row says.
  */
-export function parseReason(reason: string | null | undefined): ReasonPart[] {
+export function parseReason(
+  reason: string | null | undefined,
+  opts?: { storageBytes?: number | null }
+): ReasonPart[] {
   if (!reason) return []
   return String(reason)
     .split('|')
@@ -115,7 +165,13 @@ export function parseReason(reason: string | null | undefined): ReasonPart[] {
       const m = clause.match(/^([a-z][a-z0-9_]*):\s*([\s\S]+)$/)
       if (!m) return { code: null, label: '', detail: cleanDetail(clause) }
       const code = m[1]
-      return { code, label: LABELS[code] ?? humanizeCode(code), detail: cleanDetail(m[2]) }
+      const label = LABELS[code] ?? humanizeCode(code)
+      // A read that never produced anything is the one case where the stored text is a
+      // vendor error rather than a finding, so it is replaced rather than cleaned.
+      if (code.startsWith('ocr_')) {
+        return { code, label, detail: explainOcrFailure(m[2], opts?.storageBytes) }
+      }
+      return { code, label, detail: cleanDetail(m[2]) }
     })
     .filter(p => p.detail.length > 0 || p.label.length > 0)
 }

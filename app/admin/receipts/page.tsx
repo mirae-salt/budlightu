@@ -23,6 +23,7 @@ type Row = ReceiptRow & {
   isTest: boolean
   storageKey?: string
   storageMime?: string
+  storageBytes?: number | null
   ocrJson?: OcrData | null
   /** the stored amount as a number, for the correction preview delta */
   totalCad?: number | null
@@ -58,6 +59,7 @@ type DbReceipt = {
   decision_reason: string | null
   storage_key: string | null
   storage_mime: string | null
+  storage_bytes: number | null
   cohort_id: string | null
   ocr_json: OcrData | null
   bams: { first_name: string; last_name: string; is_test: boolean | null } | null
@@ -77,6 +79,16 @@ function receiptImageUrl(storageKey: string, bam?: string): string {
   const base = `/api/admin/receipts/image?key=${encodeURIComponent(storageKey)}`
   // '—' is the table's placeholder for an unresolved BAM, not a name.
   return bam && bam !== '—' ? `${base}&name=${encodeURIComponent(bam)}` : base
+}
+
+/*
+ * A receipt is not always a photo. Uploads accept PDF, and every render site here was an
+ * <img>, so Kennedy Cober's 860 KB PDF showed as a broken image in the thumbnail, the
+ * expanded row and the lightbox alike. Robin could not see the receipt she was being
+ * asked to decide on, and nothing on screen said why.
+ */
+function isPdfReceipt(mime?: string): boolean {
+  return (mime ?? '').toLowerCase().startsWith('application/pdf')
 }
 
 function reasonFor(r: DbReceipt): string {
@@ -112,6 +124,7 @@ function mapDbReceipt(r: DbReceipt): Row {
     decidedReason: r.decision_reason ?? undefined,
     storageKey: r.storage_key ?? undefined,
     storageMime: r.storage_mime ?? undefined,
+    storageBytes: r.storage_bytes ?? null,
     ocrJson: r.ocr_json ?? undefined,
   }
 }
@@ -124,8 +137,11 @@ function mapDbReceipt(r: DbReceipt): Row {
  * dropped: free-text clauses with no code show as their own line, and the full stored
  * string stays in the database untouched.
  */
-function ReasonList({ reason, compact = false }: { reason: string; compact?: boolean }) {
-  const parts = parseReason(reason)
+function ReasonList(
+  { reason, compact = false, storageBytes }:
+  { reason: string; compact?: boolean; storageBytes?: number | null }
+) {
+  const parts = parseReason(reason, { storageBytes })
   if (parts.length === 0) return null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 4 : 6 }}>
@@ -176,7 +192,7 @@ export default function ReceiptsQueue() {
   const [reason, setReason] = useState('')
   const [amountOverride, setAmountOverride] = useState('')
   const [retrying, setRetrying] = useState<string | null>(null)
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; pdf: boolean } | null>(null)
   /**
    * Corrected Bud Light ticks for the row that is open. Only one row expands at a
    * time, so it is keyed by receipt id rather than kept per row: a selection must
@@ -514,11 +530,24 @@ export default function ReceiptsQueue() {
               <Fragment key={r.id}>
                 <tr>
                   <td style={{ padding: '4px 6px' }}>
-                    {r.storageKey ? (
+                    {r.storageKey && isPdfReceipt(r.storageMime) ? (
+                      <div
+                        onClick={() => setLightbox({ src: receiptImageUrl(r.storageKey!, r.bam), pdf: true })}
+                        title="PDF receipt"
+                        style={{
+                          width: 40, height: 40, borderRadius: 6,
+                          border: '1px solid var(--stone)', background: 'var(--bl-fog)',
+                          display: 'grid', placeItems: 'center', cursor: 'pointer',
+                          fontSize: 9, fontWeight: 700, color: 'var(--midgray)', letterSpacing: 0.5,
+                        }}
+                      >
+                        PDF
+                      </div>
+                    ) : r.storageKey ? (
                       <img
                         src={receiptImageUrl(r.storageKey, r.bam)}
                         alt="Receipt"
-                        onClick={() => setLightboxSrc(receiptImageUrl(r.storageKey!, r.bam))}
+                        onClick={() => setLightbox({ src: receiptImageUrl(r.storageKey!, r.bam), pdf: false })}
                         style={{
                           width: 40, height: 40, objectFit: 'cover',
                           borderRadius: 6, border: '1px solid var(--stone)',
@@ -545,7 +574,7 @@ export default function ReceiptsQueue() {
                       </div>
                     )}
                   </td>
-                  <td className="muted" style={{ fontSize: 12.5, maxWidth: 360 }}><ReasonList reason={r.reason} compact /></td>
+                  <td className="muted" style={{ fontSize: 12.5, maxWidth: 360 }}><ReasonList reason={r.reason} storageBytes={r.storageBytes} compact /></td>
                   <td>
                     {r.status === 'pending'
                       ? <span className="badge badge-blue">PENDING</span>
@@ -572,9 +601,36 @@ export default function ReceiptsQueue() {
                   <tr>
                     <td colSpan={tab === 'history' ? 8 : 7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-                        {r.storageKey ? (
+                        {r.storageKey && isPdfReceipt(r.storageMime) ? (
+                          <div style={{ flexShrink: 0 }}>
+                            <object
+                              data={receiptImageUrl(r.storageKey, r.bam)}
+                              type="application/pdf"
+                              style={{
+                                width: 160, height: 220, display: 'block',
+                                borderRadius: 8, border: '1px solid var(--stone)',
+                                background: 'var(--stone-lt)'
+                              }}
+                            >
+                              {/* Shown by browsers that will not embed a PDF at all. */}
+                              <a href={receiptImageUrl(r.storageKey, r.bam)} target="_blank" rel="noreferrer">
+                                Open PDF
+                              </a>
+                            </object>
+                            <button
+                              onClick={() => setLightbox({ src: receiptImageUrl(r.storageKey!, r.bam), pdf: true })}
+                              style={{
+                                marginTop: 6, width: 160, padding: '4px 0', fontSize: 11,
+                                border: '1px solid var(--stone)', borderRadius: 6,
+                                background: '#fff', cursor: 'pointer', color: 'var(--midgray)'
+                              }}
+                            >
+                              Open full size
+                            </button>
+                          </div>
+                        ) : r.storageKey ? (
                           <div
-                            onClick={() => setLightboxSrc(receiptImageUrl(r.storageKey!, r.bam))}
+                            onClick={() => setLightbox({ src: receiptImageUrl(r.storageKey!, r.bam), pdf: false })}
                             style={{ flexShrink: 0, cursor: 'pointer' }}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -601,7 +657,7 @@ export default function ReceiptsQueue() {
                         )}
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.bam} · {r.total}</div>
-                          <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}><ReasonList reason={r.reason} /></div>
+                          <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}><ReasonList reason={r.reason} storageBytes={r.storageBytes} /></div>
 
                           {r.ocrJson && r.ocrJson.lines && (
                             <div style={{ marginBottom: 12 }}>
@@ -967,27 +1023,40 @@ export default function ReceiptsQueue() {
         </div>
       </div>
 
-      {lightboxSrc && (
+      {lightbox && (
         <div
-          onClick={() => setLightboxSrc(null)}
+          onClick={() => setLightbox(null)}
           style={{
             position: 'fixed', inset: 0, zIndex: 9999,
             background: 'rgba(0,0,0,0.8)', display: 'grid', placeItems: 'center',
             cursor: 'zoom-out', padding: 24,
           }}
         >
-          <img
-            src={lightboxSrc}
-            alt="Receipt full size"
-            onClick={e => e.stopPropagation()}
-            style={{
-              maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain',
-              borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
-              cursor: 'default',
-            }}
-          />
+          {lightbox.pdf ? (
+            <iframe
+              src={lightbox.src}
+              title="Receipt full size"
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: '90vw', height: '90vh', border: 'none',
+                borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                background: '#fff', cursor: 'default',
+              }}
+            />
+          ) : (
+            <img
+              src={lightbox.src}
+              alt="Receipt full size"
+              onClick={e => e.stopPropagation()}
+              style={{
+                maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain',
+                borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+                cursor: 'default',
+              }}
+            />
+          )}
           <button
-            onClick={() => setLightboxSrc(null)}
+            onClick={() => setLightbox(null)}
             style={{
               position: 'absolute', top: 16, right: 24,
               background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8,
