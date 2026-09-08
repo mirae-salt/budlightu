@@ -19,19 +19,26 @@ const TEST_RECEIPT_SHA = '52076429a897991a9afc42187ca2a04c3beed099955d0675cb1803
  * Measured against production on 2026-09-08, not looked up: 4,400,000 bytes reached this
  * route (401, no session) and 4,600,000 was refused by the platform with a 413.
  *
- * A round 4 MiB (4,194,304) would have been tidier and would have started rejecting
- * uploads that work today: the largest of the 40 real receipts on file is 4.13 MiB. The
- * limit that was wrong in the first place was a round number nobody had measured, so this
- * one is the measurement, with ~100 KB left for multipart overhead.
+ * It has to sit above every receipt that already works and below what the platform takes.
+ * The largest real one is 4,330,000 bytes, and 4,400,000 is the largest size measured
+ * getting through, so the window is narrow and this is the top of it, ~100 KB under the
+ * ceiling for multipart overhead.
+ *
+ * It was briefly 4,300,000, which was BELOW that largest real receipt and would have
+ * started refusing an upload that had already worked. The mistake was comparing a size
+ * read in MiB (4.13) against a limit written in decimal MB, which are different numbers
+ * for the same file. Sizes here are decimal bytes throughout, and the constant is a
+ * measurement rather than a round number, because a round number nobody had measured is
+ * what caused all of this.
  *
  * Raising it needs the upload to stop going through the function at all (a signed upload
  * straight to Supabase Storage), not a bigger number here.
  * `experimental.serverActions.bodySizeLimit` in next.config.js does NOT apply: this is a
  * route handler, not a server action.
  */
-const MAX_BYTES = 4_300_000
+const MAX_BYTES = 4_400_000
 /** What to call it on screen. Kept beside the number so the two cannot drift. */
-const MAX_LABEL = '4.3 MB'
+const MAX_LABEL = '4.4 MB'
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 
 export async function POST(req: NextRequest) {

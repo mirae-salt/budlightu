@@ -12,12 +12,12 @@ import Link from 'next/link'
  * 2026-09-04, saw a failure with no reason, and only got through from his phone, where
  * the browser sends a smaller photo.
  *
- * 4,300,000 and not a round 4 MiB because 4 MiB would start rejecting uploads that work
- * today: the largest real receipt on file is 4.13 MiB. Keep it in step with MAX_BYTES in
+ * Above the largest receipt that already works (4,330,000 bytes) and below the largest
+ * measured getting through (4,400,000). Keep it in step with MAX_BYTES in
  * app/api/portal/upload/route.ts, where the full note lives.
  */
-const MAX_BYTES = 4_300_000
-const MAX_LABEL = '4.3 MB'
+const MAX_BYTES = 4_400_000
+const MAX_LABEL = '4.4 MB'
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
 export default function UploadPage() {
