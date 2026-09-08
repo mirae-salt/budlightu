@@ -687,16 +687,31 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
     }
   }
 
-  // P0-G: the REVIEW band, via the shared predicate (previously dead code).
+  /*
+   * P0-G: the REVIEW band, via the shared predicate (previously dead code).
+   *
+   * These three sentences are what a program manager reads before deciding, so they say
+   * what she is deciding about. The first one used to read "$157.77 >= spendable_cap
+   * $150.00", which put a column name on her screen and, worse, left the impression that
+   * approving it pays out $157.77. It does not. The amount on the receipt is what the
+   * student SPENT; what they are PAID is capped in the ledger
+   * (lib/reimbursement.ts, paidThisMonth = min(spent, spendableCap, capSnapshot)), and
+   * the receipt keeps the real figure because Robin needs it to judge a shortfall.
+   *
+   * So the wording states the cap and says nothing above it is reimbursed, which is true
+   * whichever of those three bounds binds. It deliberately does not name a payout figure:
+   * this function cannot see capSnapshot, and a sentence that promises a number it cannot
+   * check is how the screen starts lying again.
+   */
   if (isInReviewBand(total, spendableCap, reimbursementMax, padding)) {
     if (total >= spendableCap) {
-      return out('review', `$${total.toFixed(2)} >= spendable_cap $${spendableCap.toFixed(2)} -- at or over the monthly cap, needs admin confirmation`)
+      return out('review', `over_cap: spent $${total.toFixed(2)}. The monthly cap is $${spendableCap.toFixed(2)}, and nothing above it is reimbursed -- confirm the receipt is genuine`)
     }
     if (total >= reimbursementMax) {
-      return out('review', `$${total.toFixed(2)} is at or over the $${reimbursementMax.toFixed(2)} monthly maximum -- needs admin confirmation`)
+      return out('review', `over_cap: spent $${total.toFixed(2)}. The monthly maximum is $${reimbursementMax.toFixed(2)}, and nothing above it is reimbursed -- confirm the receipt is genuine`)
     }
     const softFloor = round2(Math.min(spendableCap, reimbursementMax) - padding)
-    return out('review', `$${total.toFixed(2)} is inside the review band ($${softFloor.toFixed(2)} to $${Math.min(spendableCap, reimbursementMax).toFixed(2)}) -- a program manager decides`)
+    return out('review', `review_band: spent $${total.toFixed(2)}, just under the $${Math.min(spendableCap, reimbursementMax).toFixed(2)} cap (anything from $${softFloor.toFixed(2)} is checked) -- a program manager decides`)
   }
 
   return out('auto_pass', `meets all auto-pass thresholds (recomputed $${total.toFixed(2)} from line items)`)

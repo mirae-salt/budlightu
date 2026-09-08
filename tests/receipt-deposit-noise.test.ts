@@ -107,7 +107,7 @@ describe('the model leaves the deposit out, and that is not a disagreement', () 
       lowResolutionHeuristic: false
     })
     expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/spendable_cap/)
+    expect(out.reason).toMatch(/over_cap/)
     expect(out.reason).not.toMatch(/total_mismatch/)
     expect(out.budLightTotalInclTax).toBe(150.62)
   })

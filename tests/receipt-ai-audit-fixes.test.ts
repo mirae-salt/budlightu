@@ -252,7 +252,7 @@ describe('P0-G: REVIEW band + first-cohort safeguard', () => {
     for (const t of [140, 145, 149, 149.99]) {
       const out = classifyReceipt({ ocr: clean(t) as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
       expect(out.status, `total ${t}`).toBe('review')
-      expect(out.reason).toMatch(/review band/)
+      expect(out.reason).toMatch(/^review_band: /)
     }
   })
   it('$139.99 and below can still auto_pass', () => {

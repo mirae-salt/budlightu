@@ -30,7 +30,10 @@ describe('classifyReceipt', () => {
       lowResolutionHeuristic: false
     })
     expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/>= spendable_cap/)
+    expect(out.reason).toMatch(/^over_cap: spent \$165\.00\. The monthly cap is \$150\.00/)
+    // The point of the wording: it must not read as a promise to pay $165.
+    expect(out.reason).toMatch(/nothing above it is reimbursed/)
+    expect(out.reason).not.toMatch(/spendable_cap/)
   })
 
   it('clean receipt genuinely below the review band → auto_pass', () => {
@@ -65,7 +68,7 @@ describe('classifyReceipt', () => {
       lowResolutionHeuristic: false
     })
     expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/review band/)
+    expect(out.reason).toMatch(/^review_band: /)
   })
 
   it('boundary at ROLLING cap ($195 with spendableCap=200) → review (P0-2 verified)', () => {

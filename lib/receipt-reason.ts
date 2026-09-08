@@ -57,6 +57,10 @@ const LABELS: Record<string, string> = {
   low_confidence: 'Low confidence',
   exif_missing: 'No photo metadata',
   price_unreasonable: 'Price looks wrong',
+  // The check that wrote this was removed on 2026-09-08; rows still carry it.
+  price_outlier: 'Price looks wrong',
+  over_cap: 'Over the monthly cap',
+  review_band: 'Close to the monthly cap',
   ocr_not_started: 'Could not read this file',
   ocr_failed: 'Could not read this file'
 }
@@ -75,6 +79,8 @@ const LEAKED_IDENTIFIERS: Array<[RegExp, string]> = [
   [/\bgrand_total\b/g, 'the receipt total'],
   [/\bbud_light_total_incl_tax\b/g, 'the Bud Light total'],
   [/\breimbursement_max\b/g, 'the monthly cap'],
+  // Fixed at the source on 2026-09-08; still on every row written before that.
+  [/\bspendable_cap\b/g, 'the monthly cap'],
   [/\bsubtotal\(/g, 'subtotal ('],
   [/\btax\(/g, 'tax (']
 ]
