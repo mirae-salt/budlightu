@@ -1,7 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getMonthlyBalance } from '@/lib/balance'
-import { classifyReceipt, recomputeBudLightTotal, type OcrResult } from '@/lib/classify-receipt'
+import { classifyReceipt, recomputeBudLightTotal, type OcrResult, depositShapedGap } from '@/lib/classify-receipt'
 import { DEFAULT_POLICY } from '@/lib/policy'
 import { parseNonNegativeMoney } from '@/lib/money'
 import { cleanEnvValue } from '@/lib/sanitize'
@@ -109,7 +109,14 @@ function checkOcrPatterns(ocr: Record<string, unknown>, mixedLines: boolean): st
   if (subtotal > 0 && grandTotal > 0 && tax > 0) {
     const expected = subtotal + tax
     const diff = Math.abs(expected - grandTotal)
-    if (diff > 2.00 && diff / grandTotal > 0.03)
+    /*
+     * A container deposit is charged on top of the subtotal and is not taxed, and the
+     * Beer Store and ACE Liquor give it no line of its own, so their receipts genuinely
+     * total more than their own subtotal plus tax. Three of those were flagged in the
+     * first week of September with nothing wrong with them. depositShapedGap forgives
+     * only a gap in that direction and of that size; a delivery fee is still flagged.
+     */
+    if (diff > 2.00 && diff / grandTotal > 0.03 && !depositShapedGap(subtotal, tax, grandTotal))
       // Written to be read: "grand_total" is a column name, not a thing on a receipt.
       flags.push(`total_mismatch: subtotal ($${subtotal.toFixed(2)}) plus tax ($${tax.toFixed(2)}) comes to $${expected.toFixed(2)}, but the receipt total is $${grandTotal.toFixed(2)}`)
   }

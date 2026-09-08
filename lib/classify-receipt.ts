@@ -176,10 +176,48 @@ function reconcileTolerance(reference: number): number {
  *
  * ONTARIO NOTE: LCBO deposits are also untaxed, so this is not a Quebec special case.
  */
-const DEPOSIT_PATTERN = /\b(consigne|d[ée]p[oô]t|deposit|bottle\s*deposit)\b/i
+const DEPOSIT_PATTERN = /\b(consigne|d[ée]p[oô]ts?|deposits?)\b/i
+
+/**
+ * The same thing abbreviated. LCBO prints "DEP 1.20 ea." and BC liquor stores print
+ * "Dep $ 1.50", neither of which the word list above catches, so both were read as a
+ * second product. That is what made Alexandra Zare's two cases of Bud Light look like a
+ * mixed receipt, and it cost her the $2.40 of deposit she paid.
+ *
+ * A price has to follow. Three letters on their own are too little to act on, and a
+ * deposit that is not a charge is not a deposit.
+ */
+const DEPOSIT_ABBREV = /\bdep\b[\s.:]*\$?\s*\d/i
 
 export function isDepositLine(desc: unknown): boolean {
-  return typeof desc === 'string' && DEPOSIT_PATTERN.test(desc)
+  if (typeof desc !== 'string') return false
+  return DEPOSIT_PATTERN.test(desc) || DEPOSIT_ABBREV.test(desc)
+}
+
+/**
+ * Does the gap between a receipt's own arithmetic and its printed total look like a
+ * deposit that was never itemised?
+ *
+ * The Beer Store and ACE Liquor print a subtotal and a tax, then a total larger than the
+ * two of them, because the container deposit sits outside both and gets no line of its
+ * own. Julia Sampogna's receipt reads 93.98 + 12.22 = 106.20 against a printed 112.20,
+ * and the missing $6.00 is sixty cans at ten cents. Three receipts in the first week of
+ * September were flagged "totals do not add up" for exactly this, and nothing was wrong
+ * with any of them.
+ *
+ * Only a gap in the direction a deposit goes is forgiven. A total SMALLER than subtotal
+ * plus tax cannot be a deposit and stays flagged, and so does a gap too large to be one:
+ * Eesha Nandha's Uber Eats order runs $20.55 over its own subtotal and tax, which is a
+ * delivery fee and a tip, and an admin should see it.
+ *
+ * The bound is deliberately loose, because this decides whether a person looks at the
+ * receipt rather than what anyone is paid. The amount is recomputed from the line items
+ * either way, and grandTotalIsSane bounds the printed total separately.
+ */
+export function depositShapedGap(subtotal: number, tax: number, grandTotal: number): boolean {
+  const gap = round2(grandTotal - (subtotal + tax))
+  if (gap <= 0) return false
+  return gap <= 20 && gap <= grandTotal * 0.12
 }
 
 /**
@@ -471,7 +509,37 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   }
 
   const mismatchDelta = modelTotal === null ? null : round2(Math.abs(modelTotal - total))
-  const mismatch = modelTotal === null || (mismatchDelta as number) > TOTAL_MISMATCH_TOLERANCE_CAD
+
+  /*
+   * The model answers a slightly different question than we do, and the difference is
+   * the deposit.
+   *
+   * Asked for the Bud Light total, it returns the product with its tax and leaves the
+   * bottle deposit out. We include the deposit, because the student paid it and it is
+   * part of the receipt total. So the two figures disagree by exactly the deposit,
+   * receipt after receipt, and every one of them tripped the $1 tolerance and went to
+   * Robin. Thirteen of the thirty-eight receipts on file on 2026-09-08 were in the queue
+   * for this and nothing else, and the amount stored on all thirteen was already right.
+   *
+   * A disagreement the deposit accounts for is therefore corroboration, not conflict.
+   * Anything it does NOT account for still goes to review, which is what catches the case
+   * this rule was written for: on Thomas Levesque's Metro receipt a RABAIS of -10.00 sits
+   * between the two figures, the deposit does not close the gap, and it is flagged.
+   */
+  const depositExplainsGap =
+    modelTotal !== null && blDeposit > 0 &&
+    Math.abs(round2(modelTotal + blDeposit) - total) <= TOTAL_MISMATCH_TOLERANCE_CAD
+
+  const mismatch =
+    modelTotal === null ||
+    (!depositExplainsGap && (mismatchDelta as number) > TOTAL_MISMATCH_TOLERANCE_CAD)
+
+  if (depositExplainsGap && (mismatchDelta as number) > TOTAL_MISMATCH_TOLERANCE_CAD) {
+    notes.push(
+      `the model reported $${(modelTotal as number).toFixed(2)}, which is this total less the ` +
+      `$${blDeposit.toFixed(2)} deposit it leaves out, so the two agree`
+    )
+  }
 
   // (b) a Bud Light subtotal cannot exceed what the whole receipt was worth
   const exceedsGrandTotal = grandTotal !== null && grandTotal > 0 && total > round2(grandTotal + 0.01)
