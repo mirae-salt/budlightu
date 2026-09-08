@@ -5,7 +5,19 @@ import { resolveBamId } from '@/lib/portal-bam'
 import { buildMonthOptions, type CohortWindow } from '@/lib/upload-months'
 import Link from 'next/link'
 
-const MAX_MB = 10
+/*
+ * 4, not 10, because the platform refuses the request above 4.5 MB before any of our code
+ * runs. Measured against production on 2026-09-08: 4,400,000 bytes got through to the
+ * route, 4,600,000 came back as a plain-text 413 from Vercel. Theo Cliche hit it on
+ * 2026-09-04, saw a failure with no reason, and only got through from his phone, where
+ * the browser sends a smaller photo.
+ *
+ * 4,300,000 and not a round 4 MiB because 4 MiB would start rejecting uploads that work
+ * today: the largest real receipt on file is 4.13 MiB. Keep it in step with MAX_BYTES in
+ * app/api/portal/upload/route.ts, where the full note lives.
+ */
+const MAX_BYTES = 4_300_000
+const MAX_LABEL = '4.3 MB'
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
 export default function UploadPage() {
@@ -137,7 +149,14 @@ export default function UploadPage() {
     setErr(null)
     for (const f of picked) {
       if (!ALLOWED_MIME.includes(f.type)) return setErr(`${f.name}: unsupported file type (only JPG, PNG, WebP, PDF)`)
-      if (f.size > MAX_MB * 1024 * 1024) return setErr(`${f.name}: over ${MAX_MB} MB`)
+      if (f.size > MAX_BYTES) {
+        // Says what to do, not just what is wrong. A photo taken and uploaded on a phone
+        // is almost always small enough; the same photo copied to a computer is not.
+        return setErr(
+          `${f.name} is ${(f.size / 1_000_000).toFixed(1)} MB, over the ${MAX_LABEL} limit. ` +
+          `Try taking the photo on your phone and uploading it there.`
+        )
+      }
     }
     setFiles(prev => [...prev, ...picked])
   }
@@ -188,7 +207,21 @@ export default function UploadPage() {
       const res = await fetch('/api/portal/upload', { method: 'POST', body: form })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
-        setErr(`Upload failed: ${json.message || res.statusText}`)
+        /*
+         * A rejection that never reached our code has no JSON to explain itself, and this
+         * used to fall through to res.statusText and render as a bare "Upload failed:".
+         * That is exactly what Theo Cliche was looking at on 2026-09-04 while the real
+         * problem was that his file was too big for the platform to accept.
+         *
+         * 413 is the one that happens in practice. The final fallback covers everything
+         * else, because a message with nothing in it is the worst of the three.
+         */
+        const reason =
+          json.message ||
+          (res.status === 413
+            ? `That file is too big to send. Keep each receipt under ${MAX_LABEL}, or take the photo on your phone and upload it there.`
+            : res.statusText || `The server returned an error (${res.status}). Please try again, or contact your program manager.`)
+        setErr(`Upload failed: ${reason}`)
         setBusy(false)
         return
       }
@@ -208,7 +241,7 @@ export default function UploadPage() {
 
       <div style={{ maxWidth: 680 }}>
         <h1>Upload this month&rsquo;s Bud Light receipts</h1>
-        <p className="subtle">Multiple receipts OK. JPG, PNG, WebP, or PDF. Under {MAX_MB}&nbsp;MB each.</p>
+        <p className="subtle">Multiple receipts OK. JPG, PNG, WebP, or PDF. Under {MAX_LABEL} each, so upload straight from your phone if you can.</p>
 
         <div className="surface stack" style={{ marginTop: 20 }}>
           <div>
@@ -343,7 +376,7 @@ export default function UploadPage() {
               Drop receipts here or <span style={{ color: 'var(--bl-blue)', textDecoration: 'underline' }}>browse</span>
             </p>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-              JPG, PNG, WebP, or PDF. Up to {MAX_MB} MB each
+              JPG, PNG, WebP, or PDF. Up to {MAX_LABEL} each
             </p>
           </div>
 

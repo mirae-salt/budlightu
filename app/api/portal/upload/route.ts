@@ -6,7 +6,32 @@ import { requireAdmin, requireBam, denied } from '../../../../lib/admin-auth'
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 const TEST_RECEIPT_SHA = '52076429a897991a9afc42187ca2a04c3beed099955d0675cb180352d09a268d'
-const MAX_BYTES = 10 * 1024 * 1024
+/*
+ * 4,300,000 bytes, and the odd number is the point.
+ *
+ * This said 10 MB, and so did the upload page, and neither was true. Vercel refuses a
+ * serverless function request body over 4.5 MB itself: the reply is a plain-text
+ * FUNCTION_PAYLOAD_TOO_LARGE, not our JSON, so the portal had nothing to show and printed
+ * "Upload failed:" with no reason. Theo Cliche lost a day to it on 2026-09-04 and only got
+ * through from his phone, where the browser sends a smaller photo. A student who does not
+ * write in just does not get reimbursed.
+ *
+ * Measured against production on 2026-09-08, not looked up: 4,400,000 bytes reached this
+ * route (401, no session) and 4,600,000 was refused by the platform with a 413.
+ *
+ * A round 4 MiB (4,194,304) would have been tidier and would have started rejecting
+ * uploads that work today: the largest of the 40 real receipts on file is 4.13 MiB. The
+ * limit that was wrong in the first place was a round number nobody had measured, so this
+ * one is the measurement, with ~100 KB left for multipart overhead.
+ *
+ * Raising it needs the upload to stop going through the function at all (a signed upload
+ * straight to Supabase Storage), not a bigger number here.
+ * `experimental.serverActions.bodySizeLimit` in next.config.js does NOT apply: this is a
+ * route handler, not a server action.
+ */
+const MAX_BYTES = 4_300_000
+/** What to call it on screen. Kept beside the number so the two cannot drift. */
+const MAX_LABEL = '4.3 MB'
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 
 export async function POST(req: NextRequest) {
@@ -32,7 +57,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'Unsupported file type. Only JPG, PNG, WebP, and PDF are accepted.' }, { status: 400 })
   }
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ ok: false, message: `File too large. Maximum size is ${MAX_BYTES / 1024 / 1024} MB.` }, { status: 400 })
+    return NextResponse.json({
+      ok: false,
+      message: `That file is over ${MAX_LABEL}. Take the photo on your phone and upload it there, which usually makes a smaller file.`
+    }, { status: 400 })
   }
   /*
    * There was an upper bound and no lower one, so an empty file was accepted, stored, and
