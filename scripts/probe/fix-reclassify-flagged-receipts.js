@@ -53,13 +53,19 @@ const INCLUDE_REOPENED = process.argv.includes('--include-reopened')
 const NOTE = 'recleared 2026-09-08: the bottle deposit is not a totals mismatch'
 
 /** The fraud flags today's rules would no longer raise, given the recorded OCR figures. */
-function survivingFlags(flags, ocr, depositShapedGap) {
+function survivingFlags(flags, ocr, depositShapedGap, ctx) {
   const sub = Number(ocr?.subtotal ?? 0)
   const tax = Number(ocr?.tax ?? 0)
   const grand = Number(ocr?.grand_total ?? 0)
   return (flags ?? []).filter(f => {
     if (f.startsWith('total_mismatch:') && sub > 0 && tax > 0 && grand > 0) {
       return !depositShapedGap(sub, tax, grand)
+    }
+    // Same rule as the cap: the remaining balance is what gets paid either way, so this
+    // only holds a receipt whose amount nothing corroborates. See the route for the note.
+    if (f.startsWith('over_balance:')) {
+      const coveredByTheCapMessage = ctx.capCad > 0 && ctx.total >= ctx.capCad
+      return !(ctx.corroborated || coveredByTheCapMessage)
     }
     // Removed on 2026-09-08 because it needed to know what a Bud Light costs. A receipt
     // held only by a rule that no longer exists should not still be held.
@@ -70,7 +76,7 @@ function survivingFlags(flags, ocr, depositShapedGap) {
 
 async function main() {
   const db = serviceClient()
-  const { classifyReceipt, depositShapedGap } = loadTs('lib/classify-receipt.ts')
+  const { classifyReceipt, depositShapedGap, recomputeBudLightTotal } = loadTs('lib/classify-receipt.ts')
   const { recomputeLedgerForPeriod } = loadTs('lib/recompute-ledger.ts')
   const { upsertDraftInvoice } = loadTs('lib/draft-invoice.ts')
 
@@ -107,7 +113,11 @@ async function main() {
       info(`${who}: today's rules would REJECT this, so it stays in review for a person`)
       continue
     }
-    const flags = survivingFlags(r.ambiguous_flags?.fraud_flags, r.ocr_json, depositShapedGap)
+    const flags = survivingFlags(r.ambiguous_flags?.fraud_flags, r.ocr_json, depositShapedGap, {
+      corroborated: recomputeBudLightTotal(r.ocr_json).matchesPrintedTotal,
+      capCad: cap,
+      total: now.budLightTotalInclTax
+    })
     if (flags.length || now.status !== 'auto_pass') continue
 
     clearing.push({ r, now, who })

@@ -26,13 +26,24 @@ const { serviceClient, pass, fail, info, verdict, loadTs } = require('./_lib')
 const APPLY = process.argv.includes('--apply')
 
 /** The fraud flags today's rules would still raise, given the recorded OCR figures. */
-function survivingFlags(flags, ocr, depositShapedGap) {
+function survivingFlags(flags, ocr, depositShapedGap, ctx) {
   const sub = Number(ocr?.subtotal ?? 0)
   const tax = Number(ocr?.tax ?? 0)
   const grand = Number(ocr?.grand_total ?? 0)
   const kept = []
   for (const f of flags ?? []) {
     if (f.startsWith('total_mismatch:') && sub > 0 && tax > 0 && grand > 0 && depositShapedGap(sub, tax, grand)) continue
+    /*
+     * over_balance follows the cap rule since 2026-09-09. Going over what is left costs
+     * nothing, because the remaining balance is what gets reimbursed either way, so it is
+     * dropped when the receipt's own printed total confirms the amount, and dropped again
+     * once the amount reaches the full cap, where the overspend line already says it in
+     * better words. Read on screen those two were the same sentence twice.
+     */
+    if (f.startsWith('over_balance:')) {
+      const coveredByTheCapMessage = ctx.capCad > 0 && ctx.total >= ctx.capCad
+      if (ctx.corroborated || coveredByTheCapMessage) continue
+    }
     // The price check was removed on 2026-09-08: it needed to know what a Bud Light costs
     // and we do not. Rows written before that still carry its warnings, twice in Thomas
     // Ambrosio's case, and showing them keeps a deleted rule on screen.
@@ -46,7 +57,7 @@ function survivingFlags(flags, ocr, depositShapedGap) {
 
 async function main() {
   const db = serviceClient()
-  const { classifyReceipt, depositShapedGap } = loadTs('lib/classify-receipt.ts')
+  const { classifyReceipt, depositShapedGap, recomputeBudLightTotal } = loadTs('lib/classify-receipt.ts')
 
   const { data: rows, error } = await db.from('receipts')
     .select('id, status, decision_reason, bud_light_total_incl_tax, ocr_json, ambiguous_flags, bams(first_name, last_name)')
@@ -77,7 +88,11 @@ async function main() {
       duplicateHash: false,
       lowResolutionHeuristic: false
     })
-    const flags = survivingFlags(r.ambiguous_flags?.fraud_flags, r.ocr_json, depositShapedGap)
+    const flags = survivingFlags(r.ambiguous_flags?.fraud_flags, r.ocr_json, depositShapedGap, {
+      corroborated: recomputeBudLightTotal(r.ocr_json).matchesPrintedTotal,
+      capCad: cap,
+      total: now.budLightTotalInclTax
+    })
     const wouldBe = now.status === 'rejected' ? 'rejected' : (flags.length ? 'review' : now.status)
 
     // Anything that would move is not this script's business.

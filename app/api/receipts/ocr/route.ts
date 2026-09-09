@@ -165,7 +165,8 @@ function checkHistoricalPatterns(
   currentOcr: Record<string, unknown>,
   othersOcr: Array<{ ocr_json: Record<string, unknown> | null }>,
   availableBalance: number,
-  blTotalInclTax: number
+  blTotalInclTax: number,
+  cap: { corroborated: boolean; capCad: number }
 ): string[] {
   if (othersOcr.length < 2) return []
   const flags: string[] = []
@@ -181,8 +182,35 @@ function checkHistoricalPatterns(
     if (s) pastStores.push(s)
   }
 
-  if (blTotalInclTax > availableBalance && availableBalance > 0)
-    flags.push(`over_balance: Bud Light total $${blTotalInclTax.toFixed(2)} exceeds available balance $${availableBalance.toFixed(2)}`)
+  /*
+   * Spending past what is left follows the same rule as spending past the cap, decided
+   * with Mirae on 2026-09-09. Going over costs nothing, because the remaining balance is
+   * what gets reimbursed either way, so this is only worth a person's time when the figure
+   * itself is in doubt.
+   *
+   * Two conditions were added:
+   *
+   *   The receipt's own printed total must not confirm the amount. When it does, a misread
+   *   would have to corrupt the line items and the printed total identically, which is the
+   *   same argument that lets an over-cap receipt clear.
+   *
+   *   It stays quiet once the amount reaches the full monthly cap, because the classifier
+   *   already says so in better words. Thomas Ambrosio's receipt carried both, and read on
+   *   screen they were the same sentence twice. What is left is the case this check is
+   *   actually for: an amount UNDER the cap but over what the month has left.
+   */
+  const coveredByTheCapMessage = cap.capCad > 0 && blTotalInclTax >= cap.capCad
+  if (
+    blTotalInclTax > availableBalance && availableBalance > 0 &&
+    !coveredByTheCapMessage &&
+    !cap.corroborated
+  ) {
+    flags.push(
+      `over_balance: Bud Light total $${blTotalInclTax.toFixed(2)} is more than the ` +
+      `$${availableBalance.toFixed(2)} left this month, and the receipt's own total does not ` +
+      `confirm that figure -- check the amount before the balance is paid`
+    )
+  }
 
   const nearBalance = (v: number) => availableBalance > 0 && Math.abs(v - availableBalance) / availableBalance < 0.07
   const nearCount = pastTotals.filter(nearBalance).length + (nearBalance(blTotalInclTax) ? 1 : 0)
@@ -387,12 +415,16 @@ export async function POST(req: Request) {
   const ocrDate = (ocr.date as string) ?? ''
   const ocrTotal = ocr.grand_total as number | undefined
   let balanceAvailable = 0
+  let balanceCap = 0
 
   if (thisReceipt?.bam_id) {
     // P1-23: balance is scoped to the receipt's PERIOD (the month the spend is
     // claimed for), not the upload timestamp's month.
     const balance = await getMonthlyBalance(db, thisReceipt.bam_id, thisReceipt.period)
     balanceAvailable = balance.available
+    // The month's full cap, so over_balance can tell "over the cap" apart from "over what
+    // is left". spendableCap further down is resolved too late to use here.
+    balanceCap = balance.cap
     if (!balance.ok) {
       // Fail closed: an unknown balance must not look like a full, unused cap.
       balanceAvailable = 0
@@ -428,7 +460,8 @@ export async function POST(req: Request) {
           ocr,
           others as Array<{ ocr_json: Record<string, unknown> | null }>,
           balanceAvailable,
-          recomputed.total
+          recomputed.total,
+          { corroborated: recomputed.matchesPrintedTotal, capCad: balanceCap }
         ))
       }
     }
