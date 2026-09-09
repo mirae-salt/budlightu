@@ -546,9 +546,36 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
    * this rule was written for: on Thomas Levesque's Metro receipt a RABAIS of -10.00 sits
    * between the two figures, the deposit does not close the gap, and it is flagged.
    */
+  /*
+   * A deposit the receipt charges but never itemises.
+   *
+   * The Beer Store prints DEPOSIT in the summary block with no line of its own, so
+   * `allDeposits` is zero and the explanation above cannot fire even though the deposit is
+   * plainly there: grand_total minus (subtotal + tax) is exactly it. Basmala Youssef's
+   * receipt on 2026-09-09 charged $5.20 that way, and the receipt went to review over a
+   * $5.94 disagreement the $5.20 accounts for.
+   *
+   * This is the same receipt shape that depositShapedGap was written for the day before,
+   * for the subtotal-plus-tax check. That fixed one of the two places an unitemised
+   * deposit matters and left this one, so the same receipts kept arriving with a different
+   * complaint. depositShapedGap is reused rather than re-derived, so the two agree about
+   * what counts as deposit-shaped.
+   *
+   * Only on a receipt of nothing but Bud Light, where the whole deposit is the beer's.
+   */
+  const impliedDeposit =
+    allDeposits === 0 && allProductIsBudLight &&
+    subtotal !== null && subtotal > 0 && tax !== null && tax > 0 &&
+    grandTotal !== null && grandTotal > 0 &&
+    depositShapedGap(subtotal, tax, grandTotal)
+      ? round2(grandTotal - (subtotal + tax))
+      : 0
+
+  const explainingDeposit = blDeposit > 0 ? blDeposit : impliedDeposit
+
   const depositExplainsGap =
-    modelTotal !== null && blDeposit > 0 &&
-    Math.abs(round2(modelTotal + blDeposit) - total) <= TOTAL_MISMATCH_TOLERANCE_CAD
+    modelTotal !== null && explainingDeposit > 0 &&
+    Math.abs(round2(modelTotal + explainingDeposit) - total) <= TOTAL_MISMATCH_TOLERANCE_CAD
 
   const mismatch =
     modelTotal === null ||
@@ -557,7 +584,9 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   if (depositExplainsGap && (mismatchDelta as number) > TOTAL_MISMATCH_TOLERANCE_CAD) {
     notes.push(
       `the model reported $${(modelTotal as number).toFixed(2)}, which is this total less the ` +
-      `$${blDeposit.toFixed(2)} deposit it leaves out, so the two agree`
+      `$${explainingDeposit.toFixed(2)} deposit it leaves out` +
+      `${impliedDeposit > 0 ? ' (charged in the summary, with no line of its own)' : ''}` +
+      `, so the two agree`
     )
   }
 

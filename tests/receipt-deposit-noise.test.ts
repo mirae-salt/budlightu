@@ -167,3 +167,64 @@ describe('an abbreviated deposit no longer makes a beer-only receipt look mixed'
     expect(rc.total).toBe(65.9)   // she was paid 63.50 and had paid 65.90
   })
 })
+
+describe('a deposit the receipt charges but never itemises', () => {
+  /**
+   * Basmala Youssef, Beer Store Dundas, 2026-09-09. The deposit is printed in the summary
+   * block and nowhere else, so there is no line to find it on:
+   *
+   *   BEER [41]   128.43 · SUBTOTAL 128.43 · DEPOSIT 5.20 · HST 16.69 · TOTAL 150.32
+   */
+  const beerStore = {
+    store: 'BEER STORE',
+    subtotal: 128.43,
+    tax: 16.69,
+    grand_total: 150.32,
+    bud_light_total_incl_tax: 144.38,
+    overall_confidence: 1,
+    lines: [
+      { desc: 'BUD LIGHT 473ML 12TC CA', qty: 1, unit: 28.49, total: 28.49, is_bud_light: true, confidence: 1 },
+      { desc: 'BL STRAWBERRY LEMON, 47', qty: 12, unit: 2.99, total: 35.88, is_bud_light: true, confidence: 1 },
+      { desc: 'BUD LIGHT LIME LABATT 4', qty: 28, unit: 2.99, total: 83.72, is_bud_light: true, confidence: 1 },
+      { desc: 'BUD LIGHT LIME LABATT 473ML 24TC CAN Best Price 1x24=$57.49', qty: 1, unit: -14.27, total: -14.27, is_bud_light: true, confidence: 1 },
+      { desc: 'BL STRAWBERRY LEMON, 473ML 12TC CAN Best Price 1x12=$30.49', qty: 1, unit: -5.39, total: -5.39, is_bud_light: true, confidence: 1 }
+    ]
+  }
+
+  it('reads the two Best Price lines as discounts, not as other products', () => {
+    const rc = recomputeBudLightTotal(beerStore)
+    expect(rc.basis).toBe('lines_all_bud_light')
+  })
+
+  it('pays the printed total, which is what the card was charged', () => {
+    expect(recomputeBudLightTotal(beerStore).total).toBe(150.32)
+  })
+
+  it('finds the $5.20 deposit in the arithmetic and stops calling the gap a mismatch', () => {
+    // grand_total minus subtotal plus tax is exactly the printed DEPOSIT line.
+    const rc = recomputeBudLightTotal(beerStore)
+    expect(rc.mismatchDelta).toBe(5.94)
+    expect(rc.mismatch).toBe(false)
+    expect(rc.notes.join(' ')).toMatch(/no line of its own/)
+  })
+
+  it('clears without a person', () => {
+    const out = classifyReceipt({
+      ocr: beerStore as never,
+      spendableCap: 150,
+      policy,
+      duplicateHash: false,
+      lowResolutionHeuristic: false
+    })
+    // Over the cap, and the printed total confirms it, so the cap is simply paid.
+    expect(out.status).toBe('auto_pass')
+    expect(out.budLightTotalInclTax).toBe(150.32)
+  })
+
+  it('does not invent a deposit when the gap is the wrong shape', () => {
+    // Eesha Nandha's Uber Eats order runs $20.55 over its own subtotal and tax, which is
+    // a delivery fee and a tip. depositShapedGap refuses it, so nothing is credited.
+    const uberEats = { ...beerStore, subtotal: 62.78, tax: 12.2, grand_total: 95.53 }
+    expect(recomputeBudLightTotal(uberEats).notes.join(' ')).not.toMatch(/no line of its own/)
+  })
+})
