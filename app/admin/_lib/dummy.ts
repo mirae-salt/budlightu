@@ -76,20 +76,25 @@ export type InvoiceRow = {
   // 'approved' = touchpoint 2 recorded, AP send done or pending (0018_invoice_engine_fixes.sql)
   status: 'draft' | 'approved' | 'sent' | 'paid' | 'void'
   flag?: string
-  receiptStatus?: 'auto_pass' | 'approved' | 'review' | 'rejected' | 'none'
+  /** Badge states, from summarizeReceipts. Not receipt statuses: a BAM can have
+   *  several receipts in different states at once. See lib/receipt-badge.ts. */
+  receiptStatus?: 'ok' | 'pending' | 'rejected' | 'none'
   receiptTotal?: string
+  /** Pre-cap spend, shown in the badge tooltip when it differs from what is paid. */
+  receiptSpent?: number | null
+  receiptCount?: number
 }
 
 export const DRAFT_INVOICES: InvoiceRow[] = [
-  { number: 'INV-TBA1', bam: 'Test BAM Alice',  period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'approved',  receiptTotal: '$148.50' },
-  { number: 'INV-TBB1', bam: 'Test BAM Bob',    period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'review',    receiptTotal: '$147.20' },
-  { number: 'INV-TBC1', bam: 'Test BAM Carol',  period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'review',    receiptTotal: '$158.90', flag: 'reimbursement pending REVIEW' },
-  { number: 'INV-TBD1', bam: 'Test BAM Dave',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'auto_pass', receiptTotal: '$155.00' },
-  { number: 'INV-TBE1', bam: 'Test BAM Eve',    period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'auto_pass', receiptTotal: '$162.30' },
+  { number: 'INV-TBA1', bam: 'Test BAM Alice',  period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'ok',  receiptTotal: '$148.50' },
+  { number: 'INV-TBB1', bam: 'Test BAM Bob',    period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'pending',    receiptTotal: '$147.20' },
+  { number: 'INV-TBC1', bam: 'Test BAM Carol',  period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'pending',    receiptTotal: '$158.90', flag: 'reimbursement pending REVIEW' },
+  { number: 'INV-TBD1', bam: 'Test BAM Dave',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'ok', receiptTotal: '$155.00' },
+  { number: 'INV-TBE1', bam: 'Test BAM Eve',    period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'ok', receiptTotal: '$162.30' },
   { number: 'INV-TBF1', bam: 'Test BAM Frank',  period: 'Sept 2026', amount: '$218.75', status: 'draft', receiptStatus: 'rejected',  receiptTotal: '$92.00',  flag: 'shortfall -- salary only' },
-  { number: 'INV-TBG1', bam: 'Test BAM Grace',  period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'review',    receiptTotal: '$195.00', flag: 'reimbursement pending REVIEW' },
-  { number: 'INV-TBH1', bam: 'Test BAM Hank',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'approved',  receiptTotal: '$152.00' },
-  { number: 'INV-TBI1', bam: 'Test BAM Iris',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'approved',  receiptTotal: '$45.00' },
+  { number: 'INV-TBG1', bam: 'Test BAM Grace',  period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'pending',    receiptTotal: '$195.00', flag: 'reimbursement pending REVIEW' },
+  { number: 'INV-TBH1', bam: 'Test BAM Hank',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'ok',  receiptTotal: '$152.00' },
+  { number: 'INV-TBI1', bam: 'Test BAM Iris',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'ok',  receiptTotal: '$45.00' },
   { number: 'INV-TBJ1', bam: 'Test BAM Jack',   period: 'Sept 2026', amount: '$368.75', status: 'draft', receiptStatus: 'rejected',  receiptTotal: '$165.00' }
 ]
 

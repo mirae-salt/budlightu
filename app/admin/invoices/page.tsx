@@ -1,6 +1,7 @@
 'use client'
 
 import { Fragment, useEffect, useState } from 'react'
+import { isReimbursementLine } from '@/lib/receipt-badge'
 import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
@@ -41,6 +42,8 @@ type DbInvoice = {
   bams: { first_name: string; last_name: string } | null
   receipt_status: string | null
   receipt_total: number | null
+  receipt_spent: number | null
+  receipt_count: number
   tax_applicable?: boolean
   tax_rate?: number | null
 }
@@ -50,10 +53,18 @@ function periodLabel(period: string): string {
   return d.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
+/*
+ * The badge has four states and they are not receipt states, because a BAM can have
+ * several receipts in different states at once. summarizeReceipts on the server collapses
+ * them; this only checks that what arrived is one of the four.
+ *
+ * It used to translate raw receipt statuses here, which is how the vocabulary drifted:
+ * the server started sending 'ok' and this still expected 'auto_pass', so every good
+ * invoice fell through to the muted dash. Both sides are strings, so the type checker saw
+ * nothing. One vocabulary now, defined in lib/receipt-badge.ts.
+ */
 function mapReceiptStatus(s: string | null): InvoiceRow['receiptStatus'] {
-  if (s === 'auto_pass' || s === 'approved' || s === 'review' || s === 'rejected' || s === 'none') return s
-  if (s === 'ocr_failed') return 'review'
-  if (s === 'pending') return 'review'
+  if (s === 'ok' || s === 'pending' || s === 'rejected' || s === 'none') return s
   return undefined
 }
 
@@ -69,6 +80,8 @@ function mapDbInvoice(inv: DbInvoice): Row {
     cohort_id: inv.cohort_id,
     receiptStatus: mapReceiptStatus(inv.receipt_status),
     receiptTotal: inv.receipt_total != null ? `$${Number(inv.receipt_total).toFixed(2)}` : undefined,
+    receiptSpent: inv.receipt_spent != null ? Number(inv.receipt_spent) : null,
+    receiptCount: Number(inv.receipt_count ?? 0),
     lines: Array.isArray(inv.payload_json?.lines) ? inv.payload_json!.lines! : [],
     subtotal: inv.payload_json?.subtotal,
     tax: inv.payload_json?.tax,
@@ -76,11 +89,6 @@ function mapDbInvoice(inv: DbInvoice): Row {
     poNumber: inv.payload_json?.jobNumber ?? null,
     taxRate: inv.tax_rate ?? null
   }
-}
-
-/** Same predicate the server and the send-time ledger check use. */
-function isReimbursementLine(line: { description?: string }): boolean {
-  return typeof line?.description === 'string' && /reimbursement/i.test(line.description)
 }
 
 function money(n: number): string {
@@ -611,8 +619,8 @@ export default function InvoiceBatch() {
           </thead>
           <tbody>
             {invoices.map(inv => {
-              const receiptOk = inv.receiptStatus === 'auto_pass' || inv.receiptStatus === 'approved'
-              const receiptPending = inv.receiptStatus === 'review'
+              const receiptOk = inv.receiptStatus === 'ok'
+              const receiptPending = inv.receiptStatus === 'pending'
               const receiptBad = inv.receiptStatus === 'rejected'
 
               return (
@@ -641,7 +649,18 @@ export default function InvoiceBatch() {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 14 }}>{inv.amount}</td>
                   <td>
                     {receiptOk
-                      ? <span className="badge badge-green" style={{ fontSize: 10 }}>{inv.receiptTotal}</span>
+                      ? <span
+                          className="badge badge-green"
+                          style={{ fontSize: 10 }}
+                          /* Spend and payment differ once a BAM goes over the monthly cap.
+                             The badge shows what the invoice pays, so it matches the total
+                             beside it, and the tooltip carries the rest. */
+                          title={
+                            inv.receiptSpent != null && (inv.receiptCount ?? 0) > 0
+                              ? `${inv.receiptCount} receipt${inv.receiptCount === 1 ? '' : 's'}, $${inv.receiptSpent.toFixed(2)} spent`
+                              : undefined
+                          }
+                        >{inv.receiptTotal}</span>
                       : receiptPending
                       ? <span className="badge badge-yellow" style={{ fontSize: 10 }}>pending</span>
                       : receiptBad

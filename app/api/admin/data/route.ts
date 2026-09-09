@@ -17,6 +17,7 @@
  * P0-H: every `error` is inspected and surfaced. supabase-js does not throw.
  */
 import { NextResponse } from 'next/server'
+import { summarizeReceipts, reimbursementOnInvoice } from '@/lib/receipt-badge'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
@@ -137,16 +138,28 @@ export async function GET(req: Request) {
       const bamIds = [...new Set((invoices as { bam_id: string }[]).map(i => i.bam_id))]
       const periods = [...new Set((invoices as { period: string }[]).map(i => i.period))]
 
-      const receiptMap: Record<string, { status: string; total: number | null }> = {}
+      /*
+       * All of a BAM's receipts for the month, not whichever row came back last.
+       *
+       * This map used to be assigned inside the loop, so a BAM with two receipts got a
+       * badge describing one of them chosen by row order. Thirteen BAMs had more than one
+       * September receipt and four had receipts in different states at once, which meant
+       * an invoice could show a green badge while one of that student's receipts was still
+       * waiting in the review queue. summarizeReceipts collapses them worst-state-first.
+       */
+      const receiptMap: Record<string, ReturnType<typeof summarizeReceipts>> = {}
       if (bamIds.length > 0 && periods.length > 0) {
         const { data: receipts, error: rErr } = await admin.from('receipts')
           .select('bam_id, period, status, bud_light_total_incl_tax')
           .in('bam_id', bamIds)
           .in('period', periods)
         if (rErr) return NextResponse.json({ data: null, error: rErr.message }, { status: 500 })
+        const grouped: Record<string, Array<{ status: string; bud_light_total_incl_tax: number | null }>> = {}
         for (const r of (receipts ?? []) as { bam_id: string; period: string; status: string; bud_light_total_incl_tax: number | null }[]) {
-          receiptMap[`${r.bam_id}_${r.period}`] = { status: r.status, total: r.bud_light_total_incl_tax }
+          const key = `${r.bam_id}_${r.period}`
+          ;(grouped[key] ??= []).push({ status: r.status, bud_light_total_incl_tax: r.bud_light_total_incl_tax })
         }
+        for (const [key, rows] of Object.entries(grouped)) receiptMap[key] = summarizeReceipts(rows)
       }
 
       const enriched = (invoices as { bam_id: string; period: string; payload_json?: unknown; bams?: unknown; [k: string]: unknown }[]).map(inv => {
@@ -162,7 +175,16 @@ export async function GET(req: Request) {
           bams,
           payload_json: redactPayload(inv.payload_json),
           receipt_status: receipt?.status ?? null,
-          receipt_total: receipt?.total ?? null,
+          /*
+           * What the invoice PAYS, read off the invoice, so the badge and the total beside
+           * it cannot disagree. It used to be one receipt's amount: Royce
+           * Barnes-Sutherland-Johnson submitted $137.15 and $20.36 and the badge said
+           * $137.15 next to an invoice correctly paying the $150 cap.
+           */
+          receipt_total: reimbursementOnInvoice(inv.payload_json),
+          /** Pre-cap spend, for the tooltip when it differs from what is paid. */
+          receipt_spent: receipt?.spentCad ?? null,
+          receipt_count: receipt?.count ?? 0,
           tax_applicable: taxApplicable,
           /** 0 when no tax applies, null when the province code is unknown (the
            *  server would refuse the edit rather than guess a rate). */
