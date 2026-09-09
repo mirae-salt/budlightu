@@ -259,8 +259,22 @@ describe('P0-G: REVIEW band + first-cohort safeguard', () => {
     const out = classifyReceipt({ ocr: clean(139.99) as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
     expect(out.status).toBe('auto_pass')
   })
-  it('at/over cap always review, no upper edge', () => {
-    for (const t of [150, 165, 1000]) {
+  /*
+   * This used to assert that at or over the cap ALWAYS reviews. Changed on 2026-09-09:
+   * the ledger already pays min(spent, cap), so being over it costs nothing, and the
+   * review was only guarding against a figure the model read too high. A figure the
+   * receipt's own printed total confirms no longer needs a person. `clean()` sets
+   * grand_total to the same number, so these are corroborated.
+   */
+  it('at or over the cap clears when the printed total confirms it', () => {
+    for (const t of [150, 165, 299]) {
+      const out = classifyReceipt({ ocr: clean(t) as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
+      expect(out.status, `total ${t}`).toBe('auto_pass')
+      expect(out.reason, `total ${t}`).toMatch(/^overspend: /)
+    }
+  })
+  it('a figure several times the cap still reviews, corroborated or not', () => {
+    for (const t of [301, 1000]) {
       const out = classifyReceipt({ ocr: clean(t) as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
       expect(out.status, `total ${t}`).toBe('review')
     }

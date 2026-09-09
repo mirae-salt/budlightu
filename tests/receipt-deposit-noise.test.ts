@@ -96,9 +96,13 @@ describe('the model leaves the deposit out, and that is not a disagreement', () 
     expect(recomputeBudLightTotal(withDiscount).mismatch).toBe(true)
   })
 
-  it('still goes to Robin, but for the cap rather than for arithmetic', () => {
-    // $150.62 is over the $150 monthly maximum, which is a real reason to look. The
-    // point is that "totals do not add up" is no longer one of them.
+  it('clears on its own, and the reason says the cap was hit', () => {
+    /*
+     * $150.62 is over the cap. This receipt went to Robin twice over: first for "totals
+     * do not add up", then for the cap itself. Neither is a reason any more. The deposit
+     * explains the arithmetic, and the receipt's own printed total is $150.62, which
+     * confirms the figure, so the cap is simply paid.
+     */
     const out = classifyReceipt({
       ocr: mackenzie as never,
       spendableCap: 150,
@@ -106,8 +110,8 @@ describe('the model leaves the deposit out, and that is not a disagreement', () 
       duplicateHash: false,
       lowResolutionHeuristic: false
     })
-    expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/over_cap/)
+    expect(out.status).toBe('auto_pass')
+    expect(out.reason).toMatch(/^overspend: /)
     expect(out.reason).not.toMatch(/total_mismatch/)
     expect(out.budLightTotalInclTax).toBe(150.62)
   })

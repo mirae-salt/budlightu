@@ -30,9 +30,10 @@ describe('classifyReceipt', () => {
       lowResolutionHeuristic: false
     })
     expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/^over_cap: spent \$165\.00\. The monthly cap is \$150\.00/)
-    // The point of the wording: it must not read as a promise to pay $165.
-    expect(out.reason).toMatch(/nothing above it is reimbursed/)
+    // mkOcr reports no grand_total, so nothing corroborates the $165 and it still needs
+    // a person. A receipt whose printed total says $165 clears; see overspend-cap.test.ts.
+    expect(out.reason).toMatch(/^overspend: spent \$165\.00/)
+    expect(out.reason).toMatch(/does not confirm that figure/)
     expect(out.reason).not.toMatch(/spendable_cap/)
   })
 

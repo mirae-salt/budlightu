@@ -74,6 +74,13 @@ export type RecomputedTotal = {
   /** true when the Bud Light total exceeds the receipt's own grand total → force REVIEW. */
   exceedsGrandTotal: boolean
   /**
+   * true when our figure IS the receipt's own printed total.
+   *
+   * The strongest corroboration a receipt can give, because the number was not derived
+   * from anything: it is what the till printed and what the card was charged.
+   */
+  matchesPrintedTotal: boolean
+  /**
    * true when the receipt DOES report subtotal/tax/grand_total but the line
    * totals reconcile to neither → the receipt contradicts itself → force REVIEW.
    * (When those fields are simply absent there is nothing to reconcile against,
@@ -108,6 +115,19 @@ export type ClassifyOutput = {
   recomputeNotes: string[]
   confidence: number
 }
+
+/**
+ * How far over the monthly cap a receipt can go before a person looks at it anyway.
+ *
+ * Being over the cap is ordinary and costs nothing, since the cap is what gets paid. Being
+ * several times over it is the shape of a misread, and no amount of corroboration makes a
+ * figure like that worth paying without someone glancing at the photo.
+ *
+ * Two is a chosen number, not a derived one. Across the 44 receipts on file on 2026-09-09
+ * the largest was 1.36x the cap (a Costco run) and nothing reached 1.5x, so this sits well
+ * clear of what students actually buy and stays quiet until something is genuinely odd.
+ */
+export const OVERSPEND_OUTLIER_MULTIPLE = 2
 
 /** Dollars of disagreement between model summary and server recompute that we tolerate. */
 export const TOTAL_MISMATCH_TOLERANCE_CAD = 1.0
@@ -559,6 +579,8 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
     mismatchDelta,
     mismatch,
     exceedsGrandTotal,
+    matchesPrintedTotal:
+      grandTotal !== null && grandTotal > 0 && Math.abs(total - grandTotal) <= 0.01,
     unreconciledDespiteTotals,
     unparsableLines,
     budLightLineCount,
@@ -704,14 +726,47 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
    * check is how the screen starts lying again.
    */
   if (isInReviewBand(total, spendableCap, reimbursementMax, padding)) {
-    if (total >= spendableCap) {
-      return out('review', `over_cap: spent $${total.toFixed(2)}. The monthly cap is $${spendableCap.toFixed(2)}, and nothing above it is reimbursed -- confirm the receipt is genuine`)
+    const cap = Math.min(spendableCap, reimbursementMax)
+    const atOrOverCap = total >= spendableCap || total >= reimbursementMax
+    const farOverCap = total > round2(cap * OVERSPEND_OUTLIER_MULTIPLE)
+
+    /*
+     * OVER THE CAP IS NOT BY ITSELF WORTH A PERSON. Mirae, 2026-09-09.
+     *
+     * The payment is already bounded: the ledger pays min(spent, cap, snapshot), so a $203
+     * receipt reimburses the cap whether or not anybody clicks approve. What the review was
+     * still buying was a guard against the other reason a figure lands over the cap, which
+     * is the model reading it too high. Past the cap every wrong-high number pays the same
+     * amount, so a $20.33 receipt misread as $203.38 would quietly pay the full cap.
+     *
+     * That guard earns its cost only when the figure is uncorroborated. When our total IS
+     * the printed total, a misread would have to corrupt the line items and the printed
+     * total to the same wrong value, and corrupting either alone is caught earlier by
+     * grandTotalIsSane or exceedsGrandTotal. So a corroborated over-cap receipt clears on
+     * its own, and the reason records the overspend so it stays legible afterwards.
+     *
+     * Corroboration does not cover a figure several times the cap: see
+     * OVERSPEND_OUTLIER_MULTIPLE.
+     *
+     * Nothing announces an over-cap receipt. Robin gets the shortfall alert and asked for
+     * no equivalent here, because the cap is a rule rather than an exception to chase.
+     */
+    if (atOrOverCap && rc.matchesPrintedTotal && !farOverCap) {
+      return out(
+        'auto_pass',
+        `overspend: spent $${total.toFixed(2)}, over the $${cap.toFixed(2)} monthly cap. ` +
+        `The receipt's own printed total confirms it, and the cap is what is reimbursed`
+      )
     }
-    if (total >= reimbursementMax) {
-      return out('review', `over_cap: spent $${total.toFixed(2)}. The monthly maximum is $${reimbursementMax.toFixed(2)}, and nothing above it is reimbursed -- confirm the receipt is genuine`)
+
+    if (farOverCap) {
+      return out('review', `overspend: spent $${total.toFixed(2)}, more than ${OVERSPEND_OUTLIER_MULTIPLE} times the $${cap.toFixed(2)} cap -- check the amount is real before the cap is paid`)
     }
-    const softFloor = round2(Math.min(spendableCap, reimbursementMax) - padding)
-    return out('review', `review_band: spent $${total.toFixed(2)}, just under the $${Math.min(spendableCap, reimbursementMax).toFixed(2)} cap (anything from $${softFloor.toFixed(2)} is checked) -- a program manager decides`)
+    if (atOrOverCap) {
+      return out('review', `overspend: spent $${total.toFixed(2)}, over the $${cap.toFixed(2)} cap, and the receipt's own total does not confirm that figure -- check the amount`)
+    }
+    const softFloor = round2(cap - padding)
+    return out('review', `review_band: spent $${total.toFixed(2)}, just under the $${cap.toFixed(2)} cap (anything from $${softFloor.toFixed(2)} is checked) -- a program manager decides`)
   }
 
   return out('auto_pass', `meets all auto-pass thresholds (recomputed $${total.toFixed(2)} from line items)`)

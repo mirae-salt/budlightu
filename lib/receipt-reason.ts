@@ -60,6 +60,7 @@ const LABELS: Record<string, string> = {
   // The check that wrote this was removed on 2026-09-08; rows still carry it.
   price_outlier: 'Price looks wrong',
   over_cap: 'Over the monthly cap',
+  overspend: 'Spent over the cap',
   review_band: 'Close to the monthly cap',
   ocr_not_started: 'Could not read this file',
   ocr_failed: 'Could not read this file'
