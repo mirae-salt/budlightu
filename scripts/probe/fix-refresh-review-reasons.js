@@ -33,6 +33,10 @@ function survivingFlags(flags, ocr, depositShapedGap) {
   const kept = []
   for (const f of flags ?? []) {
     if (f.startsWith('total_mismatch:') && sub > 0 && tax > 0 && grand > 0 && depositShapedGap(sub, tax, grand)) continue
+    // The price check was removed on 2026-09-08: it needed to know what a Bud Light costs
+    // and we do not. Rows written before that still carry its warnings, twice in Thomas
+    // Ambrosio's case, and showing them keeps a deleted rule on screen.
+    if (f.startsWith('price_outlier:')) continue
     // The same product on two lines was two identical warnings.
     if (kept.includes(f)) continue
     kept.push(f)

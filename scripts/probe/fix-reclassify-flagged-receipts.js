@@ -61,6 +61,9 @@ function survivingFlags(flags, ocr, depositShapedGap) {
     if (f.startsWith('total_mismatch:') && sub > 0 && tax > 0 && grand > 0) {
       return !depositShapedGap(sub, tax, grand)
     }
+    // Removed on 2026-09-08 because it needed to know what a Bud Light costs. A receipt
+    // held only by a rule that no longer exists should not still be held.
+    if (f.startsWith('price_outlier:')) return false
     return true
   })
 }
