@@ -646,23 +646,6 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
 
-/* Heatmap */
-.heatmap {
-  display: grid;
-  grid-template-columns: repeat(20, 1fr);
-  gap: 4px;
-}
-.heatmap-cell {
-  aspect-ratio: 1;
-  border-radius: 3px;
-  background: var(--bl-fog);
-}
-.heatmap-legend {
-  display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--midgray); margin-top: 10px;
-}
-.heatmap-scale { display: flex; gap: 2px; }
-.heatmap-scale span { width: 14px; height: 10px; border-radius: 2px; }
-
 /* Table for admin lists */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 

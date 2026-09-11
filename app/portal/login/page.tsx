@@ -321,7 +321,7 @@ export default function LoginPage() {
             Welcome to the<br /><span>BAM Portal</span>
           </div>
           <div className="hero-sub">Campus Ambassador Program</div>
-          <img className="hero-can" src="/brand/hero-can.png" alt="" />
+          <img className="hero-can" src="/brand/hero-can.jpg" alt="" />
         </div>
 
         {/* ── Right: form ── */}

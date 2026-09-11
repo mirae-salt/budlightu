@@ -20,7 +20,7 @@ export default function ProgramPage() {
   return (
     <div className="blu-home">
       <section className="blu-hero">
-        <img src="/brand/hero-can-crop.png" alt="" className="blu-hero-img" />
+        <img src="/brand/hero-can-crop.jpg" alt="" className="blu-hero-img" />
         <div className="blu-hero-overlay" />
         <div className="blu-hero-content">
           <p className="blu-hero-eyebrow">Fall 2026</p>
