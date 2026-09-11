@@ -407,6 +407,7 @@ export async function GET(req: Request) {
       const { data: bams, error: bErr } = await admin.from('bams')
         .select('id, cohort_id, first_name, last_name, email, status, cohorts(name, start_date, end_date, reimbursement_max)')
         .eq('status', 'active')
+        .eq('is_test', false)
       if (bErr) return NextResponse.json({ data: null, error: bErr.message }, { status: 500 })
       if (!bams || bams.length === 0) return NextResponse.json({ data: [], error: null })
 

@@ -296,6 +296,22 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  // BEFORE the write, so audit_log can show what changed, not just that
+  // something did. Read on the exact columns this request can touch, so the
+  // snapshot lines up with `update` key-for-key.
+  const { data: beforeRows, error: beforeErr } = await db
+    .from('bams')
+    .select(READBACK)
+    .eq('id', id)
+    .limit(1)
+  if (beforeErr) {
+    return NextResponse.json(
+      { ok: false, message: `Could not read the current row before saving: ${beforeErr.message}` },
+      { status: 500 }
+    )
+  }
+  const before = (beforeRows ?? [])[0] as Record<string, unknown> | undefined
+
   // Read back the row so "saved" means the value is actually in the database
   // (ENGINEERING-RULES section 1). `.select()` also tells us whether any row
   // matched: an update that hits 0 rows is not a success.
@@ -318,7 +334,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'No roster row matched that id.' }, { status: 404 })
   }
 
-  const saved = data[0] as { email: string | null }
+  const saved = data[0] as { email: string | null } & Record<string, unknown>
   if ('email' in update && saved.email !== update.email) {
     // The trigger or a constraint changed what we asked for. Report it rather
     // than claiming success on a value we did not verify.
@@ -329,11 +345,82 @@ export async function PATCH(req: NextRequest) {
     )
   }
 
+  const warnings: string[] = []
+
+  // EDITING AN EXISTING BAM WAS NEVER AUDITED. Only adding one (the POST handler
+  // below) ever wrote to audit_log. So a changed email, bank, or status had no
+  // record of who changed it, when, or from what -- which is exactly the
+  // question that could not be answered for Vincent Lacasse's roster email.
+  // before/after are trimmed to the fields this request actually touched, read
+  // from the same `before` snapshot and `saved` read-back everything else in
+  // this route already trusts.
+  const changedFields = Object.keys(update) as Array<keyof typeof update>
+  const { error: rosterAuditErr } = await db.from('audit_log').insert({
+    actor_id: auth.devBypass ? null : auth.userId,
+    actor_role: auth.role,
+    entity: 'bams',
+    entity_id: id,
+    action: 'roster_edit',
+    before_json: Object.fromEntries(changedFields.map(k => [k, before?.[k] ?? null])),
+    after_json: Object.fromEntries(changedFields.map(k => [k, saved[k as keyof typeof saved] ?? null]))
+  })
+  if (rosterAuditErr) {
+    console.error('[roster PATCH] audit_log insert failed:', rosterAuditErr.message)
+    warnings.push('Saved, but the audit log entry could not be written. Tell Mirae.')
+  }
+
+  // AN EMAIL EDIT MUST ALSO MOVE THE LOGIN ACCOUNT, OR THE TWO SPLIT FOREVER.
+  //
+  // `email` above only ever wrote bams.email. The Supabase Auth user that actually
+  // owns sign-in (found via auth_user_id, created once by /api/auth/roster-check on
+  // this BAM's first login attempt) kept whatever email it was created with. From
+  // that point on, signInWithOtp for the NEW address finds no matching auth user, and
+  // the invite link -- which reads bams.email fine -- looks correct while login quietly
+  // cannot work at all. Resending either one does nothing, because neither resend
+  // touches the mismatch.
+  //
+  // Vincent Lacasse hit exactly this on 2026-09-11: his roster row was edited from
+  // vincelacasse@hotmail.com to vincelacasse6@gmail.com, and the auth user stayed on
+  // hotmail. Every "link is no longer valid" report after that was this split, not a
+  // stale token.
+  if ('email' in update) {
+    const { data: linked, error: linkedErr } = await db
+      .from('bams').select('auth_user_id').eq('id', id).single()
+
+    if (linkedErr) {
+      warnings.push(
+        `The roster email was saved, but the login account could not be checked (${linkedErr.message}). ` +
+        'They may not be able to log in with the new address. Tell Mirae.'
+      )
+    } else if (linked?.auth_user_id) {
+      const { data: authUpdated, error: authErr } = await db.auth.admin.updateUserById(
+        linked.auth_user_id,
+        { email: saved.email!, email_confirm: true }
+      )
+
+      // Read back rather than trusting a non-error response, same reason as every
+      // other write in this route: a call that reports success but changed nothing
+      // is exactly the failure mode that put Vincent here.
+      if (authErr) {
+        warnings.push(
+          `The roster email was saved, but the login account still uses the old address ` +
+          `(${authErr.message}). They will not be able to log in with the new email until this is fixed. Tell Mirae.`
+        )
+      } else if (authUpdated?.user?.email !== saved.email) {
+        warnings.push(
+          'The roster email was saved, but the login account read-back did not confirm the change. ' +
+          'Verify before telling the BAM to use the new address.'
+        )
+      }
+    }
+    // No auth_user_id yet: nothing to move. The next login attempt creates the auth
+    // user fresh, from the roster email that is now correct.
+  }
+
   // Changing the bank keeps the institution number in step, but ONLY where there is no
   // banking on file yet. See the guard earlier in this handler for why a bank change on
   // an onboarded BAM is refused instead: the transit number is a branch only the student
   // knows, so bank_name alone can never produce a deposit that works.
-  const warnings: string[] = []
   if ('bank_name' in update) {
     const bank = update.bank_name ? lookupBank(String(update.bank_name)) : null
     if (update.bank_name && !bank) {

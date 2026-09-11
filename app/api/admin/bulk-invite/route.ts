@@ -182,22 +182,31 @@ export async function POST(req: NextRequest) {
   // actor_id is a uuid, so the old `meta: {...}` + `actor_id: 'dev'` insert was
   // rejected by PostgREST every single time — and the error was discarded, so
   // no bulk_invite has ever been recorded in the audit trail.
-  const { error: auditErr } = await admin.from('audit_log').insert({
-    actor_id: auth.devBypass ? null : auth.userId,
-    actor_role: auth.role,
-    entity: 'bams',
-    entity_id: cohort_id,
-    action: 'bulk_invite',
-    after_json: {
-      cohort_id,
-      count: inserted.length,
-      skipped: cleaned.length - toInsert.length,
-      sent: emailResults.filter(r => r.sent).length,
-      emails: emailResults.map(r => r.email)
+  //
+  // It also used to log ONE row keyed by cohort_id for the whole batch, so a
+  // lookup by a single BAM's id (exactly what /api/admin/invite writes, and
+  // exactly what anyone debugging one BAM's login queries by) could never find
+  // it. Vincent Lacasse's invite history was unrecoverable for this reason: his
+  // resends may have gone through here, but nothing was findable under his id.
+  // One row per BAM, entity_id = that BAM's id, mirrors the single-invite route.
+  const auditRows = (inserted as { id: string; email: string }[]).map(bam => {
+    const sent = emailResults.find(r => r.email === bam.email)
+    return {
+      actor_id: auth.devBypass ? null : auth.userId,
+      actor_role: auth.role,
+      entity: 'bams',
+      entity_id: bam.id,
+      action: 'invite_sent',
+      after_json: { email: bam.email, source: 'bulk_invite', cohort_id, sent: sent?.sent ?? false, error: sent?.error ?? null }
     }
   })
-  if (auditErr) {
-    console.error('[bulk-invite] audit_log insert failed:', auditErr.message)
+  let auditFailed = false
+  if (auditRows.length > 0) {
+    const { error: auditErr } = await admin.from('audit_log').insert(auditRows)
+    if (auditErr) {
+      console.error('[bulk-invite] audit_log insert failed:', auditErr.message)
+      auditFailed = true
+    }
   }
 
   return NextResponse.json({
@@ -206,7 +215,7 @@ export async function POST(req: NextRequest) {
     skipped: cleaned.length - toInsert.length,
     errors: errors.length > 0 ? errors : undefined,
     email_results: emailResults,
-    ...(auditErr ? { warning: 'BAMs were created, but the audit log entry could not be written. Tell Mirae.' } : {})
+    ...(auditFailed ? { warning: 'BAMs were created, but the audit log entries could not be written. Tell Mirae.' } : {})
   })
 }
 
