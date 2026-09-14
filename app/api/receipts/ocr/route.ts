@@ -721,6 +721,27 @@ export async function POST(req: Request) {
             console.error('[ocr] flagShortfall failed:', e)
           }
         })
+      } else {
+        // The mirror image of the block above: this receipt brought the period back
+        // past the floor. If an earlier, never-sent warning is sitting on this same
+        // period (the first receipt of the month was light, a later one caught it up),
+        // clear it -- otherwise the dashboard keeps showing "warned" for a month that
+        // ended fine. See resolveCaughtUpShortfall for why only an unsent row moves.
+        scheduleBackground(async () => {
+          try {
+            const { resolveCaughtUpShortfall } = await import('@/lib/shortfall-warning')
+            const resolved = await resolveCaughtUpShortfall(db, {
+              bamId: thisReceipt.bam_id,
+              cohortId: thisReceipt.cohort_id,
+              period: thisReceipt.period
+            })
+            if (!resolved.ok) {
+              console.error('[ocr] could not clear caught-up shortfall:', resolved.error)
+            }
+          } catch (e) {
+            console.error('[ocr] resolveCaughtUpShortfall failed:', e)
+          }
+        })
       }
     } else {
       ledgerError = ledger.error

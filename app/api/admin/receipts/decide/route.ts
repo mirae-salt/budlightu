@@ -434,6 +434,25 @@ export async function POST(req: NextRequest) {
         console.error('[decide] notifyAdmin failed:', e)
       }
     })
+  } else if (decision === 'approved' && !softFloorBreach) {
+    // Mirror of the block above: this approval brought the period back past the
+    // floor. Clear an earlier, never-sent warning on the same period so the dashboard
+    // stops showing "warned" for a month that ended fine. See resolveCaughtUpShortfall.
+    scheduleBackground(async () => {
+      try {
+        const { resolveCaughtUpShortfall } = await import('@/lib/shortfall-warning')
+        const resolved = await resolveCaughtUpShortfall(admin, {
+          bamId: receipt.bam_id,
+          cohortId: receipt.cohort_id,
+          period: receipt.period
+        })
+        if (!resolved.ok) {
+          console.error('[decide] could not clear caught-up shortfall:', resolved.error)
+        }
+      } catch (e) {
+        console.error('[decide] resolveCaughtUpShortfall failed:', e)
+      }
+    })
   }
 
   /*

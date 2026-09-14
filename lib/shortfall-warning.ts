@@ -248,3 +248,55 @@ export async function flagShortfall(
     status: result.sent ? 200 : 502
   }
 }
+
+export type ResolveCaughtUpResult =
+  | { ok: true; cleared: boolean }
+  | { ok: false; error: string }
+
+/**
+ * Deletes a period's shortfall warning once that period's own total has caught back
+ * up past the floor, but only if the warning was never actually sent.
+ *
+ * flagShortfall fires on the FIRST receipt that puts a period below the floor and then
+ * refuses to touch that period again ("already flagged for this period"), so a BAM who
+ * submits a light receipt and tops up later in the same month keeps the badge forever.
+ * Elizabeth Bennett's dashboard row was exactly this: warned at $38.99 on her first
+ * receipt, $182.57 for the month by her third, still showing "1x warn" days later.
+ * A scan on 2026-09-14 found 13 of 24 recorded warnings in this same stale state.
+ *
+ * A SENT warning is left alone -- it already reached Robin, and deleting a record of
+ * something that happened is the one cleanup nobody should automate (same rule as
+ * audit_log). An unsent one never reached anyone, so there is nothing to preserve:
+ * the row exists only to gate the dashboard badge and the reevaluate streak, and both
+ * should reflect the period's real outcome once it has one.
+ *
+ * Call this whenever a ledger recompute finds the period NOT below the floor anymore
+ * (the mirror image of the `if (belowWarnFloor) flagShortfall(...)` call sites).
+ */
+export async function resolveCaughtUpShortfall(
+  admin: SupabaseClient,
+  input: { bamId: string; cohortId: string; period: string }
+): Promise<ResolveCaughtUpResult> {
+  const period = normalizeWarningPeriod(input.period)
+
+  const { data: existing, error: findErr } = await admin.from('bam_warnings')
+    .select('id, sent_at')
+    .eq('bam_id', input.bamId)
+    .eq('cohort_id', input.cohortId)
+    .eq('period', period)
+    .maybeSingle()
+  if (findErr) return { ok: false, error: `warning lookup failed: ${findErr.message}` }
+  if (!existing) return { ok: true, cleared: false }
+  if (existing.sent_at) return { ok: true, cleared: false }
+
+  const { data: deleted, error: delErr } = await admin.from('bam_warnings')
+    .delete()
+    .eq('id', existing.id)
+    .select('id')
+  if (delErr) return { ok: false, error: `could not clear stale warning: ${delErr.message}` }
+  if (!deleted || deleted.length !== 1) {
+    return { ok: false, error: `delete matched ${deleted?.length ?? 0} rows, expected 1` }
+  }
+
+  return { ok: true, cleared: true }
+}
