@@ -157,6 +157,19 @@ export default function InvoiceBatch() {
   const [editReason, setEditReason] = useState('')
   const [savingLines, setSavingLines] = useState(false)
 
+  /** null = the order the API returned (created_at desc). Set by clicking a header. */
+  const [sort, setSort] = useState<{ key: 'bam' | 'period' | 'amount' | 'status'; dir: 1 | -1 } | null>(null)
+
+  /** Clicking the active column reverses it; clicking a new one starts ascending. */
+  function toggleSort(key: 'bam' | 'period' | 'amount' | 'status') {
+    setSort(cur => (cur && cur.key === key ? { key, dir: (cur.dir * -1) as 1 | -1 } : { key, dir: 1 }))
+  }
+
+  function sortArrow(key: 'bam' | 'period' | 'amount' | 'status'): string {
+    if (!sort || sort.key !== key) return ''
+    return sort.dir === 1 ? ' ▲' : ' ▼'
+  }
+
   /** Successes clear themselves; failures stay until the next action. */
   function reportBatch(kind: 'ok' | 'error', text: string) {
     const n = { kind, text }
@@ -190,6 +203,19 @@ export default function InvoiceBatch() {
 
   const { cohortFilter, hideTest, setFilters, cohortOptions, matches } = useCohortFilter()
   const invoices = allInvoices.filter(inv => matches({ cohortId: inv.cohort_id ?? null }))
+
+  // Display order only. `invoices` (unsorted) is what selection, totals and the
+  // draft/approved splits below are computed from, so re-sorting the table never
+  // changes which rows are selected or what a batch action does.
+  const sortedInvoices = sort ? [...invoices].sort((a, b) => {
+    const { key, dir } = sort
+    if (key === 'amount') {
+      const av = parseFloat(a.amount.replace(/[$,]/g, '')) || 0
+      const bv = parseFloat(b.amount.replace(/[$,]/g, '')) || 0
+      return (av - bv) * dir
+    }
+    return a[key].localeCompare(b[key]) * dir
+  }) : invoices
 
   const draftInvoices = invoices.filter(inv => inv.status === 'draft')
   // Approved but not yet sent to AP. batch-approve only records the approval
@@ -614,17 +640,22 @@ export default function InvoiceBatch() {
                   style={{ cursor: 'pointer' }}
                 />
               </th>
-              <th>BAM</th><th>Period</th><th style={{ textAlign: 'right' }}>Amount</th><th>Receipt</th><th>Status</th><th style={{ textAlign: 'right' }}></th>
+              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('bam')}>BAM{sortArrow('bam')}</th>
+              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('period')}>Period{sortArrow('period')}</th>
+              <th style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('amount')}>Amount{sortArrow('amount')}</th>
+              <th>Receipt</th>
+              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('status')}>Status{sortArrow('status')}</th>
+              <th style={{ textAlign: 'right' }}></th>
             </tr>
           </thead>
           <tbody>
-            {invoices.map(inv => {
+            {sortedInvoices.map(inv => {
               const receiptOk = inv.receiptStatus === 'ok'
               const receiptPending = inv.receiptStatus === 'pending'
               const receiptBad = inv.receiptStatus === 'rejected'
 
               return (
-              <Fragment key={inv.number}>
+              <Fragment key={inv.id}>
                 <tr style={{ borderLeft:
                   inv.status === 'void' ? '3px solid var(--red, #ef4444)'
                   : inv.status === 'sent' || inv.status === 'paid' ? '3px solid var(--green, #22c55e)'
