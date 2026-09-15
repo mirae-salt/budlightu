@@ -123,11 +123,17 @@ export async function POST(req: NextRequest) {
     // draft seeded on the 1st and archived before the 17th survives, sits in
     // the list with everyone else's, and this was the only thing standing
     // between checking its box and it going to AP. Mirae, 2026-09-15.
-    if (bamRow?.status && bamRow.status !== 'active') {
+    if (bamRow?.status !== 'active') {
+      // Fail CLOSED, not just on 'archived'/'pending': a missing join (a bam row
+      // deleted outright, not merely archived) reads the same as bamRow being
+      // undefined, and that is a worse reason to send money than a status we can
+      // name. Nothing here should require IDENTIFYING the problem to block it.
       results.push({
         id: inv.id,
         invoice_number: inv.invoice_number,
-        blocked: `BAM is ${bamRow.status}, not active -- void this invoice instead of approving it`
+        blocked: bamRow?.status
+          ? `BAM is ${bamRow.status}, not active -- void this invoice instead of approving it`
+          : 'Could not confirm this BAM is active (no matching roster row) -- refusing to send'
       })
       continue
     }
