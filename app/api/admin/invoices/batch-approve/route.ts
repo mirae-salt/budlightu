@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   const admin = serviceClient()
 
   const { data: invoices, error: invErr } = await admin.from('invoices')
-    .select('id, cohort_id, bam_id, period, invoice_number, status, payload_json, pdf_key, bams(first_name, last_name)')
+    .select('id, cohort_id, bam_id, period, invoice_number, status, payload_json, pdf_key, bams(first_name, last_name, status)')
     .in('id', invoiceIds)
     .eq('status', 'draft')
   if (invErr) return NextResponse.json({ ok: false, message: `invoices read failed: ${invErr.message}` }, { status: 500 })
@@ -105,6 +105,30 @@ export async function POST(req: NextRequest) {
     const cohort = cohortMap.get(inv.cohort_id)
     if (!cohort) {
       results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: 'cohort not found' })
+      continue
+    }
+
+    // supabase-js types an embedded one-to-one as an array; take the first row.
+    // Pulled up here (rather than just before the PDF filename below, where it used
+    // to live) so the status check below and the filename can both use it.
+    const bamRel = (inv as unknown as {
+      bams?: { first_name?: string | null; last_name?: string | null; status?: string | null }
+        | Array<{ first_name?: string | null; last_name?: string | null; status?: string | null }> | null
+    }).bams
+    const bamRow = Array.isArray(bamRel) ? bamRel[0] : bamRel
+
+    // A BAM archived after this invoice was seeded is not on the roster this
+    // batch is meant to pay. Nothing else in this route checks bam status --
+    // scheduler-generate refuses to CREATE one for a non-active BAM, but a
+    // draft seeded on the 1st and archived before the 17th survives, sits in
+    // the list with everyone else's, and this was the only thing standing
+    // between checking its box and it going to AP. Mirae, 2026-09-15.
+    if (bamRow?.status && bamRow.status !== 'active') {
+      results.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        blocked: `BAM is ${bamRow.status}, not active -- void this invoice instead of approving it`
+      })
       continue
     }
 
@@ -131,11 +155,7 @@ export async function POST(req: NextRequest) {
     // F1: render + archive ONCE, before any send. This is what writes pdf_key.
     // A render failure blocks this invoice only (AP requires 1 PDF per email —
     // an email with no attachment is worse than a reported failure).
-    // supabase-js types an embedded one-to-one as an array; take the first row.
-    const bamRel = (inv as unknown as {
-      bams?: { first_name?: string | null; last_name?: string | null } | Array<{ first_name?: string | null; last_name?: string | null }> | null
-    }).bams
-    const bamRow = Array.isArray(bamRel) ? bamRel[0] : bamRel
+    // bamRow was pulled from the same embed above, for the status check.
     const filename = invoicePdfFilename(
       bamRow?.first_name ?? '',
       bamRow?.last_name ?? '',
