@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
 
 type Values = {
   bank_name: string | null
@@ -31,7 +32,19 @@ type PendingRow = {
   institution_mismatch: boolean
   read_error: string | null
   current_read_error: string | null
+  cohort_id: string | null
+  cohort_name: string
+  is_test: boolean
 }
+
+/**
+ * before_json/after_json as written by decide/route.ts's writeAudit call. Shape
+ * differs by action: 'applied' carries bank_name/institution_no/transit_no/
+ * account_last4 (never a full account number, see route.ts's own comment on
+ * why); 'rejected' carries only status/decided_by/note. Rendered generically
+ * below rather than assuming either shape.
+ */
+type AuditSnapshot = Record<string, unknown> | null
 
 type DecidedRow = {
   id: string
@@ -41,6 +54,20 @@ type DecidedRow = {
   decided_at: string | null
   decision_note: string | null
   requested_bank_name: string
+  cohort_id: string | null
+  cohort_name: string
+  is_test: boolean
+  audit_before: AuditSnapshot
+  audit_after: AuditSnapshot
+}
+
+function auditFieldLabel(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function auditValue(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null
+  return String(v)
 }
 
 function fmt(iso: string | null): string {
@@ -85,6 +112,14 @@ export default function BankingRequestsPage() {
   const [busy, setBusy] = useState(false)
   const [rowError, setRowError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+
+  // Which decided row's before/after is expanded. Separate from `openId` above,
+  // which drives the pending queue's approve/reject flow -- the two lists are
+  // independent, and reusing one id would close a pending row's form the moment
+  // a decided row was clicked.
+  const [decidedOpenId, setDecidedOpenId] = useState<string | null>(null)
+
+  const { cohortFilter, hideTest, setFilters, cohortOptions, matches } = useCohortFilter()
 
   async function load() {
     setLoading(true)
@@ -173,13 +208,20 @@ export default function BankingRequestsPage() {
           they have to sign in and confirm the new last 4 digits.
         </p>
 
+        <CohortFilterBar
+          cohortFilter={cohortFilter}
+          hideTest={hideTest}
+          setFilters={setFilters}
+          cohortOptions={cohortOptions}
+        />
+
         {loading && <div className="empty-state">Loading...</div>}
 
-        {!loading && pending.length === 0 && (
+        {!loading && pending.filter(r => matches({ cohortId: r.cohort_id, isTest: r.is_test })).length === 0 && (
           <div className="empty-state">No banking changes waiting.</div>
         )}
 
-        {pending.map(row => (
+        {pending.filter(row => matches({ cohortId: row.cohort_id, isTest: row.is_test })).map(row => (
           <div key={row.id} className="card" style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div>
@@ -314,26 +356,71 @@ export default function BankingRequestsPage() {
         <div className="surface-header">
           <div className="surface-title">Decided</div>
         </div>
+        <CohortFilterBar
+          cohortFilter={cohortFilter}
+          hideTest={hideTest}
+          setFilters={setFilters}
+          cohortOptions={cohortOptions}
+        />
         <div style={{ overflowX: 'auto' }}>
           <table className="admin-table">
             <thead>
               <tr><th>BAM</th><th>Requested</th><th>Decided</th><th>Result</th><th>Note</th></tr>
             </thead>
             <tbody>
-              {decided.map(d => (
-                <tr key={d.id}>
-                  <td style={{ fontWeight: 600 }}>{d.bam_name}</td>
-                  <td className="muted">{fmt(d.requested_at)}</td>
-                  <td className="muted">{fmt(d.decided_at)}</td>
-                  <td>
-                    <span className={d.status === 'applied' ? 'badge badge-green' : 'badge badge-red'}>
-                      {d.status}
-                    </span>
-                  </td>
-                  <td className="muted" style={{ fontSize: 12.5 }}>{d.decision_note ?? ''}</td>
-                </tr>
-              ))}
-              {decided.length === 0 && (
+              {decided.filter(d => matches({ cohortId: d.cohort_id, isTest: d.is_test })).map(d => {
+                const isOpen = decidedOpenId === d.id
+                // Union of keys from both snapshots, so a key present only in one
+                // (e.g. 'note', only in the rejected shape) still shows a row.
+                const keys = [...new Set([
+                  ...Object.keys(d.audit_before ?? {}),
+                  ...Object.keys(d.audit_after ?? {})
+                ])]
+                return (
+                  <>
+                    <tr
+                      key={d.id}
+                      onClick={() => setDecidedOpenId(isOpen ? null : d.id)}
+                      style={{ cursor: 'pointer' }}
+                      title="Click for what changed"
+                    >
+                      <td style={{ fontWeight: 600 }}>{d.bam_name}</td>
+                      <td className="muted">{fmt(d.requested_at)}</td>
+                      <td className="muted">{fmt(d.decided_at)}</td>
+                      <td>
+                        <span className={d.status === 'applied' ? 'badge badge-green' : 'badge badge-red'}>
+                          {d.status}
+                        </span>
+                      </td>
+                      <td className="muted" style={{ fontSize: 12.5 }}>{d.decision_note ?? ''}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr key={`${d.id}-detail`}>
+                        <td colSpan={5} style={{ background: 'var(--bl-silver)', padding: 14 }}>
+                          {keys.length === 0 ? (
+                            <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>No detail was recorded for this decision.</p>
+                          ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr 1fr', columnGap: 16, rowGap: 2, maxWidth: 480 }}>
+                              <div />
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--midgray)' }}>BEFORE</div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--midgray)' }}>AFTER</div>
+                              {keys.map(k => (
+                                <Field
+                                  key={k}
+                                  label={auditFieldLabel(k)}
+                                  before={auditValue((d.audit_before ?? {})[k])}
+                                  after={auditValue((d.audit_after ?? {})[k])}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+              {decided.filter(d => matches({ cohortId: d.cohort_id, isTest: d.is_test })).length === 0 && (
                 <tr><td colSpan={5}><div className="empty-state">Nothing decided yet.</div></td></tr>
               )}
             </tbody>

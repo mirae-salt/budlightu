@@ -223,6 +223,7 @@ export async function upsertDraftInvoice(
     if (!(updated ?? []).length) {
       return block(`invoice ${sequence.existingId} was no longer a draft when we tried to update it`)
     }
+    await closeBlockedNotification(db, bamId, period)
     return {
       ok: true,
       invoiceId: sequence.existingId,
@@ -248,11 +249,34 @@ export async function upsertDraftInvoice(
   const newId = (inserted ?? [])[0]?.id
   if (!newId) return block('invoice insert returned no row')
 
+  await closeBlockedNotification(db, bamId, period)
   return {
     ok: true,
     invoiceId: newId,
     invoiceNumber: payload.invoiceNumber,
     created: true,
     reimbursementCad: ledger.paidCad
+  }
+}
+
+/**
+ * Marks an earlier "Invoice generation blocked" notification read, now that a draft
+ * exists after all. Emma Romans' bell still said blocked four days after she finished
+ * onboarding and a draft was created the moment she did -- syncAdminNotifications
+ * (lib/notify-admin.ts) only ever closed receipt_review/ocr_failed, never invoice_draft,
+ * so this type of notification could not self-resolve no matter what happened later.
+ *
+ * Best effort: a failure here means a stale bell item, not a money problem, so it is
+ * logged rather than surfaced as a block.
+ */
+async function closeBlockedNotification(db: AdminClient, bamId: string, period: string): Promise<void> {
+  const { error } = await db.from('admin_notifications')
+    .update({ read: true })
+    .eq('bam_id', bamId)
+    .eq('period', period)
+    .eq('type', 'invoice_draft')
+    .eq('read', false)
+  if (error) {
+    console.error('[draft-invoice] could not close the earlier "generation blocked" notification:', error.message)
   }
 }

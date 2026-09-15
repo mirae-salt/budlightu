@@ -19,7 +19,7 @@ import { serviceClient } from '../../../../supabase/functions/_shared/supabase-a
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { lookupBank } from '../../../../lib/banks'
 
-type BamJoin = { first_name: string; last_name: string; email: string; bank_name: string | null }
+type BamJoin = { first_name: string; last_name: string; email: string; bank_name: string | null; cohort_id: string | null; is_test: boolean | null }
 type RequestRow = {
   id: string
   bam_id: string
@@ -51,7 +51,7 @@ export async function GET() {
   }
 
   const { data: rows, error } = await db.from('banking_change_requests')
-    .select('id, bam_id, status, reason, bank_name, requested_at, decided_at, decision_note, bams(first_name, last_name, email, bank_name)')
+    .select('id, bam_id, status, reason, bank_name, requested_at, decided_at, decision_note, bams(first_name, last_name, email, bank_name, cohort_id, is_test)')
     .order('requested_at', { ascending: false })
     .limit(100)
   if (error) {
@@ -59,7 +59,39 @@ export async function GET() {
     return NextResponse.json({ ok: false, message: error.message }, { status: 500 })
   }
 
+  const { data: cohortRows, error: cohortErr } = await db.from('cohorts').select('id, name')
+  if (cohortErr) console.error('[admin/banking-requests] cohorts read failed:', cohortErr.message)
+  const cohortNameById = new Map(((cohortRows ?? []) as { id: string; name: string }[]).map(c => [c.id, c.name]))
+
   const all = (rows ?? []) as unknown as RequestRow[]
+
+  // Decided rows' before/after: written once by decide/route.ts to audit_log
+  // (entity='banking_change_requests', entity_id=request.id) at the moment of
+  // the decision. Fetched in one pass rather than per-row, since there can be
+  // up to 100 of these. Re-decrypting full account numbers here was deliberately
+  // never the plan -- the audit row already carries only what decide/route.ts
+  // chose to keep (account_last4, not the full number).
+  const decidedIds = all.filter(r => r.status !== 'pending').map(r => r.id)
+  const auditByRequestId = new Map<string, { before: unknown; after: unknown }>()
+  if (decidedIds.length > 0) {
+    // Two audit rows can exist per request: 'submitted' (written by the BAM's own
+    // request, before_json always null) and the DECISION itself ('applied' or
+    // 'rejected'). Without this filter, an unordered query could let 'submitted'
+    // win the map below and show every BEFORE value as "not readable".
+    const { data: auditRows, error: auditErr } = await db.from('audit_log')
+      .select('entity_id, action, before_json, after_json')
+      .eq('entity', 'banking_change_requests')
+      .in('entity_id', decidedIds)
+      .in('action', ['applied', 'rejected'])
+    if (auditErr) {
+      console.error('[admin/banking-requests] audit_log read failed:', auditErr.message)
+    } else {
+      for (const a of (auditRows ?? []) as { entity_id: string; before_json: unknown; after_json: unknown }[]) {
+        auditByRequestId.set(a.entity_id, { before: a.before_json, after: a.after_json })
+      }
+    }
+  }
+
   const pending: unknown[] = []
   const decided: unknown[] = []
 
@@ -74,11 +106,20 @@ export async function GET() {
       decided_at: r.decided_at,
       decision_note: r.decision_note,
       bam_name: bam ? `${bam.first_name} ${bam.last_name}` : 'Unknown BAM',
-      bam_email: bam?.email ?? null
+      bam_email: bam?.email ?? null,
+      cohort_id: bam?.cohort_id ?? null,
+      cohort_name: bam?.cohort_id ? (cohortNameById.get(bam.cohort_id) ?? 'Unknown cohort') : 'Unassigned',
+      is_test: bam?.is_test ?? false
     }
 
     if (r.status !== 'pending') {
-      decided.push({ ...who, requested_bank_name: r.bank_name })
+      const audit = auditByRequestId.get(r.id) ?? null
+      decided.push({
+        ...who,
+        requested_bank_name: r.bank_name,
+        audit_before: audit?.before ?? null,
+        audit_after: audit?.after ?? null
+      })
       continue
     }
 

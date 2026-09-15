@@ -138,6 +138,38 @@ export async function POST(req: NextRequest) {
       continue
     }
 
+    // THE BANKING IN THE PDF MUST STILL BE THE BAM'S BANKING, RIGHT NOW.
+    //
+    // generateInvoicePayload bakes institution/transit/account into payload_json once,
+    // at creation time. banking-requests/decide swaps that field when a correction is
+    // approved on an invoice that is still draft/approved, but that is a courtesy, not
+    // a guarantee -- it can fail, and nothing stops a future change path from writing
+    // banking some other way. This re-decrypts the BAM's CURRENT banking and refuses to
+    // send if it disagrees with what is already sitting in the payload, no matter how
+    // the two came to differ. Mirae, 2026-09-15, after Lea Major/Emma Romans surfaced
+    // how many separate paths can touch either side of this comparison.
+    const bankingRes = await admin.rpc('decrypt_bam_banking', { p_bam_id: inv.bam_id })
+    if (bankingRes.error) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: `could not confirm current banking: ${bankingRes.error.message}` })
+      continue
+    }
+    const currentBanking = (Array.isArray(bankingRes.data) ? bankingRes.data[0] : bankingRes.data) as
+      { institution_no?: string | null; transit_no?: string | null; account_no?: string | null } | null
+    const payloadDD = ((inv.payload_json as unknown as InvoicePayload | null)?.directDeposit) ?? null
+    const bankingMatches =
+      currentBanking?.institution_no && currentBanking?.transit_no && currentBanking?.account_no &&
+      payloadDD?.institutionNumber === currentBanking.institution_no &&
+      payloadDD?.transitNumber === currentBanking.transit_no &&
+      payloadDD?.accountNumber === currentBanking.account_no
+    if (!bankingMatches) {
+      results.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        blocked: 'This invoice\'s banking does not match what is currently on file for this BAM -- regenerate it before approving.'
+      })
+      continue
+    }
+
     // P0-D: never send a document that disagrees with the ledger.
     const ledger = await lookupReimbursement(admin, inv.bam_id, inv.cohort_id, inv.period)
     if (!ledger.ok) {

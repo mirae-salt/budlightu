@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "/Users/mirae.lee/.local/node-v26.2.0-darwin-arm64/bin/npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true

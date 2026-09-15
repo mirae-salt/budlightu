@@ -319,12 +319,66 @@ export async function POST(req: NextRequest) {
     }, { status: 500 })
   }
 
+  // 6. Move the new numbers into any invoice this BAM has that has not gone out
+  // yet, and warn loudly about any that already have.
+  //
+  // generateInvoicePayload bakes institution/transit/account into payload_json
+  // at the moment an invoice is created, and nothing before this re-read it --
+  // a BAM's banking could be corrected here while their draft (or PDF someone
+  // had already downloaded) kept paying the OLD account forever. Money still
+  // never moves off just this: batch-approve re-checks live banking against
+  // the payload right before sending, so this is a courtesy that keeps the
+  // draft honest in the meantime, not the safety net.
+  const invoiceNotes: string[] = []
+  const { data: openInvoices, error: openErr } = await db.from('invoices')
+    .select('id, period, status, payload_json')
+    .eq('bam_id', request.bam_id)
+    .in('status', ['draft', 'approved'])
+  if (openErr) {
+    invoiceNotes.push(`Could not check for open invoices to update: ${openErr.message}. Check /admin/invoices by hand.`)
+  } else {
+    for (const inv of (openInvoices ?? []) as { id: string; period: string; status: string; payload_json: Record<string, unknown> | null }[]) {
+      const payload = inv.payload_json ?? {}
+      const dd = (payload.directDeposit ?? {}) as Record<string, unknown>
+      const nextPayload = {
+        ...payload,
+        directDeposit: { ...dd, bank: v.bankName, institutionNumber: v.institutionNo, transitNumber: v.transitNo, accountNumber: v.accountNo }
+      }
+      const { data: swapped, error: swapErr } = await db.from('invoices')
+        .update({ payload_json: nextPayload })
+        .eq('id', inv.id)
+        .eq('status', inv.status)
+        .select('id')
+      if (swapErr || !(swapped ?? []).length) {
+        invoiceNotes.push(
+          `${inv.period} invoice (${inv.status}) still has the OLD banking baked in -- ` +
+          `could not update it (${swapErr?.message ?? 'no row matched'}). Fix it by hand before sending.`
+        )
+      } else {
+        invoiceNotes.push(`${inv.period} invoice (${inv.status}) banking updated to match.`)
+      }
+    }
+  }
+
+  const { data: sentInvoices, error: sentErr } = await db.from('invoices')
+    .select('period')
+    .eq('bam_id', request.bam_id)
+    .in('status', ['sent', 'paid'])
+  if (!sentErr && (sentInvoices ?? []).length > 0) {
+    invoiceNotes.push(
+      `WARNING: ${(sentInvoices ?? []).length} already-sent invoice(s) for this BAM ` +
+      `(${(sentInvoices ?? []).map(i => i.period).join(', ')}) still carry the OLD banking. ` +
+      'Nothing was changed on those. If the deposit has not gone out yet, tell AP the new account before it does.'
+    )
+  }
+
   return NextResponse.json({
     ok: true,
     status: 'applied',
     email_verification_reset: true,
     account_last4: tail4(v.accountNo),
-    audit_logged: true
+    audit_logged: true,
+    ...(invoiceNotes.length > 0 ? { invoice_note: invoiceNotes.join(' ') } : {})
   })
 }
 

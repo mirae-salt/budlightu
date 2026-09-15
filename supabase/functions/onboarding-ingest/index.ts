@@ -27,6 +27,8 @@ import { serviceClient } from '../_shared/supabase-admin'
 import { validateInstitution, validateTransit, validateAccount } from '../../../lib/validation'
 import { normalizeBankName, lookupBank, OTHER_BANK, otherBankNameProblem } from '../../../lib/banks'
 import { normalizeEmail, isValidEmail, cleanText } from '../../../lib/sanitize'
+import { upsertDraftInvoice } from '../../../lib/draft-invoice'
+import { periodOf } from '../../../lib/seed-period-invoice'
 // One source for the version. This file and app/api/onboarding/complete both stamp
 // consent_terms_version, and they held separate copies of the string. They agreed --
 // until someone edited one, at which point acceptances of the same wording would carry
@@ -462,6 +464,34 @@ export async function handler(req: {
   // token without emailing it, so calling it added a DB round trip with no
   // effect. The BAM gets their first real login code from the portal login
   // page (`signInWithOtp`), which they're redirected to next.
+
+  /*
+   * Ensure this month's draft exists NOW rather than waiting on the 1st
+   * (already passed, for anyone onboarding mid-month) or the 17th.
+   *
+   * Talia Kornberg and Elle Edwards went active on 2026-09-07/08 -- after seed
+   * (the 1st) had already run and with no receipt yet to trigger the OCR path
+   * -- and had no invoice at all until generate caught them on the 17th. A new
+   * cohort's first month is this same gap at roster scale: onboarding is
+   * staggered across the days around the 1st, so most of a new cohort would
+   * sit invisible in /admin/invoices for up to two weeks. Becoming active is
+   * the moment a BAM is actually eligible; the draft should exist from that
+   * moment, not from whenever a schedule next happens to look.
+   *
+   * Best effort and never fatal: banking may still fail to decrypt in the same
+   * transaction that just wrote it (unlikely, not impossible), and if so this
+   * behaves exactly like any other post-onboarding block -- logged, admin
+   * notified, picked up later by a receipt or by generate. Onboarding itself
+   * already succeeded above and must not be undone by this.
+   */
+  try {
+    const draft = await upsertDraftInvoice(db, pendingBam.id, pendingBam.cohort_id, periodOf(new Date()))
+    if (!draft.ok && !draft.quiet) {
+      console.error('[onboarding-ingest] draft invoice not created for', pendingBam.id, ':', draft.reason)
+    }
+  } catch (e) {
+    console.error('[onboarding-ingest] upsertDraftInvoice threw:', e)
+  }
 
   return { ok: true, message: 'Onboarding complete. Sign in below to get your login code.', bam_id: pendingBam.id }
 }
