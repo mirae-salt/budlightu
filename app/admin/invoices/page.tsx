@@ -7,6 +7,7 @@ import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
 import { type InvoiceRow } from '../_lib/dummy'
 import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
+import { useTableSort, SortTh, compareText } from '../_components/SortHeader'
 
 type PayloadLine = { qty: number; description: string; unitPrice: number; total: number }
 
@@ -157,18 +158,7 @@ export default function InvoiceBatch() {
   const [editReason, setEditReason] = useState('')
   const [savingLines, setSavingLines] = useState(false)
 
-  /** null = the order the API returned (created_at desc). Set by clicking a header. */
-  const [sort, setSort] = useState<{ key: 'bam' | 'period' | 'amount' | 'status'; dir: 1 | -1 } | null>(null)
-
-  /** Clicking the active column reverses it; clicking a new one starts ascending. */
-  function toggleSort(key: 'bam' | 'period' | 'amount' | 'status') {
-    setSort(cur => (cur && cur.key === key ? { key, dir: (cur.dir * -1) as 1 | -1 } : { key, dir: 1 }))
-  }
-
-  function sortArrow(key: 'bam' | 'period' | 'amount' | 'status'): string {
-    if (!sort || sort.key !== key) return ''
-    return sort.dir === 1 ? ' ▲' : ' ▼'
-  }
+  const { sort, toggleSort } = useTableSort<'bam' | 'period' | 'amount' | 'status'>()
 
   /** Successes clear themselves; failures stay until the next action. */
   function reportBatch(kind: 'ok' | 'error', text: string) {
@@ -214,7 +204,7 @@ export default function InvoiceBatch() {
       const bv = parseFloat(b.amount.replace(/[$,]/g, '')) || 0
       return (av - bv) * dir
     }
-    return a[key].localeCompare(b[key]) * dir
+    return compareText(a[key], b[key], dir)
   }) : invoices
 
   const draftInvoices = invoices.filter(inv => inv.status === 'draft')
@@ -640,11 +630,11 @@ export default function InvoiceBatch() {
                   style={{ cursor: 'pointer' }}
                 />
               </th>
-              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('bam')}>BAM{sortArrow('bam')}</th>
-              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('period')}>Period{sortArrow('period')}</th>
-              <th style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('amount')}>Amount{sortArrow('amount')}</th>
+              <SortTh sortKey="bam" sort={sort} onSort={toggleSort}>BAM</SortTh>
+              <SortTh sortKey="period" sort={sort} onSort={toggleSort}>Period</SortTh>
+              <SortTh sortKey="amount" sort={sort} onSort={toggleSort} align="right">Amount</SortTh>
               <th>Receipt</th>
-              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('status')}>Status{sortArrow('status')}</th>
+              <SortTh sortKey="status" sort={sort} onSort={toggleSort}>Status</SortTh>
               <th style={{ textAlign: 'right' }}></th>
             </tr>
           </thead>

@@ -9,6 +9,7 @@ import { Toast } from '../_components/Toast'
 import { BAMS, type BamRow } from '../_lib/dummy'
 import { BANK_SEED } from '@/lib/banks'
 import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
+import { useTableSort, SortTh, compareText } from '../_components/SortHeader'
 import {
   type CsvRow,
   type ColumnMap,
@@ -82,6 +83,19 @@ const EMPTY_CELL = '—'
 
 type Address = { street: string; city: string; prov: string; postal: string }
 type FullRow = BamRow & { id: string; cohortId: string | null } & Address
+
+type SortKey = 'name' | 'email' | 'school' | 'cohort' | 'bank' | 'invoiceCode' | 'status'
+
+/** What a column shows, as plain text, so the order matches what is on screen.
+ *  EMPTY_CELL becomes '' because a dash is punctuation: left alone it sorts
+ *  above every name instead of falling to the bottom with the other blanks.
+ *  A test row's status column reads TEST, so it sorts as TEST too. */
+function sortValue(b: FullRow, key: SortKey): string {
+  if (key === 'status') return b.isTest ? 'test' : b.status
+  if (key === 'invoiceCode') return b.invoiceCode ?? ''
+  const v = b[key]
+  return v === EMPTY_CELL ? '' : v
+}
 
 function mapDbBam(b: DbBam): FullRow {
   return {
@@ -204,6 +218,12 @@ export default function Roster() {
     cohortOptions.find(c => c.id === id)?.name
 
   const rows = bams.filter(b => matches({ cohortId: b.cohortId, isTest: b.isTest }))
+
+  const { sort, toggleSort } = useTableSort<SortKey>()
+
+  /* Display order only. The counts below and every edit are computed from `rows`,
+     so reordering the table cannot change what a header says or what Edit saves. */
+  const sortedRows = sort ? [...rows].sort((a, b) => compareText(sortValue(a, sort.key), sortValue(b, sort.key), sort.dir)) : rows
 
   /* A test account's status column reads TEST, not ACTIVE or PENDING, so the
      counts have to agree with the column: a row showing TEST while being tallied
@@ -727,7 +747,14 @@ export default function Roster() {
           <table className="admin-table">
             <thead>
               <tr>
-                <th>Name</th><th>Email</th><th>School</th><th>Cohort</th><th>Bank</th><th>Invoice code</th><th>Status</th><th></th>
+                <SortTh sortKey="name" sort={sort} onSort={toggleSort}>Name</SortTh>
+                <SortTh sortKey="email" sort={sort} onSort={toggleSort}>Email</SortTh>
+                <SortTh sortKey="school" sort={sort} onSort={toggleSort}>School</SortTh>
+                <SortTh sortKey="cohort" sort={sort} onSort={toggleSort}>Cohort</SortTh>
+                <SortTh sortKey="bank" sort={sort} onSort={toggleSort}>Bank</SortTh>
+                <SortTh sortKey="invoiceCode" sort={sort} onSort={toggleSort}>Invoice code</SortTh>
+                <SortTh sortKey="status" sort={sort} onSort={toggleSort}>Status</SortTh>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -738,7 +765,7 @@ export default function Roster() {
                   </td>
                 </tr>
               )}
-              {rows.map((b) => (
+              {sortedRows.map((b) => (
                 <Fragment key={b.id}>
                   <tr>
                     {/* The TEST marker used to sit here as well. It lives in the status
