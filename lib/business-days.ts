@@ -53,3 +53,26 @@ export function sendEligibleAt(releasedAt: Date, windowHours = 24): Date {
   const windowEnds = new Date(releasedAt.getTime() + windowHours * 60 * 60 * 1000)
   return nextBusinessDay(windowEnds)
 }
+
+/**
+ * When the BAM's window actually started, given that a correction restarts it (0036).
+ *
+ * A revision does not un-publish an invoice; it moves the clock to the moment the figure
+ * changed. Taking the later of the two means the 24 hours always run against the number
+ * the BAM was last shown, and never against one that has since been replaced.
+ *
+ * Returns null when the invoice has not been released, which is the caller's cue to
+ * refuse the send outright rather than compute a deadline for something nobody has seen.
+ */
+export function windowStartedAt(
+  releasedAt: string | Date | null | undefined,
+  revisedAt: string | Date | null | undefined
+): Date | null {
+  if (!releasedAt) return null
+  const released = new Date(releasedAt)
+  if (!revisedAt) return released
+  const revised = new Date(revisedAt)
+  // A revision recorded BEFORE the release belongs to an older cycle and is ignored:
+  // it cannot shorten or extend a window that started after it.
+  return revised > released ? revised : released
+}

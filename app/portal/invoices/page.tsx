@@ -15,16 +15,55 @@ type InvoiceRow = {
    */
   released_at: string | null
   /**
-   * An unanswered question thread this BAM opened about this invoice, if any. Set by the
-   * second fetch below, not by the invoices select. While one is open the invoice is held
-   * and the row says so instead of offering the button again.
+   * When the amount last changed after release (0036). The row stays on screen and says
+   * it was corrected rather than disappearing, and the 24 hours restart from here.
    */
-  openDispute?: { id: string; question: string; submitted_at: string } | null
+  revised_at: string | null
+  /**
+   * The question thread about THIS invoice, answered or not, with its messages.
+   *
+   * It is rendered on the row rather than behind a link to Support, because it is about
+   * this invoice and nothing else: Mirae, 2026-09-16, "이거 question 이 support 로 가는데,
+   * 그럼 구분이 힘들어져서 해당 인보이스에서 할수 없나". The thread is still an ordinary
+   * portal_questions row, so the admin side, the emails and the reopen-on-reply behaviour
+   * are all the ones that already exist.
+   */
+  thread?: InvoiceThread | null
+}
+
+type ThreadMessage = { id: string; author: string; body: string; created_at: string }
+
+type InvoiceThread = {
+  id: string
+  question: string
+  submitted_at: string
+  answered_at: string | null
+  answer: string | null
+  messages: ThreadMessage[]
+}
+
+/** The later of release and revision: what the BAM's current 24 hours run from. */
+function windowStart(inv: InvoiceRow): Date | null {
+  if (!inv.released_at) return null
+  const released = new Date(inv.released_at)
+  if (!inv.revised_at) return released
+  const revised = new Date(inv.revised_at)
+  return revised > released ? revised : released
+}
+
+/** An invoice thread nobody has answered yet. That is what holds the payment. */
+function isOpen(t: InvoiceThread | null | undefined): boolean {
+  return Boolean(t && !t.answered_at)
+}
+
+/** True when the figure moved after they were first asked to check it. */
+function wasRevised(inv: InvoiceRow): boolean {
+  return Boolean(inv.released_at && inv.revised_at && new Date(inv.revised_at) > new Date(inv.released_at))
 }
 
 const DUMMY_INVOICES: InvoiceRow[] = [
-  { id: 'demo-1', period: '2026-09-01', status: 'sent', invoice_number: 'INV-AT1', seq: 1, created_at: '2026-09-16T18:00:00Z', released_at: '2026-09-16T13:00:00Z' },
-  { id: 'demo-2', period: '2026-10-01', status: 'draft', invoice_number: 'INV-AT2', seq: 2, created_at: '2026-10-16T18:00:00Z', released_at: null },
+  { id: 'demo-1', period: '2026-09-01', status: 'sent', invoice_number: 'INV-AT1', seq: 1, created_at: '2026-09-16T18:00:00Z', released_at: '2026-09-16T13:00:00Z', revised_at: null },
+  { id: 'demo-2', period: '2026-10-01', status: 'draft', invoice_number: 'INV-AT2', seq: 2, created_at: '2026-10-16T18:00:00Z', released_at: null, revised_at: null },
 ]
 
 export default function MyInvoices() {
@@ -38,6 +77,46 @@ export default function MyInvoices() {
   const [disputeText, setDisputeText] = useState('')
   const [disputeBusy, setDisputeBusy] = useState(false)
   const [disputeMsg, setDisputeMsg] = useState<string | null>(null)
+  /** Which thread the inline reply box is open on. */
+  const [replyFor, setReplyFor] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [replyBusy, setReplyBusy] = useState(false)
+
+  /*
+   * A follow-up on the invoice's own thread. Same endpoint the Support page posts to, so
+   * it reopens the thread, puts it back in the admin queue, emails them, and (because the
+   * thread points at this invoice) holds the payment again.
+   */
+  async function sendReply(inv: InvoiceRow, t: InvoiceThread) {
+    setReplyBusy(true)
+    try {
+      const res = await fetch('/api/portal/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: t.id, body: replyText })
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.ok) {
+        setDisputeMsg(j.message || `Could not send that (${res.status})`)
+        return
+      }
+      const added: ThreadMessage = {
+        id: j.message?.id ?? `local-${Date.now()}`,
+        author: 'bam',
+        body: replyText,
+        created_at: new Date().toISOString()
+      }
+      setInvoices(prev => prev.map(r => r.id === inv.id && r.thread
+        ? { ...r, thread: { ...r.thread, answered_at: null, messages: [...r.thread.messages, added] } }
+        : r))
+      setReplyFor(null)
+      setReplyText('')
+      setDisputeMsg('Sent. Your program manager has it, and nothing goes out until they answer.')
+    } finally {
+      setReplyBusy(false)
+      setTimeout(() => setDisputeMsg(null), 8000)
+    }
+  }
 
   async function submitDispute(inv: InvoiceRow) {
     setDisputeBusy(true)
@@ -56,7 +135,7 @@ export default function MyInvoices() {
       // Reflect it immediately. The row has to stop offering the button the moment the
       // message lands, or they send the same thing three times waiting for a reload.
       setInvoices(prev => prev.map(r => r.id === inv.id
-        ? { ...r, openDispute: { id: j.question_id, question: disputeText, submitted_at: new Date().toISOString() } }
+        ? { ...r, thread: { id: j.question_id, question: disputeText, submitted_at: new Date().toISOString(), answered_at: null, answer: null, messages: [{ id: `local-${Date.now()}`, author: 'bam', body: disputeText, created_at: new Date().toISOString() }] } }
         : r))
       setDisputeFor(null)
       setDisputeText('')
@@ -96,7 +175,7 @@ export default function MyInvoices() {
 
         const { data } = await sb
           .from('invoices')
-          .select('id, period, status, invoice_number, seq, created_at, released_at')
+          .select('id, period, status, invoice_number, seq, created_at, released_at, revised_at')
           .eq('bam_id', bamId)
           .order('period', { ascending: false })
 
@@ -109,20 +188,30 @@ export default function MyInvoices() {
          * they had already used. /portal/support reads through this same route for exactly
          * that reason.
          */
-        const disputes: Array<{ id: string; invoice_id: string | null; question: string; submitted_at: string; answered_at: string | null }> =
+        const threads: Array<InvoiceThread & { invoice_id: string | null; portal_question_messages?: ThreadMessage[] }> =
           await fetch('/api/portal/questions')
             .then(r => r.json())
             .then(j => (j?.questions ?? j?.data ?? []))
             .catch(() => [])
 
         if (!cancelled) {
-          const openByInvoice = new Map<string, { id: string; question: string; submitted_at: string }>()
-          for (const d of disputes) {
-            if (d.invoice_id && !d.answered_at) {
-              openByInvoice.set(d.invoice_id, { id: d.id, question: d.question, submitted_at: d.submitted_at })
-            }
+          // Answered threads are kept, not filtered out: the reply is the thing the BAM
+          // came back to read, and it belongs on the invoice it is about.
+          const byInvoice = new Map<string, InvoiceThread>()
+          for (const t of threads) {
+            if (!t.invoice_id) continue
+            byInvoice.set(t.invoice_id, {
+              id: t.id,
+              question: t.question,
+              submitted_at: t.submitted_at,
+              answered_at: t.answered_at ?? null,
+              answer: t.answer ?? null,
+              messages: (t.portal_question_messages ?? []).slice().sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              )
+            })
           }
-          const rows = (data ?? []).map(r => ({ ...r, openDispute: openByInvoice.get(r.id) ?? null }))
+          const rows = (data ?? []).map(r => ({ ...r, thread: byInvoice.get(r.id) ?? null }))
           setInvoices(rows.length > 0 ? rows : isDev ? DUMMY_INVOICES : [])
         }
       } catch {
@@ -206,7 +295,7 @@ export default function MyInvoices() {
           goes away, because a button that cannot do what it says is worse than none: the
           Support page is the honest route at that point.
         */}
-        {inv.status === 'draft' && inv.released_at && !inv.openDispute && (
+        {inv.status === 'draft' && inv.released_at && !isOpen(inv.thread) && !inv.thread && (
           <button
             className="btn-ghost"
             style={{ padding: '5px 12px', fontSize: 12, color: 'var(--red)' }}
@@ -215,19 +304,118 @@ export default function MyInvoices() {
             Something looks wrong
           </button>
         )}
-        {inv.openDispute && (
-          /*
-            Straight into the thread. The conversation lives on the Support page, which
-            already threads replies both ways and emails each one, so pointing at it beats
-            a second half-built conversation here that would notify nobody.
-          */
-          <a
-            href={`/portal/support?q=${inv.openDispute.id}`}
+        {inv.thread && (
+          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
+            {isOpen(inv.thread) ? 'Waiting for a reply' : 'Answered below'}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  /*
+   * The state of the window, in words, under the row it belongs to.
+   *
+   * Shown for the whole of the review, from release until the invoice leaves for AP, so a
+   * BAM can always see where they are instead of inferring it from a badge. A correction
+   * says so here rather than quietly resetting a clock nobody was watching.
+   */
+  function windowLine(inv: InvoiceRow) {
+    if (inv.status !== 'draft' || !inv.released_at) return null
+    const start = windowStart(inv)
+    if (!start) return null
+    const closes = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+    const closesLabel = closes.toLocaleString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    })
+    if (isOpen(inv.thread)) {
+      return (
+        <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+          On hold while your program manager answers you. Nothing goes out until then.
+        </div>
+      )
+    }
+    return (
+      <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+        {wasRevised(inv)
+          ? `This was corrected on ${new Date(inv.revised_at as string).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}, so please look again. `
+          : ''}
+        If we do not hear from you by {closesLabel}, it goes to accounts payable as it stands.
+      </div>
+    )
+  }
+
+  /*
+   * The conversation about this invoice, on this invoice.
+   *
+   * It used to be a link to /portal/support, where an invoice objection sat among general
+   * questions and stopped looking like it was about anything in particular. Same thread,
+   * same endpoints, same emails; it is just rendered where it belongs.
+   */
+  function threadPanel(inv: InvoiceRow) {
+    const t = inv.thread
+    if (!t) return null
+    const open = isOpen(t)
+    // The stored `question` is the first message too, so it would print twice.
+    const body = t.messages.length > 0
+      ? t.messages
+      : [{ id: t.id, author: 'bam', body: t.question, created_at: t.submitted_at }]
+
+    return (
+      <div style={{ marginTop: 8, padding: 12, background: 'var(--bl-fog)', borderRadius: 8, maxWidth: 560 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+          About this invoice
+          <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
+            {open ? 'waiting for a reply' : 'answered'}
+          </span>
+        </div>
+
+        {body.map(m => (
+          <div key={m.id} style={{ marginBottom: 8 }}>
+            <div className="muted" style={{ fontSize: 11 }}>
+              {m.author === 'admin' ? 'Your program manager' : 'You'}
+              {' · '}
+              {new Date(m.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.body}</div>
+          </div>
+        ))}
+
+        {/* The answer column, for a thread answered before messages existed (0027 backfilled
+            once; older rows can still carry an answer with no matching message row). */}
+        {!open && t.answer && !body.some(m => m.author === 'admin') && (
+          <div style={{ marginBottom: 8 }}>
+            <div className="muted" style={{ fontSize: 11 }}>Your program manager</div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{t.answer}</div>
+          </div>
+        )}
+
+        {replyFor === t.id ? (
+          <div style={{ marginTop: 8 }}>
+            <textarea
+              className="input"
+              style={{ display: 'block', width: '100%', minHeight: 60 }}
+              value={replyText}
+              onChange={e => setReplyText(e.target.value)}
+              placeholder="Add anything else about this invoice"
+            />
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button className="btn-navy" disabled={replyBusy} onClick={() => sendReply(inv, t)}>
+                {replyBusy ? 'Sending…' : 'Send'}
+              </button>
+              <button className="btn-ghost" disabled={replyBusy} onClick={() => setReplyFor(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
             className="btn-ghost"
-            style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none', display: 'inline-block' }}
+            style={{ fontSize: 12, padding: '4px 10px' }}
+            onClick={() => { setReplyFor(t.id); setReplyText('') }}
           >
-            See your question
-          </a>
+            Reply
+          </button>
         )}
       </div>
     )
@@ -355,6 +543,8 @@ export default function MyInvoices() {
                   <td><span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span></td>
                   <td>
                     {invoiceActions(inv, false)}
+                    {windowLine(inv)}
+                    {threadPanel(inv)}
                     {disputeForm(inv)}
                   </td>
                 </tr>
@@ -378,6 +568,8 @@ export default function MyInvoices() {
                 {invoiceActions(inv, true) && (
                   <div style={{ marginTop: 10 }}>{invoiceActions(inv, true)}</div>
                 )}
+                {windowLine(inv)}
+                {threadPanel(inv)}
                 {disputeForm(inv)}
               </div>
             ))}
@@ -395,7 +587,8 @@ export default function MyInvoices() {
  * alone would put "Being prepared" on the one invoice that is waiting on them.
  */
 function statusBadge(inv: InvoiceRow): string {
-  if (inv.openDispute) return 'yellow'
+  if (isOpen(inv.thread)) return 'yellow'
+  if (inv.status === 'draft' && wasRevised(inv)) return 'blue'
   if (inv.status === 'draft' && inv.released_at) return 'yellow'
   switch (inv.status) {
     case 'sent':  return 'blue'
@@ -407,7 +600,9 @@ function statusBadge(inv: InvoiceRow): string {
 }
 
 function statusText(inv: InvoiceRow): string {
-  if (inv.openDispute) return 'Your question is with us'
+  if (isOpen(inv.thread)) return 'Your question is with us'
+  // Said plainly, because the number they looked at yesterday is not the number now.
+  if (inv.status === 'draft' && wasRevised(inv)) return 'Updated, please check again'
   if (inv.status === 'draft' && inv.released_at) return 'Please check by tomorrow'
   switch (inv.status) {
     case 'sent':  return 'Sent to AP'

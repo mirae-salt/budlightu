@@ -123,7 +123,7 @@ export async function GET(req: Request) {
       // needs to preview tax at the SAME rate the server will apply; it does not
       // need the BAM's address.
       const { data: invoices, error } = await admin.from('invoices')
-        .select('id, invoice_number, period, status, cohort_id, bam_id, released_at, payload_json, bams(first_name, last_name, prov)')
+        .select('id, invoice_number, period, status, cohort_id, bam_id, released_at, revised_at, payload_json, bams(first_name, last_name, prov), cohorts(send_mode)')
         // Must include 'approved', 'paid' and 'void'. The filter used to be
         // ['draft','sent'], which hid an invoice the moment batch-approve set it to
         // 'approved' — and /api/admin/send-ap only accepts status='approved', so the

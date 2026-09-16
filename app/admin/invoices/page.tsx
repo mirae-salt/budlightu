@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { isReimbursementLine } from '@/lib/receipt-badge'
-import { sendEligibleAt } from '@/lib/business-days'
+import { sendEligibleAt, windowStartedAt } from '@/lib/business-days'
 import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
@@ -18,6 +18,9 @@ type Row = InvoiceRow & {
   period: string
   /** Null until an admin publishes it to the BAM and starts their 24 hours (0035). */
   released_at: string | null
+  revised_at: string | null
+  /** 'live' cohorts enforce the 24-hour wait; a rehearsing cohort does not. */
+  sendMode: string | null
   /** Line items from payload_json. Banking is stripped server-side (redactPayload). */
   lines: PayloadLine[]
   subtotal?: number
@@ -46,6 +49,9 @@ type DbInvoice = {
    * window (0035). Null means batch-approve will refuse it: nobody has seen it yet.
    */
   released_at: string | null
+  revised_at: string | null
+  /** The cohort's send mode. A non-live cohort waives the 24-hour wait, not the rest. */
+  cohorts?: { send_mode?: string | null } | Array<{ send_mode?: string | null }> | null
   cohort_id: string
   payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[]; jobNumber?: string } | null
   bams: { first_name: string; last_name: string } | null
@@ -87,6 +93,8 @@ function mapDbInvoice(inv: DbInvoice): Row {
     amount: total != null ? `$${Number(total).toFixed(2)}` : '—',
     status: inv.status,
     released_at: inv.released_at ?? null,
+    revised_at: inv.revised_at ?? null,
+    sendMode: (Array.isArray(inv.cohorts) ? inv.cohorts[0] : inv.cohorts)?.send_mode ?? null,
     cohort_id: inv.cohort_id,
     receiptStatus: mapReceiptStatus(inv.receipt_status),
     receiptTotal: inv.receipt_total != null ? `$${Number(inv.receipt_total).toFixed(2)}` : undefined,
@@ -301,11 +309,13 @@ export default function InvoiceBatch() {
    * the server wins: it refuses, and the toast names each one.
    */
   const disputedInvoiceIds = new Set(disputes.map(d => d.invoice_id))
-  const sendableSelected = selectedDrafts.filter(inv =>
-    inv.released_at
-    && !disputedInvoiceIds.has(inv.id)
-    && Date.now() >= sendEligibleAt(new Date(inv.released_at)).getTime()
-  )
+  const sendableSelected = selectedDrafts.filter(inv => {
+    const start = windowStartedAt(inv.released_at, inv.revised_at)
+    // Mirrors the server: a cohort that is not live waives the wait, so the count on the
+    // button matches what pressing it will actually send.
+    const waitOver = inv.sendMode !== 'live' || Date.now() >= sendEligibleAt(start!).getTime()
+    return start && !disputedInvoiceIds.has(inv.id) && waitOver
+  })
   const heldSelected = selectedDrafts.filter(inv => !sendableSelected.includes(inv))
 
   async function releaseSelected() {
@@ -900,12 +910,22 @@ export default function InvoiceBatch() {
                         A released draft is the state Robin acts on next, and the one she
                         cannot act on yet, so the badge says which. Without it every draft
                         looks alike and "Approve selected" silently blocks half of them.
+
+                        A corrected one says so separately (0036): its clock restarted, and
+                        "WITH BAM" alone would look like the same invoice from yesterday
+                        that is nearly ready to go.
                       */
                       ? <span
                           className="badge badge-blue"
-                          title={`Published to the BAM at ${new Date(inv.released_at).toLocaleString()}. Can go to AP once their 24 hours are up.`}
+                          title={
+                            inv.revised_at && new Date(inv.revised_at) > new Date(inv.released_at)
+                              ? `Corrected at ${new Date(inv.revised_at).toLocaleString()} after it was published, so the BAM's 24 hours restarted from then.`
+                              : `Published to the BAM at ${new Date(inv.released_at).toLocaleString()}. Can go to AP once their 24 hours are up.`
+                          }
                         >
-                          WITH BAM
+                          {inv.revised_at && new Date(inv.revised_at) > new Date(inv.released_at)
+                            ? 'WITH BAM · CORRECTED'
+                            : 'WITH BAM'}
                         </span>
                       : <span className="badge badge-yellow" title="Not shown to the BAM yet. Release it before approving.">DRAFT</span>}
                   </td>

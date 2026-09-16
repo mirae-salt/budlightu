@@ -215,24 +215,22 @@ export async function upsertDraftInvoice(
   //      mean the BAM silently got no invoice that month. ─────────────────────
   if (sequence.existingId) {
     /*
-     * `pdf_key` and `released_at` are cleared because the amount just changed.
+     * The amount just changed, so two things derived from the old payload have to go.
      *
-     * This runs whenever a receipt decision moves the money (approve a late one, correct
-     * an amount), and it rewrites payload_json in place. Two things were derived from the
-     * OLD payload and outlived it:
+     * This runs whenever a receipt decision moves the money (a late one approved, an
+     * amount corrected), rewriting payload_json in place.
      *
      *   pdf_key     ensureInvoicePdf returns the STORED bytes when this is set, so the
      *               next email would attach a PDF showing the old total while the body
-     *               and the portal showed the new one. The line editor already clears it
-     *               for the same reason; this writer did not, so a receipt correction
-     *               could leave AP holding a document that disagreed with the invoice.
+     *               and the portal showed the new one. The line editor already cleared it
+     *               for this reason; this writer did not, so a receipt correction could
+     *               have left AP holding a document that disagreed with its own invoice.
      *
-     *   released_at the BAM agreed to the old figure by saying nothing. Letting that
-     *               clock keep running would send an amount nobody ever reviewed while
-     *               the record claimed they had 24 hours to object to it (0035).
-     *
-     * Found 2026-09-16 when Mirae asked whether the total in the release email could
-     * disagree with its own attachment. It could.
+     *   revised_at  the BAM agreed to the OLD figure by saying nothing, so their 24 hours
+     *               restart from this moment (0036). `released_at` deliberately stays put:
+     *               un-publishing made the invoice vanish from their screen mid-review and
+     *               left an admin to notice and re-release it, which nobody is told to do.
+     *               The row stays visible and asks to be checked again instead.
      */
     const { data: updated, error: updErr } = await db.from('invoices')
       .update({
@@ -240,12 +238,11 @@ export async function upsertDraftInvoice(
         invoice_number: payload.invoiceNumber,
         revision: sequence.revision,
         pdf_key: null,
-        released_at: null,
-        released_by: null
+        revised_at: new Date().toISOString()
       })
       .eq('id', sequence.existingId)
       .eq('status', 'draft')
-      .select('id')
+      .select('id, released_at, revised_at')
     if (updErr) return block(`invoice update failed: ${updErr.message}`)
     if (!(updated ?? []).length) {
       return block(`invoice ${sequence.existingId} was no longer a draft when we tried to update it`)

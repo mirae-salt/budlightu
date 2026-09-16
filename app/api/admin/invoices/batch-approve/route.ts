@@ -33,7 +33,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
-import { sendEligibleAt } from '../../../../../lib/business-days'
+import { sendEligibleAt, windowStartedAt } from '../../../../../lib/business-days'
 import { handler as sendAp }      from '../../../../../supabase/functions/sendApEmail/index'
 import { handler as sendBamCopy } from '../../../../../supabase/functions/sendBamCopy/index'
 /*
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   const admin = serviceClient()
 
   const { data: invoices, error: invErr } = await admin.from('invoices')
-    .select('id, cohort_id, bam_id, period, invoice_number, status, released_at, payload_json, pdf_key, bams(first_name, last_name, status)')
+    .select('id, cohort_id, bam_id, period, invoice_number, status, released_at, revised_at, payload_json, pdf_key, bams(first_name, last_name, status)')
     .in('id', invoiceIds)
     .eq('status', 'draft')
   if (invErr) return NextResponse.json({ ok: false, message: `invoices read failed: ${invErr.message}` }, { status: 500 })
@@ -184,7 +184,11 @@ export async function POST(req: NextRequest) {
       })
       continue
     }
-    if (!inv.released_at) {
+    // The later of released_at and revised_at: a correction restarts the window rather
+    // than un-publishing, so the 24 hours always run against the figure the BAM was last
+    // shown (0036).
+    const windowStart = windowStartedAt(inv.released_at, inv.revised_at)
+    if (!windowStart) {
       results.push({
         id: inv.id,
         invoice_number: inv.invoice_number,
@@ -192,8 +196,19 @@ export async function POST(req: NextRequest) {
       })
       continue
     }
-    const eligibleAt = sendEligibleAt(new Date(inv.released_at))
-    if (Date.now() < eligibleAt.getTime()) {
+    /*
+     * The WAIT is waived when the cohort is not live. Nothing else is.
+     *
+     * A dryrun cohort emails nobody, so there is no payment for the window to protect,
+     * and making a rehearsal take a real day means the send half of this flow never gets
+     * rehearsed at all. Releasing is still required and an open objection still blocks,
+     * because those are the parts worth practising and both are testable in seconds.
+     *
+     * Keyed off the cohort's own send_mode rather than NODE_ENV: the live cohort must
+     * keep its window even when someone is testing on the same deployment.
+     */
+    const eligibleAt = sendEligibleAt(windowStart)
+    if (cohort.send_mode === 'live' && Date.now() < eligibleAt.getTime()) {
       results.push({
         id: inv.id,
         invoice_number: inv.invoice_number,
