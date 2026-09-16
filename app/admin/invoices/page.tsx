@@ -329,7 +329,13 @@ export default function InvoiceBatch() {
           `Released ${json.released}. Not released: ` +
           blocked.map((r: { invoice_number?: string; blocked?: string }) => `${r.invoice_number ?? '?'} (${r.blocked})`).join('; '))
       } else {
-        reportBatch('ok', `Released ${json.released} to their BAMs. They can be sent to AP after ${new Date(json.window_closes).toLocaleString()}.`)
+        // The dryrun case is said once, as part of the success, rather than as a problem
+        // against each invoice: in a test cohort it is true every time and it worked.
+        const dryrun = json.dryrun_no_email > 0
+          ? ` This cohort is in dryrun, so the portal was updated and no email was sent.`
+          : ''
+        reportBatch('ok',
+          `Released ${json.released} to their BAMs. They can be sent to AP after ${new Date(json.window_closes).toLocaleString()}.${dryrun}`)
       }
       loadInvoices()
     } catch (e) {

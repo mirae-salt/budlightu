@@ -71,6 +71,8 @@ export async function POST(req: NextRequest) {
 
   const now = new Date()
   const results: Array<{ id: string; invoice_number: string | null; released?: true; blocked?: string }> = []
+  /** Released fine, email held because the cohort is rehearsing. Counted, not flagged. */
+  let dryrunSkipped = 0
 
   for (const inv of invoices) {
     if (inv.status !== 'draft') {
@@ -161,8 +163,14 @@ export async function POST(req: NextRequest) {
        *
        * Unknown or missing mode reads as dryrun, not live: not knowing whether we are
        * rehearsing is a bad reason to email real people.
+       *
+       * DELIBERATELY NOT A PER-INVOICE PROBLEM. It was reported in the same field as a
+       * failure, so every rehearsal release came back as a red "that did not go through"
+       * on a release that had worked perfectly. A warning that fires every single time in
+       * the test cohort is a warning nobody reads by the time it means something. The
+       * response says it once, for the batch, instead.
        */
-      emailNote = `cohort is in ${sendMode} mode, so no email was sent (the portal notification did go out)`
+      dryrunSkipped++
     } else if (!bam?.email) {
       emailNote = 'no email on file, so only the portal notification went out'
     } else if (!inv.payload_json) {
@@ -236,6 +244,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     released: results.filter(r => r.released).length,
+    /** Zero on a live cohort. Non-zero means the portal was told and the inbox was not. */
+    dryrun_no_email: dryrunSkipped,
     window_closes: sendEligibleAt(now).toISOString(),
     results
   })
