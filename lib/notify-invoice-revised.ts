@@ -122,7 +122,16 @@ export async function notifyInvoiceRevised(
   })
 
   if (sendMode !== 'live') {
-    return { skipped: false, emailed: false, notified: notified.ok, note: `cohort is in ${sendMode} mode, so no email was sent` }
+    /*
+     * `skipped`, not a note with `skipped: false`.
+     *
+     * Both callers surface a note as something that needs attention, so reporting the
+     * dryrun skip that way put "Needs attention: no email was sent" on every single edit
+     * in the test cohort, where it is true every time and correct every time. Same mistake
+     * this made in the release route an hour earlier. Holding the mail in a rehearsal is
+     * the configured behaviour, not a problem with the invoice.
+     */
+    return { skipped: true, emailed: false, notified: notified.ok, note: `cohort is in ${sendMode} mode, so no email was sent` }
   }
   if (!bam?.email) {
     return { skipped: false, emailed: false, notified: notified.ok, note: 'no email on file' }

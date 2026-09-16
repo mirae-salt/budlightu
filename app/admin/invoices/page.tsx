@@ -154,6 +154,24 @@ export default function InvoiceBatch() {
   const [useDb, setUseDb] = useState(false)
   const [batchConfirming, setBatchConfirming] = useState(false)
   const [releasing, setReleasing] = useState(false)
+  /**
+   * An invoice id from ?invoice=, set by the "Open the invoice" button on a question
+   * thread. Read from window.location in an effect rather than with useSearchParams,
+   * which would force this page into a Suspense boundary for a value only used after
+   * mount -- the same reasoning as /admin/questions and its ?q=.
+   */
+  const [focusInvoice, setFocusInvoice] = useState<string | null>(null)
+
+  useEffect(() => {
+    setFocusInvoice(new URLSearchParams(window.location.search).get('invoice'))
+  }, [])
+
+  // Scroll once the rows exist, not on mount: firing early scrolls to nothing while the
+  // list is still loading.
+  useEffect(() => {
+    if (!focusInvoice || allInvoices.length === 0) return
+    document.getElementById(`inv-${focusInvoice}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusInvoice, allInvoices.length])
   /*
    * Open objections. They live at the top of this page rather than behind a tab because
    * each one is holding a payment: batch-approve refuses any invoice with an unresolved
@@ -854,12 +872,17 @@ export default function InvoiceBatch() {
 
               return (
               <Fragment key={inv.id}>
-                <tr style={{ borderLeft:
+                <tr id={`inv-${inv.id}`} style={{
+                  // The row somebody was sent here to look at. Without it the link lands on
+                  // a page of 58 and leaves them to find it by invoice number.
+                  background: focusInvoice === inv.id ? 'var(--bl-fog)' : undefined,
+                  borderLeft:
                   inv.status === 'void' ? '3px solid var(--red, #ef4444)'
                   : inv.status === 'sent' || inv.status === 'paid' ? '3px solid var(--green, #22c55e)'
                   : inv.status === 'approved' ? '3px solid var(--bl-blue, #0073cf)'
                   : receiptPending ? '3px solid var(--amber, #f59e0b)'
-                  : '3px solid transparent' }}>
+                  : '3px solid transparent'
+                }}>
                   <td>
                     {inv.status === 'draft' ? (
                       <input

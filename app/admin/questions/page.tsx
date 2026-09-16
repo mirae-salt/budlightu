@@ -16,6 +16,7 @@
  * box would be a worse promise than none.
  */
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { AttachmentView } from '@/app/_components/SupportAttachment'
 import Link from 'next/link'
 import { TopBar } from '../_components/TopBar'
@@ -80,6 +81,7 @@ function cohortName(r: DbQuestion): string | null {
 }
 
 export default function QuestionsPage() {
+  const router = useRouter()
   const [rows, setRows] = useState<DbQuestion[]>([])
   // Robin's own setting, changed from here. See lib/question-notify.ts: the volume of
   // these is unpredictable, so the person receiving the mail controls it rather than
@@ -587,19 +589,20 @@ export default function QuestionsPage() {
                         on the right, away from the two that change state.
                       */}
                       {/*
-                        An invoice thread is holding that invoice's payment, so the invoice
-                        is the first thing you need in front of you to answer it. Sits with
-                        the state-changing buttons rather than off to the right with the
-                        mail link, because it is part of doing the work, not an aside.
+                        An invoice thread is holding that invoice's payment, so the invoice is
+                        the first thing you need in front of you to answer it.
+                        A <button>, not an <a className="btn-ghost">: see the note above, which
+                        this repeated once before it was noticed. Navigation goes through the
+                        router so the page does not do a full reload to move one screen.
                       */}
                       {r.invoice_id && (
-                        <a
-                          href={`/admin/invoices?invoice=${r.invoice_id}`}
+                        <button
                           className="btn-ghost"
-                          style={{ fontSize: 12, padding: '5px 12px', textDecoration: 'none' }}
+                          style={{ fontSize: 13 }}
+                          onClick={() => router.push(`/admin/invoices?invoice=${r.invoice_id}`)}
                         >
                           Open the invoice
-                        </a>
+                        </button>
                       )}
                       {w.email && (
                         <a
