@@ -31,6 +31,7 @@ import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { sendEligibleAt } from '../../../../../lib/business-days'
 import { notifyBam } from '../../../../../lib/notify-bam'
 import { sendEmail } from '../../../../../lib/send-email'
+import { invoiceReleaseEmail } from '../../../../../lib/invoice-review-email'
 import { ensureInvoicePdf } from '../../../../../lib/invoice-pdf'
 
 /**
@@ -193,33 +194,20 @@ export async function POST(req: NextRequest) {
         const total = (inv.payload_json as { total?: number } | null)?.total
         const totalLine = typeof total === 'number' ? `$${total.toFixed(2)}` : null
 
+        const mail = invoiceReleaseEmail({
+          firstName: bam.first_name ?? 'there',
+          month: monthLabel,
+          invoiceNumber: inv.invoice_number ?? '',
+          deadline: deadlineLabel(sendEligibleAt(now)),
+          portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices`,
+          total: typeof total === 'number' ? total : null,
+          attached: true
+        })
         const sent = await sendEmail({
           to: bam.email,
-          subject: `Please check your Bud Light U invoice for ${monthLabel}`,
-          html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
-        <p style="font-size: 16px; color: #1a1a2e;">Hi ${bam.first_name ?? 'there'},</p>
-        <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          Your invoice for <strong>${monthLabel}</strong> is ready. It is attached to this email,
-          and it is also on your portal.
-        </p>
-        ${totalLine ? `<p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          Invoice <strong>${inv.invoice_number}</strong>, total <strong>${totalLine}</strong>.
-        </p>` : ''}
-        <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          Please look it over. If anything is wrong, tell us by
-          <strong>${deadlineLabel(sendEligibleAt(now))}</strong> using the
-          <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices" style="color: #0073cf;">My invoices</a>
-          page. There is a button there to send us a message about it.
-        </p>
-        <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          If we do not hear from you by then, we send it to accounts payable as it stands.
-        </p>
-        <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">
-          Bud Light U
-        </p>
-      </div>
-          `,
+          subject: mail.subject,
+          html: mail.html,
+          text: mail.text,
           attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
         })
         if (!sent.sent) emailNote = `email failed: ${sent.error}`

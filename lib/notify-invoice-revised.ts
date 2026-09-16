@@ -30,6 +30,7 @@
  */
 import { ensureInvoicePdf } from './invoice-pdf'
 import { sendEmail } from './send-email'
+import { invoiceRevisedEmail } from './invoice-review-email'
 import { notifyBam } from './notify-bam'
 import { sendEligibleAt } from './business-days'
 
@@ -152,29 +153,21 @@ export async function notifyInvoiceRevised(
     return { skipped: false, emailed: false, notified: notified.ok, note: `could not render the corrected PDF: ${pdf.error}` }
   }
 
+  const mail = invoiceRevisedEmail({
+    firstName: bam.first_name ?? 'there',
+    month: monthLabel,
+    invoiceNumber: inv.invoice_number ?? '',
+    deadline,
+    portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices`,
+    total: newTotal,
+    previousTotal,
+    attached: true
+  })
   const sent = await sendEmail({
     to: bam.email,
-    subject: `Your Bud Light U invoice for ${monthLabel} has changed`,
-    html: `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
-        <p style="font-size: 16px; color: #1a1a2e;">Hi ${bam.first_name ?? 'there'},</p>
-        <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          We corrected your invoice for <strong>${monthLabel}</strong>${wasLabel && nowLabel
-            ? `. The total went from <strong>${wasLabel}</strong> to <strong>${nowLabel}</strong>` : ''}.
-          The corrected copy is attached, and it is on your portal.
-        </p>
-        <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          Please check it again. The deadline has not changed. If anything is wrong,
-          tell us by <strong>${deadline}</strong> on the
-          <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices" style="color: #0073cf;">My invoices</a>
-          page.
-        </p>
-        <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-          If we do not hear from you by then, we send it to accounts payable as it stands.
-        </p>
-        <p style="font-size: 13px; color: #6b7280; margin-top: 24px;">Bud Light U</p>
-      </div>
-    `,
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
     attachments: [{ filename, content: Buffer.from(pdf.bytes) }]
   })
 
