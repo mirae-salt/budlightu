@@ -364,11 +364,22 @@ export default function InvoiceBatch() {
    */
   const disputedInvoiceIds = new Set(disputes.map(d => d.invoice_id))
   const sendableSelected = selectedDrafts.filter(inv => {
+    /*
+     * Each rule gets its own line and returns, rather than being &&-ed into one
+     * expression after the fact.
+     *
+     * It was written as `start && ... && waitOver`, with waitOver computed on the line
+     * above as `sendEligibleAt(start!)`. The `!` silenced the type checker and the call
+     * still ran when start was null, so `null.getTime()` threw and took the whole page
+     * down the moment anyone selected an unreleased draft in a live cohort -- which is
+     * all 55 of September's. Ordering an expression is not the same as guarding a call.
+     */
     const start = windowStartedAt(inv.released_at)
+    if (!start) return false
+    if (disputedInvoiceIds.has(inv.id)) return false
     // Mirrors the server: a cohort that is not live waives the wait, so the count on the
     // button matches what pressing it will actually send.
-    const waitOver = inv.sendMode !== 'live' || Date.now() >= sendEligibleAt(start!).getTime()
-    return start && !disputedInvoiceIds.has(inv.id) && waitOver
+    return inv.sendMode !== 'live' || Date.now() >= sendEligibleAt(start).getTime()
   })
   const heldSelected = selectedDrafts.filter(inv => !sendableSelected.includes(inv))
 
