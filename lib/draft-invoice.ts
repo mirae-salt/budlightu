@@ -214,8 +214,35 @@ export async function upsertDraftInvoice(
   // ── 7. write. Errors surfaced — a swallowed invoice-number collision used to
   //      mean the BAM silently got no invoice that month. ─────────────────────
   if (sequence.existingId) {
+    /*
+     * `pdf_key` and `released_at` are cleared because the amount just changed.
+     *
+     * This runs whenever a receipt decision moves the money (approve a late one, correct
+     * an amount), and it rewrites payload_json in place. Two things were derived from the
+     * OLD payload and outlived it:
+     *
+     *   pdf_key     ensureInvoicePdf returns the STORED bytes when this is set, so the
+     *               next email would attach a PDF showing the old total while the body
+     *               and the portal showed the new one. The line editor already clears it
+     *               for the same reason; this writer did not, so a receipt correction
+     *               could leave AP holding a document that disagreed with the invoice.
+     *
+     *   released_at the BAM agreed to the old figure by saying nothing. Letting that
+     *               clock keep running would send an amount nobody ever reviewed while
+     *               the record claimed they had 24 hours to object to it (0035).
+     *
+     * Found 2026-09-16 when Mirae asked whether the total in the release email could
+     * disagree with its own attachment. It could.
+     */
     const { data: updated, error: updErr } = await db.from('invoices')
-      .update({ payload_json: payload, invoice_number: payload.invoiceNumber, revision: sequence.revision })
+      .update({
+        payload_json: payload,
+        invoice_number: payload.invoiceNumber,
+        revision: sequence.revision,
+        pdf_key: null,
+        released_at: null,
+        released_by: null
+      })
       .eq('id', sequence.existingId)
       .eq('status', 'draft')
       .select('id')
