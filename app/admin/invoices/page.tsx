@@ -158,6 +158,38 @@ export default function InvoiceBatch() {
   const [useDb, setUseDb] = useState(false)
   const [batchConfirming, setBatchConfirming] = useState(false)
   const [releasing, setReleasing] = useState(false)
+  /** Which invoice the "undo the confirmation" prompt is open on. */
+  const [unconfirming, setUnconfirming] = useState<string | null>(null)
+  const [unconfirmReason, setUnconfirmReason] = useState('')
+  const [unconfirmBusy, setUnconfirmBusy] = useState(false)
+
+  /*
+   * Take back a BAM's confirmation. The realistic case is a student pressing it before
+   * reading anything; until this existed the only way back was editing the database.
+   */
+  async function unconfirm(id: string) {
+    setUnconfirmBusy(true)
+    try {
+      const res = await fetch('/api/admin/invoices/unconfirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: id, reason: unconfirmReason })
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.ok) {
+        reportBatch('error', j.message || `Could not undo that (${res.status})`)
+        return
+      }
+      reportBatch('ok', j.warning
+        ? `Confirmation undone. ${j.warning}`
+        : 'Confirmation undone. It waits out its window again.')
+      setUnconfirming(null)
+      setUnconfirmReason('')
+      loadInvoices()
+    } finally {
+      setUnconfirmBusy(false)
+    }
+  }
   /**
    * An invoice id from ?invoice=, set by the "Open the invoice" button on a question
    * thread. Read from window.location in an effect rather than with useSearchParams,
@@ -817,6 +849,34 @@ export default function InvoiceBatch() {
           showTestToggle={false}
         />
 
+        {unconfirming && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 10, fontSize: 13, lineHeight: 1.6 }}>
+              Undo the confirmation on{' '}
+              <strong>{allInvoices.find(i => i.id === unconfirming)?.number ?? 'this invoice'}</strong>?
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                It goes back to waiting out its window, and the BAM can confirm it again.
+                Nothing else about the invoice changes.
+              </div>
+            </div>
+            <input
+              className="input"
+              style={{ display: 'block', width: '100%', maxWidth: 480, marginBottom: 8 }}
+              value={unconfirmReason}
+              onChange={e => setUnconfirmReason(e.target.value)}
+              placeholder="Why, e.g. she pressed it by accident and asked us to undo it"
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button disabled={unconfirmBusy} onClick={() => unconfirm(unconfirming)}>
+                {unconfirmBusy ? 'Undoing…' : 'Undo confirmation'}
+              </button>
+              <button className="btn-ghost" disabled={unconfirmBusy} onClick={() => setUnconfirming(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {batchConfirming && (
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 10, fontSize: 13, lineHeight: 1.6 }}>
@@ -1003,6 +1063,19 @@ export default function InvoiceBatch() {
                               : 'Test send only. Run batch approval before this invoice can go to AP.'}
                           >
                             {inv.status === 'approved' ? 'Retry AP' : 'Test AP'}
+                          </button>
+                        )}
+                        {/* Only where there is something to undo. A student who pressed
+                            confirm by accident has no way back on their own side, and this
+                            was a hand-edit of the database until now. */}
+                        {inv.accepted_at && inv.status === 'draft' && (
+                          <button
+                            className="btn-ghost"
+                            style={{ padding: '3px 8px', fontSize: 11 }}
+                            onClick={() => { setUnconfirming(inv.id); setUnconfirmReason('') }}
+                            title={`The BAM confirmed this at ${new Date(inv.accepted_at).toLocaleString()}. Undo it and the invoice waits out its window again.`}
+                          >
+                            Undo confirm
                           </button>
                         )}
                         <button
