@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { browserClient } from '@/lib/supabase-browser'
 
 type InvoiceRow = {
@@ -362,7 +362,7 @@ export default function MyInvoices() {
       : [{ id: t.id, author: 'bam', body: t.question, created_at: t.submitted_at }]
 
     return (
-      <div style={{ marginTop: 8, padding: 12, background: 'var(--bl-fog)', borderRadius: 8, maxWidth: 560 }}>
+      <div style={{ marginTop: 8, padding: 14, background: 'var(--bl-fog)', borderRadius: 8 }}>
         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
           About this invoice
           <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
@@ -424,7 +424,7 @@ export default function MyInvoices() {
   function disputeForm(inv: InvoiceRow) {
     if (disputeFor !== inv.id) return null
     return (
-      <div style={{ marginTop: 8, padding: 12, background: 'var(--bl-fog)', borderRadius: 8, maxWidth: 520 }}>
+      <div style={{ marginTop: 8, padding: 14, background: 'var(--bl-fog)', borderRadius: 8, maxWidth: 620 }}>
         <label style={{ fontSize: 12, fontWeight: 600, display: 'block' }}>
           What looks wrong?
           <textarea
@@ -536,19 +536,33 @@ export default function MyInvoices() {
               </tr>
             </thead>
             <tbody>
-              {invoices.map(inv => (
-                <tr key={inv.id}>
-                  <td style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{periodLabel(inv.period)}</td>
-                  <td style={{ fontFamily: 'monospace', color: 'var(--bl-blue)' }}>{inv.invoice_number ?? '—'}</td>
-                  <td><span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span></td>
-                  <td>
-                    {invoiceActions(inv, false)}
-                    {windowLine(inv)}
-                    {threadPanel(inv)}
-                    {disputeForm(inv)}
-                  </td>
-                </tr>
-              ))}
+              {invoices.map(inv => {
+                /*
+                 * The conversation and the deadline get their own full-width row under the
+                 * invoice, not the actions cell.
+                 *
+                 * They started inside that cell, which put a paragraph and a whole thread
+                 * into the narrowest column on the page: the left half sat empty while the
+                 * text wrapped against the right edge. They are about the invoice, not
+                 * about the buttons, so they belong under the whole row.
+                 */
+                const detail = [windowLine(inv), threadPanel(inv), disputeForm(inv)].filter(Boolean)
+                return (
+                  <Fragment key={inv.id}>
+                    <tr>
+                      <td style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{periodLabel(inv.period)}</td>
+                      <td style={{ fontFamily: 'monospace', color: 'var(--bl-blue)' }}>{inv.invoice_number ?? '—'}</td>
+                      <td><span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span></td>
+                      <td>{invoiceActions(inv, false)}</td>
+                    </tr>
+                    {detail.length > 0 && (
+                      <tr>
+                        <td colSpan={4} style={{ paddingTop: 0 }}>{detail}</td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
           </div>

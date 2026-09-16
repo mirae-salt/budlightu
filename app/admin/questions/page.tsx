@@ -31,6 +31,12 @@ type DbQuestion = {
   notified_at: string | null
   answered_at: string | null
   answer: string | null
+  /**
+   * Set when the thread was opened from an invoice the BAM says is wrong (0035). The card
+   * links straight to it: this thread is holding that payment, and reading it without the
+   * invoice open means checking the number somewhere else first.
+   */
+  invoice_id?: string | null
   /** Every message in the thread. Migration 0027. Order is not guaranteed by the join. */
   portal_question_messages?: Array<{
     id: string; author: 'bam' | 'admin'; body: string; created_at: string
@@ -580,6 +586,21 @@ export default function QuestionsPage() {
                         underline won. It is a tertiary action, so it is now plainly a link and sits
                         on the right, away from the two that change state.
                       */}
+                      {/*
+                        An invoice thread is holding that invoice's payment, so the invoice
+                        is the first thing you need in front of you to answer it. Sits with
+                        the state-changing buttons rather than off to the right with the
+                        mail link, because it is part of doing the work, not an aside.
+                      */}
+                      {r.invoice_id && (
+                        <a
+                          href={`/admin/invoices?invoice=${r.invoice_id}`}
+                          className="btn-ghost"
+                          style={{ fontSize: 12, padding: '5px 12px', textDecoration: 'none' }}
+                        >
+                          Open the invoice
+                        </a>
+                      )}
                       {w.email && (
                         <a
                           href={`mailto:${w.email}?subject=${encodeURIComponent('Re: your Bud Light U question')}`}
