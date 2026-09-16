@@ -33,10 +33,18 @@ import { sendEmail } from './send-email'
 import { notifyBam } from './notify-bam'
 import { sendEligibleAt } from './business-days'
 
+/*
+ * The array form, not maybeSingle().
+ *
+ * This asked for `.maybeSingle()` at first and broke eight of the line editor's tests,
+ * because that is not the client shape this codebase's callers (or their test doubles)
+ * implement -- lib/draft-invoice says so in as many words. A helper that requires a richer
+ * client than its callers have is a helper that only works in production.
+ */
 type Db = {
   from: (t: string) => {
     select: (c: string) => {
-      eq: (k: string, v: unknown) => { maybeSingle: () => Promise<{ data: unknown; error: { message: string } | null }> }
+      eq: (k: string, v: unknown) => Promise<{ data: unknown[] | null; error: { message: string } | null }>
     }
   }
 }
@@ -74,10 +82,9 @@ export async function notifyInvoiceRevised(
   const { data, error } = await db.from('invoices')
     .select('id, bam_id, period, invoice_number, status, released_at, revised_at, pdf_key, payload_json, bams(first_name, email), cohorts(send_mode)')
     .eq('id', invoiceId)
-    .maybeSingle()
   if (error) return { skipped: false, emailed: false, notified: false, note: `could not read the invoice: ${error.message}` }
 
-  const inv = data as {
+  const inv = ((data ?? [])[0] ?? null) as {
     id: string; bam_id: string; period: string; invoice_number: string | null
     status: string; released_at: string | null; revised_at: string | null
     pdf_key: string | null; payload_json: unknown
