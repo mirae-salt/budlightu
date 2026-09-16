@@ -522,7 +522,9 @@ export async function applyInvoiceLineEdit(
      * again. Same reasoning as clearing pdf_key beside it: the old artifact no longer
      * describes this invoice.
      */
-    .update({ payload_json: newPayload, pdf_key: null, revised_at: new Date().toISOString() })
+    // accepted_at goes with it: the BAM confirmed the figure that was on screen, and this
+    // is no longer that figure (0037).
+    .update({ payload_json: newPayload, pdf_key: null, revised_at: new Date().toISOString(), accepted_at: null })
     .eq('id', invoiceId)
     .eq('status', invoice.status)
     .select('id, status, payload_json, pdf_key, released_at, revised_at')

@@ -20,6 +20,12 @@ type InvoiceRow = {
    */
   revised_at: string | null
   /**
+   * When this BAM confirmed the invoice is right (0037). Only asked for on an invoice
+   * they raised something on: those do not go out on silence, because the person who
+   * said it was wrong is the one who says it is right now.
+   */
+  accepted_at: string | null
+  /**
    * The question thread about THIS invoice, answered or not, with its messages.
    *
    * It is rendered on the row rather than behind a link to Support, because it is about
@@ -62,8 +68,8 @@ function wasRevised(inv: InvoiceRow): boolean {
 }
 
 const DUMMY_INVOICES: InvoiceRow[] = [
-  { id: 'demo-1', period: '2026-09-01', status: 'sent', invoice_number: 'INV-AT1', seq: 1, created_at: '2026-09-16T18:00:00Z', released_at: '2026-09-16T13:00:00Z', revised_at: null },
-  { id: 'demo-2', period: '2026-10-01', status: 'draft', invoice_number: 'INV-AT2', seq: 2, created_at: '2026-10-16T18:00:00Z', released_at: null, revised_at: null },
+  { id: 'demo-1', period: '2026-09-01', status: 'sent', invoice_number: 'INV-AT1', seq: 1, created_at: '2026-09-16T18:00:00Z', released_at: '2026-09-16T13:00:00Z', revised_at: null, accepted_at: null },
+  { id: 'demo-2', period: '2026-10-01', status: 'draft', invoice_number: 'INV-AT2', seq: 2, created_at: '2026-10-16T18:00:00Z', released_at: null, revised_at: null, accepted_at: null },
 ]
 
 export default function MyInvoices() {
@@ -81,6 +87,28 @@ export default function MyInvoices() {
   const [replyFor, setReplyFor] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [replyBusy, setReplyBusy] = useState(false)
+  const [confirmBusy, setConfirmBusy] = useState<string | null>(null)
+
+  async function confirmInvoice(inv: InvoiceRow) {
+    setConfirmBusy(inv.id)
+    try {
+      const res = await fetch('/api/portal/invoices/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: inv.id })
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.ok) {
+        setDisputeMsg(j.message || `Could not save that (${res.status})`)
+        return
+      }
+      setInvoices(prev => prev.map(r => r.id === inv.id ? { ...r, accepted_at: j.accepted_at } : r))
+      setDisputeMsg('Thank you. This one is cleared to go to accounts payable.')
+    } finally {
+      setConfirmBusy(null)
+      setTimeout(() => setDisputeMsg(null), 8000)
+    }
+  }
 
   /*
    * A follow-up on the invoice's own thread. Same endpoint the Support page posts to, so
@@ -175,7 +203,7 @@ export default function MyInvoices() {
 
         const { data } = await sb
           .from('invoices')
-          .select('id, period, status, invoice_number, seq, created_at, released_at, revised_at')
+          .select('id, period, status, invoice_number, seq, created_at, released_at, revised_at, accepted_at')
           .eq('bam_id', bamId)
           .order('period', { ascending: false })
 
@@ -304,9 +332,30 @@ export default function MyInvoices() {
             Something looks wrong
           </button>
         )}
-        {inv.thread && (
+        {inv.thread && isOpen(inv.thread) && (
           <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
-            {isOpen(inv.thread) ? 'Waiting for a reply' : 'Answered below'}
+            Waiting for a reply
+          </span>
+        )}
+        {/*
+          The sign-off, and only on an invoice they raised something on. An invoice nobody
+          questioned still goes out on silence; this one does not, because the person who
+          said it was wrong is the one who says it is right now (0037).
+        */}
+        {inv.status === 'draft' && inv.thread && !isOpen(inv.thread) && !inv.accepted_at && (
+          <button
+            className="btn-navy"
+            style={{ padding: '5px 12px', fontSize: 12 }}
+            disabled={confirmBusy === inv.id}
+            onClick={() => confirmInvoice(inv)}
+            title="Optional. It sends this one now instead of waiting for the deadline."
+          >
+            {confirmBusy === inv.id ? 'Saving…' : 'This is right now'}
+          </button>
+        )}
+        {inv.accepted_at && inv.status === 'draft' && (
+          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
+            You confirmed this
           </span>
         )}
       </div>
@@ -332,6 +381,23 @@ export default function MyInvoices() {
       return (
         <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
           On hold while your program manager answers you. Nothing goes out until then.
+        </div>
+      )
+    }
+    // Answered and not signed off. Confirming is optional: it sends this one now instead
+    // of waiting out a clock nobody is using any more.
+    if (inv.thread && !inv.accepted_at) {
+      return (
+        <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+          Your program manager answered you below. If that sorted it out, you can confirm and
+          it goes today. Otherwise it goes on its own by {closesLabel}.
+        </div>
+      )
+    }
+    if (inv.accepted_at) {
+      return (
+        <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+          You confirmed this on {new Date(inv.accepted_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. It goes to accounts payable from here.
         </div>
       )
     }

@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   const admin = serviceClient()
 
   const { data: invoices, error: invErr } = await admin.from('invoices')
-    .select('id, cohort_id, bam_id, period, invoice_number, status, released_at, revised_at, payload_json, pdf_key, bams(first_name, last_name, status)')
+    .select('id, cohort_id, bam_id, period, invoice_number, status, released_at, revised_at, accepted_at, payload_json, pdf_key, bams(first_name, last_name, status)')
     .in('id', invoiceIds)
     .eq('status', 'draft')
   if (invErr) return NextResponse.json({ ok: false, message: `invoices read failed: ${invErr.message}` }, { status: 500 })
@@ -100,10 +100,9 @@ export async function POST(req: NextRequest) {
    * round trips inside the send loop, and a query that runs per iteration is a query
    * somebody eventually moves outside the guard by accident.
    */
-  const { data: openDisputes, error: dispErr } = await admin.from('portal_questions')
-    .select('invoice_id')
+  const { data: allThreads, error: dispErr } = await admin.from('portal_questions')
+    .select('invoice_id, answered_at')
     .in('invoice_id', invoices.map(i => i.id))
-    .is('answered_at', null)
   if (dispErr) {
     // Fail CLOSED. Not knowing whether a BAM objected is a worse reason to send money
     // than knowing they did.
@@ -112,7 +111,8 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     )
   }
-  const disputed = new Set((openDisputes ?? []).map(d => d.invoice_id))
+  const disputed = new Set((allThreads ?? []).filter(d => !d.answered_at).map(d => d.invoice_id))
+
 
   const cohortIds = [...new Set(invoices.map(i => i.cohort_id))]
   const { data: cohorts, error: cohortErr } = await admin.from('cohorts').select('*').in('id', cohortIds)
@@ -207,7 +207,19 @@ export async function POST(req: NextRequest) {
      * keep its window even when someone is testing on the same deployment.
      */
     const eligibleAt = sendEligibleAt(windowStart)
-    if (cohort.send_mode === 'live' && Date.now() < eligibleAt.getTime()) {
+    /*
+     * The BAM's own "this is right" waives the WAIT and nothing else (0037).
+     *
+     * It is an accelerator, not a requirement: silence through the window is still how an
+     * invoice goes out, flagged or not (Mirae, 2026-09-16: "if they dont and 24h passed it
+     * will just automatically confirmed approved"). What it buys is the case where someone
+     * raised a problem, it got fixed, and they are happy: the invoice can go now instead
+     * of waiting out a clock that nobody is using any more.
+     *
+     * An unanswered question still blocks regardless, because that one is us owing them a
+     * reply rather than them owing us one.
+     */
+    if (cohort.send_mode === 'live' && !inv.accepted_at && Date.now() < eligibleAt.getTime()) {
       results.push({
         id: inv.id,
         invoice_number: inv.invoice_number,

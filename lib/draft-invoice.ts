@@ -244,7 +244,9 @@ export async function upsertDraftInvoice(
         invoice_number: payload.invoiceNumber,
         revision: sequence.revision,
         pdf_key: null,
-        revised_at: new Date().toISOString()
+        revised_at: new Date().toISOString(),
+        // Their "this is right" was about the old figure (0037).
+        accepted_at: null
       })
       .eq('id', sequence.existingId)
       .eq('status', 'draft')
