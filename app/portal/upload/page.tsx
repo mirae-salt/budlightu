@@ -33,6 +33,14 @@ export default function UploadPage() {
   const currentMonth =
     monthOptions.find(o => o.isCurrent && o.isSubmittable) ??
     monthOptions.find(o => o.isSubmittable) ??
+    // Measured live on 2026-09-16: once the deadline passes and nothing is
+    // submittable, this used to fall through to monthOptions[0] -- the EARLIEST
+    // month in the list, i.e. last month, not this one. A real student (Elle
+    // Edwards) was shown "Submitting for: August" with no way to pick September,
+    // because September (this month, correctly tagged "closed") sorts after it.
+    // Falling back to the current month first means the closed month you are
+    // actually standing in is the one you see, with the real reason why.
+    monthOptions.find(o => o.isCurrent) ??
     monthOptions[0]
   const pastMonths = monthOptions.filter(o => o.value !== currentMonth.value)
   /**
@@ -74,6 +82,8 @@ export default function UploadPage() {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const isLate = selectedPeriod !== currentMonth.value
+  const selectedOption = monthOptions.find(o => o.value === selectedPeriod)
+  const cannotSubmit = selectedOption ? !selectedOption.isSubmittable : false
 
   // Column names must match the receipts table exactly: it is `uploaded_at`, not
   // `created_at`, and `bud_light_total_incl_tax`, not `bl_total`. Selecting the
@@ -254,8 +264,10 @@ export default function UploadPage() {
                   Submitting for
                 </span>
                 <div style={{ fontWeight: 700, fontSize: 15, marginTop: 1 }}>
-                  {monthOptions.find(o => o.value === selectedPeriod)?.label}
-                  {isLate && <span style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 500, marginLeft: 8 }}>late</span>}
+                  {selectedOption?.label}
+                  {cannotSubmit
+                    ? <span style={{ color: 'var(--red)', fontSize: 12, fontWeight: 600, marginLeft: 8 }}>cannot submit</span>
+                    : isLate && <span style={{ color: 'var(--amber)', fontSize: 12, fontWeight: 500, marginLeft: 8 }}>late</span>}
                 </div>
                 {/* The month name alone is misread: "September" looks like Sept 1-30,
                     but with receipts closing on the 15th and no rollover the real
@@ -302,10 +314,21 @@ export default function UploadPage() {
               because "you cannot" with no next step is a dead end that becomes Robin's inbox.
             */}
             {!showPastMonths && !hasOtherSubmittable && (
-              <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, margin: '8px 0 0' }}>
-                Receipts are due by the 15th, so this is the only month you can submit for.{' '}
-                <Link href="/portal/support">Ask about another month</Link>
-              </p>
+              cannotSubmit ? (
+                // currentMonth itself is closed and nothing else is submittable either --
+                // there is genuinely nothing to pick, so say so instead of the sentence
+                // below, which used to call the closed month "the only month you can
+                // submit for" (measured live 2026-09-16, Elle Edwards support ticket).
+                <p style={{ fontSize: 12, lineHeight: 1.6, margin: '8px 0 0', color: 'var(--red)' }}>
+                  You cannot submit right now. {selectedOption?.label}&rsquo;s receipts closed on the 15th.{' '}
+                  <Link href="/portal/support">If there&rsquo;s a reason this one should still count, ask on the Support page</Link>
+                </p>
+              ) : (
+                <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, margin: '8px 0 0' }}>
+                  Receipts are due by the 15th, so this is the only month you can submit for.{' '}
+                  <Link href="/portal/support">Ask about another month</Link>
+                </p>
+              )
             )}
 
             {showPastMonths && (

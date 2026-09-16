@@ -54,6 +54,9 @@ export async function POST(req: NextRequest) {
   const sha256 = form.get('sha256') as string | null
   const periodRaw = form.get('period') as string | null
   let cohortId = form.get('cohort_id') as string | null
+  // Admin-only, and only honored below once requireAdmin() has actually passed --
+  // reading it here is just reading a string off the request.
+  const overrideReasonRaw = form.get('override_reason') as string | null
 
   if (!file || !bamId || !sha256 || !periodRaw) {
     return NextResponse.json({ ok: false, message: 'Missing required fields' }, { status: 400 })
@@ -86,6 +89,13 @@ export async function POST(req: NextRequest) {
       message: 'That file came through empty. Please pick the photo again, or take a new one.'
     }, { status: 400 })
   }
+
+  // Set only inside the admin-on-behalf branch below, and only once a non-empty
+  // reason was given. Threaded into validatePeriod, and the audit_log row is
+  // written right after a successful insert, below.
+  let allowClosedOverride = false
+  let overrideReason: string | null = null
+  let overrideActor: { userId: string; email: string | null; role: string; devBypass: boolean } | null = null
 
   // Verify bam_id against authenticated session (skip in dev with nil UUID)
   if (isDev && bamId === NIL_UUID) {
@@ -121,6 +131,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, message: 'BAM not found' }, { status: 404 })
       }
       cohortId = cohortId || targetBam.cohort_id
+
+      // A closed month, on purpose, because a human confirmed the receipt is real.
+      // Reason is required (not just present-and-blank) so this cannot become a
+      // silent default: the whole point is an audit_log row that says who and why.
+      const reason = overrideReasonRaw?.trim()
+      if (reason) {
+        allowClosedOverride = true
+        overrideActor = { userId: adminAuth.userId, email: adminAuth.email, role: adminAuth.role, devBypass: adminAuth.devBypass }
+        overrideReason = reason.slice(0, 500)
+      }
     } else if (adminAuth.status !== 403) {
       // 401 (no session) and 503 (server misconfigured) must NOT fall through to
       // the BAM branch: that would run an upload with no verified identity.
@@ -169,7 +189,7 @@ export async function POST(req: NextRequest) {
   }
   const isTestBam = bamFlags?.is_test === true
 
-  const periodCheck = validatePeriod(periodRaw, cohortRow, new Date(), { isTest: isTestBam })
+  const periodCheck = validatePeriod(periodRaw, cohortRow, new Date(), { isTest: isTestBam, allowClosedOverride })
   if (!periodCheck.ok) {
     return NextResponse.json({ ok: false, message: periodCheck.message }, { status: 400 })
   }
@@ -220,6 +240,28 @@ export async function POST(req: NextRequest) {
 
   if (insErr) {
     return NextResponse.json({ ok: false, message: insErr.message }, { status: 500 })
+  }
+
+  // The whole point of allowClosedOverride is that this row exists. If the trail
+  // cannot be written, refuse rather than leave an override with no record of who
+  // authorized it or why -- the receipt and file are already stored, so this is a
+  // "contact Mirae" state, not a silent success.
+  if (overrideActor) {
+    const { error: auditErr } = await admin.from('audit_log').insert({
+      actor_id: overrideActor.devBypass ? null : overrideActor.userId,
+      actor_role: overrideActor.role,
+      entity: 'receipts',
+      entity_id: inserted.id,
+      action: 'period_override',
+      before_json: { bam_id: bamId, period },
+      after_json: { reason: overrideReason, overridden_by: overrideActor.email ?? overrideActor.userId }
+    })
+    if (auditErr) {
+      return NextResponse.json({
+        ok: false,
+        message: `Receipt was saved (id ${inserted.id}) but the audit log entry for this override failed: ${auditErr.message}. Contact Mirae before relying on this receipt.`
+      }, { status: 500 })
+    }
   }
 
   // P1-13: reliable OCR trigger. The old bare fetch() was neither awaited nor kept

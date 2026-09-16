@@ -38,6 +38,24 @@ export type PeriodOptions = {
    * A real student (is_test false) is never granted the exception.
    */
   isTest?: boolean
+  /**
+   * Admin-only escape hatch for a month that is closed. The route handler sets this
+   * ONLY after requireAdmin() succeeds and a non-empty reason was given -- it is never
+   * read from client input directly, and the caller is responsible for writing the
+   * audit_log row this promises.
+   *
+   * Scoped narrowly: it bypasses the two "this month is closed" refusals below and
+   * nothing else. A future month is still refused (idx > cur, checked before this
+   * option is even consulted), and a month outside the cohort's start_date..end_date
+   * is still refused by the window check further down. This is for "the receipt is
+   * real and just missed the deadline", not for granting a BAM a month their
+   * program never had.
+   *
+   * This is the exception `validatePeriod`'s own closed-month message has promised
+   * since 2026-08-14 ("ask on the Support page") without any code implementing it --
+   * see the BLU Invoice Elle Edwards support ticket, 2026-09-16.
+   */
+  allowClosedOverride?: boolean
 }
 
 export function validatePeriod(
@@ -93,7 +111,7 @@ export function validatePeriod(
   // place a late purchase can go is the following cycle if the student submits it
   // there themselves. No new rule needed, and the message below still deliberately
   // does not invent a "submit it next month" instruction (see the note above it).
-  if (!testException) {
+  if (!testException && !options.allowClosedOverride) {
     if (idx < cur) {
       return {
         ok: false,

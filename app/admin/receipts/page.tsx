@@ -200,6 +200,88 @@ export default function ReceiptsQueue() {
    */
   const [blSelection, setBlSelection] = useState<{ id: string; indices: number[] } | null>(null)
 
+  /*
+   * Upload on behalf of a student, for a month that has already closed.
+   *
+   * The API has allowed admin-on-behalf uploads for a while (app/api/portal/upload
+   * checks requireAdmin), but nothing in admin ever called it, and the closed-month
+   * refusal applied to that path exactly like it does to the student's own upload.
+   * lib/period.ts's own message has promised an exception ("ask on the Support
+   * page") since 2026-08-14 with no way to act on it. This panel is that way in,
+   * scoped to what validatePeriod's allowClosedOverride actually allows: a real
+   * receipt for a real, past month -- not a future one, not one outside the BAM's
+   * program.
+   */
+  const [overrideOpen, setOverrideOpen] = useState(false)
+  const [overrideBams, setOverrideBams] = useState<{ id: string; name: string; cohortId: string | null; isTest: boolean }[]>([])
+  const [overrideSearch, setOverrideSearch] = useState('')
+  const [overrideBamId, setOverrideBamId] = useState('')
+  const [overridePeriod, setOverridePeriod] = useState('')
+  const [overrideReasonText, setOverrideReasonText] = useState('')
+  const [overrideFile, setOverrideFile] = useState<File | null>(null)
+  const [overrideBusy, setOverrideBusy] = useState(false)
+
+  useEffect(() => {
+    if (!overrideOpen || overrideBams.length > 0) return
+    fetch('/api/admin/data?table=bams')
+      .then(res => res.json())
+      .then(({ data }: { data: Array<{ id: string; first_name: string; last_name: string; cohort_id: string | null; is_test: boolean; status: string }> | null }) => {
+        setOverrideBams(
+          (data ?? [])
+            .filter(b => b.status === 'active')
+            .map(b => ({ id: b.id, name: `${b.first_name} ${b.last_name}`, cohortId: b.cohort_id, isTest: b.is_test }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        )
+      })
+      .catch(() => setOverrideBams([]))
+  }, [overrideOpen, overrideBams.length])
+
+  const overrideMatches = overrideSearch.trim()
+    ? overrideBams.filter(b => b.name.toLowerCase().includes(overrideSearch.trim().toLowerCase()))
+    : overrideBams
+
+  async function submitOverride() {
+    const bam = overrideBams.find(b => b.id === overrideBamId)
+    if (!bam) { notify('error', 'Pick a student first.'); return }
+    if (!overridePeriod) { notify('error', 'Pick which month this receipt is for.'); return }
+    if (!overrideFile) { notify('error', 'Choose the receipt image or PDF.'); return }
+    if (overrideReasonText.trim().length < MIN_REASON_LENGTH) {
+      notify('error', `Say why this should count, in at least ${MIN_REASON_LENGTH} characters -- it goes in the audit log.`)
+      return
+    }
+    setOverrideBusy(true)
+    try {
+      const bytes = await overrideFile.arrayBuffer()
+      const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
+      const sha256 = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+
+      const form = new FormData()
+      form.append('file', overrideFile)
+      form.append('bam_id', bam.id)
+      form.append('sha256', sha256)
+      form.append('period', overridePeriod)
+      if (bam.cohortId) form.append('cohort_id', bam.cohortId)
+      form.append('override_reason', overrideReasonText.trim())
+
+      const res = await fetch('/api/portal/upload', { method: 'POST', body: form })
+      const json = await res.json().catch(() => null)
+      if (!res.ok || !json?.ok) {
+        notify('error', json?.message || `Upload failed (${res.status})`)
+        return
+      }
+      notify('ok', `Uploaded for ${bam.name}. It will go through OCR like any other receipt.`)
+      setOverrideOpen(false)
+      setOverrideBamId('')
+      setOverrideSearch('')
+      setOverridePeriod('')
+      setOverrideReasonText('')
+      setOverrideFile(null)
+      loadAll()
+    } finally {
+      setOverrideBusy(false)
+    }
+  }
+
   const loadAll = () => {
     fetch('/api/admin/data?table=receipts')
       .then(res => res.json())
@@ -450,6 +532,86 @@ export default function ReceiptsQueue() {
         labelSome={n => `${n} could not be matched to a BAM`}
         labelNone="none right now"
       />
+
+      <div className="surface" style={{ marginBottom: 16 }}>
+        <div className="surface-header">
+          <div style={{ fontWeight: 600, fontSize: 14 }}>Upload for a student</div>
+          <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => setOverrideOpen(o => !o)}>
+            {overrideOpen ? 'Close' : 'A student missed the deadline'}
+          </button>
+        </div>
+        {overrideOpen && (
+          <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 480 }}>
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              For a closed month only, and only with a reason -- it goes in the audit log.
+              A future month, or a month outside that student&rsquo;s program, is still refused.
+            </p>
+            <label style={{ fontSize: 12, fontWeight: 600 }}>
+              Student
+              <input
+                className="input"
+                style={{ display: 'block', width: '100%', marginTop: 4 }}
+                placeholder="Type a name…"
+                value={overrideBamId ? overrideBams.find(b => b.id === overrideBamId)?.name ?? '' : overrideSearch}
+                onChange={e => { setOverrideBamId(''); setOverrideSearch(e.target.value) }}
+              />
+              {overrideSearch && !overrideBamId && (
+                <div className="surface" style={{ marginTop: 4, maxHeight: 160, overflowY: 'auto' }}>
+                  {overrideMatches.length === 0 && <div style={{ padding: 8, fontSize: 12 }} className="muted">No match</div>}
+                  {overrideMatches.slice(0, 20).map(b => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      className="btn-ghost"
+                      style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 13, padding: '6px 10px' }}
+                      onClick={() => { setOverrideBamId(b.id); setOverrideSearch('') }}
+                    >
+                      {b.name}{b.isTest ? ' (test account)' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </label>
+            <label style={{ fontSize: 12, fontWeight: 600 }}>
+              Month the receipt is for
+              <input
+                type="month"
+                className="input"
+                style={{ display: 'block', width: '100%', marginTop: 4 }}
+                value={overridePeriod}
+                onChange={e => setOverridePeriod(e.target.value)}
+              />
+            </label>
+            <label style={{ fontSize: 12, fontWeight: 600 }}>
+              Receipt image or PDF
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                style={{ display: 'block', width: '100%', marginTop: 4 }}
+                onChange={e => setOverrideFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label style={{ fontSize: 12, fontWeight: 600 }}>
+              Why this should still count
+              <textarea
+                className="input"
+                style={{ display: 'block', width: '100%', marginTop: 4, minHeight: 60 }}
+                value={overrideReasonText}
+                onChange={e => setOverrideReasonText(e.target.value)}
+                placeholder="e.g. the upload page showed the wrong month after the deadline, see support ticket from Elle Edwards"
+              />
+            </label>
+            <button
+              className="btn-navy"
+              disabled={overrideBusy}
+              style={{ alignSelf: 'flex-start' }}
+              onClick={submitOverride}
+            >
+              {overrideBusy ? 'Uploading…' : 'Upload'}
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="surface">
         <div className="surface-header">

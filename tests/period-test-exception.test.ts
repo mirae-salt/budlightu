@@ -60,3 +60,48 @@ describe('validatePeriod: test-account exception', () => {
     if (!r.ok) expect(r.message).toMatch(/closed on the 15th/i)
   })
 })
+
+/**
+ * The admin-only escape hatch for a closed month (Elle Edwards support ticket,
+ * 2026-09-16: her September receipt had no way in once the deadline passed).
+ * The route handler is the one that decides WHEN to set this -- these tests only
+ * cover what the option itself does and does not bypass.
+ */
+describe('validatePeriod: allowClosedOverride', () => {
+  const cohort = { start_date: '2026-09-01', end_date: '2027-04-30' }
+  const afterDeadline = new Date('2026-09-16T12:00:00Z')
+
+  it('lets the current, closed month through', () => {
+    const r = validatePeriod('2026-09', cohort, afterDeadline, { allowClosedOverride: true })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.period).toBe('2026-09-01')
+  })
+
+  it('without the option, the same request is refused', () => {
+    const r = validatePeriod('2026-09', cohort, afterDeadline)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toMatch(/closed on the 15th/i)
+  })
+
+  it('also lets a further-past closed month through, as long as it is inside the program', () => {
+    // September (the program's first month) is two months behind "now", well past
+    // its own deadline, but still inside the cohort's window -- unlike '2026-07'
+    // below, which predates the program and is refused for a different reason.
+    const muchLater = new Date('2026-11-16T12:00:00Z')
+    const r = validatePeriod('2026-09', cohort, muchLater, { allowClosedOverride: true })
+    expect(r.ok).toBe(true)
+  })
+
+  it('does NOT grant a future month', () => {
+    const r = validatePeriod('2026-10', cohort, afterDeadline, { allowClosedOverride: true })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toMatch(/future month/i)
+  })
+
+  it('does NOT grant a month outside the cohort window', () => {
+    const outsideCohort = { start_date: '2026-09-01', end_date: '2027-04-30' }
+    const r = validatePeriod('2026-08', outsideCohort, afterDeadline, { allowClosedOverride: true })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toMatch(/outside your program/i)
+  })
+})
