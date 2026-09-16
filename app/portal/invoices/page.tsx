@@ -350,7 +350,9 @@ export default function MyInvoices() {
             onClick={() => confirmInvoice(inv)}
             title="Optional. It sends this one now instead of waiting for the deadline."
           >
-            {confirmBusy === inv.id ? 'Saving…' : 'This is right now'}
+            {/* "This is right now" reads as "this is right, now" once the CSS
+                uppercases it. It is a sentence about the invoice, not about timing. */}
+            {confirmBusy === inv.id ? 'Saving…' : 'Confirm it is correct'}
           </button>
         )}
         {inv.accepted_at && inv.status === 'draft' && (
@@ -685,6 +687,8 @@ export default function MyInvoices() {
  * alone would put "Being prepared" on the one invoice that is waiting on them.
  */
 function statusBadge(inv: InvoiceRow): string {
+  // Confirmed comes first: it is the only one of these that is finished.
+  if (inv.accepted_at && inv.status === 'draft') return 'green'
   if (isOpen(inv.thread)) return 'yellow'
   if (inv.status === 'draft' && wasRevised(inv)) return 'blue'
   if (inv.status === 'draft' && inv.released_at) return 'yellow'
@@ -698,6 +702,14 @@ function statusBadge(inv: InvoiceRow): string {
 }
 
 function statusText(inv: InvoiceRow): string {
+  /*
+   * A confirmed invoice is not still waiting on them.
+   *
+   * The badge kept saying "Please check by tomorrow" after they had pressed the button,
+   * directly under a line that said they had confirmed it. The badge is the part people
+   * scan, so it was the part that was wrong.
+   */
+  if (inv.accepted_at && inv.status === 'draft') return 'Confirmed, going to AP'
   if (isOpen(inv.thread)) return 'Your question is with us'
   // Said plainly, because the number they looked at yesterday is not the number now.
   if (inv.status === 'draft' && wasRevised(inv)) return 'Updated, please check again'

@@ -19,6 +19,8 @@ type Row = InvoiceRow & {
   /** Null until an admin publishes it to the BAM and starts their 24 hours (0035). */
   released_at: string | null
   revised_at: string | null
+  /** Set when the BAM signed off, which clears it to send without waiting (0037). */
+  accepted_at: string | null
   /** 'live' cohorts enforce the 24-hour wait; a rehearsing cohort does not. */
   sendMode: string | null
   /** Line items from payload_json. Banking is stripped server-side (redactPayload). */
@@ -50,6 +52,7 @@ type DbInvoice = {
    */
   released_at: string | null
   revised_at: string | null
+  accepted_at: string | null
   /** The cohort's send mode. A non-live cohort waives the 24-hour wait, not the rest. */
   cohorts?: { send_mode?: string | null } | Array<{ send_mode?: string | null }> | null
   cohort_id: string
@@ -94,6 +97,7 @@ function mapDbInvoice(inv: DbInvoice): Row {
     status: inv.status,
     released_at: inv.released_at ?? null,
     revised_at: inv.revised_at ?? null,
+    accepted_at: inv.accepted_at ?? null,
     sendMode: (Array.isArray(inv.cohorts) ? inv.cohorts[0] : inv.cohorts)?.send_mode ?? null,
     cohort_id: inv.cohort_id,
     receiptStatus: mapReceiptStatus(inv.receipt_status),
@@ -798,7 +802,8 @@ export default function InvoiceBatch() {
             {heldSelected.length} of the {selectedDrafts.length} selected cannot go to AP yet:
             {' '}{heldSelected.filter(i => !i.released_at).length} not released to the BAM,
             {' '}{heldSelected.filter(i => i.released_at && disputedInvoiceIds.has(i.id)).length} with a question open,
-            {' '}{heldSelected.filter(i => i.released_at && !disputedInvoiceIds.has(i.id)).length} still inside the BAM&rsquo;s 24 hours.
+            {' '}{heldSelected.filter(i => i.released_at && !disputedInvoiceIds.has(i.id)).length} still inside the BAM&rsquo;s 24 hours
+            {' '}(a BAM who confirms clears theirs straight away).
           </div>
         )}
 
@@ -928,6 +933,19 @@ export default function InvoiceBatch() {
                       ? <span className="badge badge-green">SENT</span>
                       : inv.status === 'approved'
                       ? <span className="badge badge-blue" title="Approved. Not confirmed as sent to AP yet.">APPROVED</span>
+                      : inv.released_at && inv.accepted_at
+                      /*
+                        Signed off by the BAM, so it is no longer waiting on them and no
+                        longer waiting on the clock: this one can go now. It read "WITH BAM"
+                        after they had confirmed, which is the same thing the student's own
+                        badge got wrong, and it is the row Robin most wants to pick out.
+                      */
+                      ? <span
+                          className="badge badge-green"
+                          title={`The BAM confirmed this at ${new Date(inv.accepted_at).toLocaleString()}. It can go to AP now.`}
+                        >
+                          CONFIRMED
+                        </span>
                       : inv.released_at
                       /*
                         A released draft is the state Robin acts on next, and the one she
