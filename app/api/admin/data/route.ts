@@ -123,7 +123,7 @@ export async function GET(req: Request) {
       // needs to preview tax at the SAME rate the server will apply; it does not
       // need the BAM's address.
       const { data: invoices, error } = await admin.from('invoices')
-        .select('id, invoice_number, period, status, cohort_id, bam_id, payload_json, bams(first_name, last_name, prov)')
+        .select('id, invoice_number, period, status, cohort_id, bam_id, released_at, payload_json, bams(first_name, last_name, prov)')
         // Must include 'approved', 'paid' and 'void'. The filter used to be
         // ['draft','sent'], which hid an invoice the moment batch-approve set it to
         // 'approved' — and /api/admin/send-ap only accepts status='approved', so the
@@ -232,7 +232,9 @@ export async function GET(req: Request) {
     // dashboard") was not true.
     case 'questions': {
       const { data, error } = await admin.from('portal_questions')
-        .select('id, question, submitted_at, notified_at, answered_at, answer, bam_id, portal_question_messages(id, author, body, created_at, attachment_key, attachment_mime, attachment_name, attachment_bytes), bams(first_name, last_name, email, school_id, cohorts(name))')
+        // invoice_id (0035): set when the thread was opened from an invoice the BAM says
+        // is wrong. The invoices screen reads it to show which payments are held.
+        .select('id, question, submitted_at, notified_at, answered_at, answer, bam_id, invoice_id, portal_question_messages(id, author, body, created_at, attachment_key, attachment_mime, attachment_name, attachment_bytes), bams(first_name, last_name, email, school_id, cohorts(name))')
         .order('submitted_at', { ascending: false })
         .limit(200)
       if (error) return NextResponse.json({ data: null, error: error.message }, { status: 500 })

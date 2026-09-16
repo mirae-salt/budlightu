@@ -43,6 +43,8 @@ const TYPE_TONE: Record<string, string> = {
   receipt_review: '#d97706',
   banking_change_request: '#d97706',
   support_question: '#d97706',
+  // Someone is waiting on an answer AND a payment is held up behind it.
+  invoice_dispute: '#d97706',
   ocr_failed: '#dc2626',
   invoice_blocked: '#dc2626',
   shortfall: '#dc2626',

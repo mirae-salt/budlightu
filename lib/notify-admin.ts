@@ -23,6 +23,13 @@ type NotifType =
   | 'ocr_failed'
   | 'shortfall'
   | 'invoice_draft'
+  /**
+   * A BAM objected to their own invoice during the 24-hour window (0035). Distinct from
+   * 'invoice_draft', which means an invoice could not be built: this one means the
+   * figure is fine as far as we know and the person being paid disagrees. It also
+   * blocks the AP send until somebody resolves it, so it needs its own colour.
+   */
+  | 'invoice_dispute'
   | 'support_question'
   | 'receipt_uploaded'
   /** BAM asked for a banking correction; an admin has to apply it (0022). */

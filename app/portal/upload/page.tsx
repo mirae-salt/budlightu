@@ -82,6 +82,17 @@ export default function UploadPage() {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const isLate = selectedPeriod !== currentMonth.value
+  /*
+   * The BAM's own claim that this receipt is for a special or limited release bought
+   * outside the normal window. It only ever makes the receipt stricter: the server sends
+   * every one of these to a program manager and none of them can auto-pass, so there is
+   * nothing to gain by ticking it on an ordinary receipt.
+   *
+   * It is a declaration rather than a date check because the date the model reads off a
+   * receipt is not good enough to decide anything. Measured 2026-09-16 on 109 real
+   * receipts: 17 came back with a year that is not 2026 and 15 with no date at all.
+   */
+  const [isSpecialRelease, setIsSpecialRelease] = useState(false)
   const selectedOption = monthOptions.find(o => o.value === selectedPeriod)
   const cannotSubmit = selectedOption ? !selectedOption.isSubmittable : false
 
@@ -213,6 +224,7 @@ export default function UploadPage() {
       form.append('bam_id', bamId)
       form.append('sha256', sha256)
       form.append('period', period)
+      if (isSpecialRelease) form.append('late_submission', 'true')
 
       const res = await fetch('/api/portal/upload', { method: 'POST', body: form })
       const json = await res.json().catch(() => ({}))
@@ -374,6 +386,35 @@ export default function UploadPage() {
               </p>
             )}
           </div>
+
+          {/*
+            The special-release declaration. Kept next to the month selector rather than
+            down by the file picker, because it answers the same question the selector
+            does: which rules apply to what you are about to send.
+          */}
+          <label
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10,
+              padding: '10px 14px', background: 'var(--bl-fog)', borderRadius: 8, cursor: 'pointer'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={isSpecialRelease}
+              onChange={e => setIsSpecialRelease(e.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <span style={{ fontSize: 13 }}>
+              <strong style={{ fontWeight: 600 }}>This is a special or limited release</strong>
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>
+                Tick this if you were asked to buy a pack that came out after the 15th, or
+                anything else that does not fit the normal monthly window. You can send it
+                up to three months after you bought it. It counts against this month&rsquo;s
+                $150, and your program manager checks it by hand instead of it being
+                approved automatically.
+              </span>
+            </span>
+          </label>
 
           <div
             className={`drop-zone${dragging ? ' drop-zone--active' : ''}`}

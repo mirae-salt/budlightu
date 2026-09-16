@@ -33,6 +33,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
+import { sendEligibleAt } from '../../../../../lib/business-days'
 import { handler as sendAp }      from '../../../../../supabase/functions/sendApEmail/index'
 import { handler as sendBamCopy } from '../../../../../supabase/functions/sendBamCopy/index'
 /*
@@ -82,11 +83,36 @@ export async function POST(req: NextRequest) {
   const admin = serviceClient()
 
   const { data: invoices, error: invErr } = await admin.from('invoices')
-    .select('id, cohort_id, bam_id, period, invoice_number, status, payload_json, pdf_key, bams(first_name, last_name, status)')
+    .select('id, cohort_id, bam_id, period, invoice_number, status, released_at, payload_json, pdf_key, bams(first_name, last_name, status)')
     .in('id', invoiceIds)
     .eq('status', 'draft')
   if (invErr) return NextResponse.json({ ok: false, message: `invoices read failed: ${invErr.message}` }, { status: 500 })
   if (!invoices?.length) return NextResponse.json({ ok: true, processed: 0, results: [] })
+
+  /*
+   * Which of these invoices the BAM has an unanswered question open on.
+   *
+   * An objection is a portal_questions thread pointing at the invoice (0035), so
+   * "unanswered" is the same condition as "still owes this student a reply" and there is
+   * no second state to keep in step.
+   *
+   * Read once for the batch rather than per invoice: 58 invoices would otherwise be 58
+   * round trips inside the send loop, and a query that runs per iteration is a query
+   * somebody eventually moves outside the guard by accident.
+   */
+  const { data: openDisputes, error: dispErr } = await admin.from('portal_questions')
+    .select('invoice_id')
+    .in('invoice_id', invoices.map(i => i.id))
+    .is('answered_at', null)
+  if (dispErr) {
+    // Fail CLOSED. Not knowing whether a BAM objected is a worse reason to send money
+    // than knowing they did.
+    return NextResponse.json(
+      { ok: false, message: `could not check for open objections: ${dispErr.message} -- refusing to send` },
+      { status: 500 }
+    )
+  }
+  const disputed = new Set((openDisputes ?? []).map(d => d.invoice_id))
 
   const cohortIds = [...new Set(invoices.map(i => i.cohort_id))]
   const { data: cohorts, error: cohortErr } = await admin.from('cohorts').select('*').in('id', cohortIds)
@@ -134,6 +160,44 @@ export async function POST(req: NextRequest) {
         blocked: bamRow?.status
           ? `BAM is ${bamRow.status}, not active -- void this invoice instead of approving it`
           : 'Could not confirm this BAM is active (no matching roster row) -- refusing to send'
+      })
+      continue
+    }
+
+    /*
+     * THE BAM'S 24-HOUR OBJECTION WINDOW (2026-09-16, Legal).
+     *
+     * Three separate refusals, each named, because "cannot send" with no reason is what
+     * sends Robin to ask Mirae. All of them fail closed: an invoice that has not been
+     * shown to the person being paid does not go to AP, and neither does one they have
+     * actively objected to.
+     *
+     * This gate lives here rather than in /api/admin/send-ap because THIS is the first
+     * send. send-ap refuses anything that is not already 'approved', and an invoice only
+     * becomes 'approved' at the bottom of this loop, after its AP email has gone out.
+     */
+    if (disputed.has(inv.id)) {
+      results.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        blocked: 'this BAM raised an objection that is still open -- resolve it before sending'
+      })
+      continue
+    }
+    if (!inv.released_at) {
+      results.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        blocked: 'not released to the BAM yet -- release it first, then send once their 24 hours are up'
+      })
+      continue
+    }
+    const eligibleAt = sendEligibleAt(new Date(inv.released_at))
+    if (Date.now() < eligibleAt.getTime()) {
+      results.push({
+        id: inv.id,
+        invoice_number: inv.invoice_number,
+        blocked: `the BAM's 24 hours are not up yet -- this one can go out after ${eligibleAt.toISOString()}`
       })
       continue
     }

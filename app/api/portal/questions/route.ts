@@ -68,7 +68,9 @@ export async function GET() {
   // anything still reading them works, but the messages are what render.
   const { data, error } = await db
     .from('portal_questions')
-    .select('id, question, answer, answered_at, submitted_at, portal_question_messages(id, author, body, created_at, attachment_key, attachment_mime, attachment_name, attachment_bytes)')
+    // invoice_id (0035): set when the thread was opened from an invoice the BAM says is
+    // wrong, so /portal/invoices can show which row is held and link straight to it.
+    .select('id, question, answer, answered_at, submitted_at, invoice_id, portal_question_messages(id, author, body, created_at, attachment_key, attachment_mime, attachment_name, attachment_bytes)')
     .eq('bam_id', bamId)
     .order('submitted_at', { ascending: false })
     .limit(50)

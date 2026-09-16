@@ -57,6 +57,14 @@ export async function POST(req: NextRequest) {
   // Admin-only, and only honored below once requireAdmin() has actually passed --
   // reading it here is just reading a string off the request.
   const overrideReasonRaw = form.get('override_reason') as string | null
+  /*
+   * The BAM's own claim that this is a special or limited release bought outside the
+   * normal window. Unlike `override_reason` this needs no privilege: it can only ever
+   * make a receipt stricter (lib/classify-receipt sends it to a person and it can never
+   * auto-pass), so a student setting it on an ordinary receipt costs them a wait, not
+   * money they were not owed.
+   */
+  const lateSubmission = String(form.get('late_submission') ?? '') === 'true'
 
   if (!file || !bamId || !sha256 || !periodRaw) {
     return NextResponse.json({ ok: false, message: 'Missing required fields' }, { status: 400 })
@@ -235,7 +243,8 @@ export async function POST(req: NextRequest) {
     storage_key: storageKey,
     storage_mime: file.type,
     storage_bytes: file.size,
-    sha256: effectiveSha
+    sha256: effectiveSha,
+    late_submission: lateSubmission
   }).select('id').single()
 
   if (insErr) {

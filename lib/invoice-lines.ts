@@ -506,10 +506,23 @@ export async function applyInvoiceLineEdit(
   // between the read and the write, 0 rows match and the admin is told.
   const { data: updated, error: updErr } = await db
     .from('invoices')
-    .update({ payload_json: newPayload, pdf_key: null })
+    /*
+     * `released_at: null` un-publishes it, and that is the point of the 24-hour window,
+     * not a side effect (0035).
+     *
+     * Editing a released invoice changes the figure the BAM was shown and agreed to by
+     * saying nothing. Leaving the stamp in place would let the old clock run out against
+     * a number that no longer exists, and we would send an amount nobody ever reviewed
+     * while the audit trail claimed they had 24 hours to object to it.
+     *
+     * Clearing it means the invoice goes back to needing a release, so the BAM sees the
+     * corrected figure and gets a fresh 24 hours on THAT. Same reasoning as clearing
+     * pdf_key beside it: the old artifact no longer describes this invoice.
+     */
+    .update({ payload_json: newPayload, pdf_key: null, released_at: null, released_by: null })
     .eq('id', invoiceId)
     .eq('status', invoice.status)
-    .select('id, status, payload_json, pdf_key')
+    .select('id, status, payload_json, pdf_key, released_at')
   if (updErr) return fail(500, `The edit was NOT saved: ${updErr.message}`)
 
   const savedRow = (updated ?? [])[0] as

@@ -393,7 +393,7 @@ export async function POST(req: Request) {
   //    P0-H: if this read fails we must NOT continue with default policy/cap — that is
   //    how a $150 payout gets decided for a cohort we could not read.
   const { data: thisReceipt, error: receiptErr } = await db.from('receipts')
-    .select('bam_id, cohort_id, period, sha256').eq('id', receipt_id).maybeSingle()
+    .select('bam_id, cohort_id, period, sha256, late_submission').eq('id', receipt_id).maybeSingle()
   if (receiptErr) {
     await bumpAttempt(db, receipt_id, `receipt lookup failed: ${receiptErr.message}`)
     return NextResponse.json({ ok: false, error: `receipt lookup failed: ${receiptErr.message}` }, { status: 500 })
@@ -607,7 +607,8 @@ export async function POST(req: Request) {
     spendableCap,
     policy,
     duplicateHash: dupSuspect,
-    lowResolutionHeuristic
+    lowResolutionHeuristic,
+    lateSubmission: thisReceipt?.late_submission === true
   })
 
   // Any additional fraud flags (price outliers, tax mismatch, historical patterns, etc.)
@@ -640,6 +641,18 @@ export async function POST(req: Request) {
     }
   }
 
+  /*
+   * `.eq('status', 'pending')` is the fix, not the read-back below. This call runs
+   * async (triggerOcr schedules it after the upload response is already sent), and
+   * an admin can approve or reject straight from the queue while a receipt is still
+   * 'pending' -- the UI never hid that button behind OCR finishing. Without the
+   * status guard, this write landed unconditionally and clobbered a human decision:
+   * measured live 2026-09-16, an admin approved Elle Edwards' receipt at a corrected
+   * $144.55 while this route was still mid-flight, and the late write here reset it
+   * to 'review' at the original $154.04 -- decided_by/decided_at stayed stamped from
+   * the approval (this update never touches them), so the row looked decided and
+   * undecided at once, and the approval survived only in audit_log.
+   */
   const { data: saved, error: upErr } = await db.from('receipts').update({
     ocr_json: ocr,
     status: finalStatus,
@@ -647,15 +660,22 @@ export async function POST(req: Request) {
     confidence,
     decision_reason: decisionReason,
     ambiguous_flags: audit
-  }).eq('id', receipt_id).select('id, status, bud_light_total_incl_tax')
+  }).eq('id', receipt_id).eq('status', 'pending').select('id, status, bud_light_total_incl_tax')
 
   if (upErr) {
     return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 })
   }
-  // Read-back (ENGINEERING-RULES §1): an update that matched 0 rows is not a success.
-  if (!saved || saved.length !== 1) {
+  // Zero rows here means the guard did its job, not that anything failed: a human
+  // decided first, and their decision wins over a classification that is now moot.
+  if (!saved || saved.length === 0) {
+    return NextResponse.json({ ok: true, skipped: 'already decided by an admin before OCR finished' })
+  }
+  // Read-back (ENGINEERING-RULES §1): more than the one row this query can ever match
+  // would mean `id` stopped being unique, which is a schema invariant broken, not a
+  // race -- keep this as a hard error.
+  if (saved.length !== 1) {
     return NextResponse.json(
-      { ok: false, error: `classification write affected ${saved?.length ?? 0} rows, expected 1` },
+      { ok: false, error: `classification write affected ${saved.length} rows, expected 1` },
       { status: 500 }
     )
   }

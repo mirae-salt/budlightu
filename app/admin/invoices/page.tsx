@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { isReimbursementLine } from '@/lib/receipt-badge'
+import { sendEligibleAt } from '@/lib/business-days'
 import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
@@ -15,6 +16,8 @@ type Row = InvoiceRow & {
   id: string
   cohort_id: string | null
   period: string
+  /** Null until an admin publishes it to the BAM and starts their 24 hours (0035). */
+  released_at: string | null
   /** Line items from payload_json. Banking is stripped server-side (redactPayload). */
   lines: PayloadLine[]
   subtotal?: number
@@ -38,6 +41,11 @@ type DbInvoice = {
   invoice_number: string
   period: string
   status: 'draft' | 'approved' | 'sent' | 'paid' | 'void'
+  /**
+   * When this invoice was published to its BAM, starting their 24-hour objection
+   * window (0035). Null means batch-approve will refuse it: nobody has seen it yet.
+   */
+  released_at: string | null
   cohort_id: string
   payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[]; jobNumber?: string } | null
   bams: { first_name: string; last_name: string } | null
@@ -78,6 +86,7 @@ function mapDbInvoice(inv: DbInvoice): Row {
     period: inv.period,
     amount: total != null ? `$${Number(total).toFixed(2)}` : '—',
     status: inv.status,
+    released_at: inv.released_at ?? null,
     cohort_id: inv.cohort_id,
     receiptStatus: mapReceiptStatus(inv.receipt_status),
     receiptTotal: inv.receipt_total != null ? `$${Number(inv.receipt_total).toFixed(2)}` : undefined,
@@ -136,6 +145,39 @@ export default function InvoiceBatch() {
   const [allInvoices, setAllInvoices] = useState<Row[]>([])
   const [useDb, setUseDb] = useState(false)
   const [batchConfirming, setBatchConfirming] = useState(false)
+  const [releasing, setReleasing] = useState(false)
+  /*
+   * Open objections. They live at the top of this page rather than behind a tab because
+   * each one is holding a payment: batch-approve refuses any invoice with an unresolved
+   * row, so an objection nobody notices is an invoice that silently never sends.
+   */
+  const [disputes, setDisputes] = useState<Array<{
+    id: string
+    invoice_id: string | null
+    question: string
+    submitted_at: string
+    bams: { first_name: string; last_name: string } | null
+  }>>([])
+
+  /*
+   * Open objections are unanswered question threads that point at an invoice (0035).
+   * Answering happens on /admin/questions, which already threads the conversation and
+   * emails the BAM the reply, so this screen lists them and links there rather than
+   * growing a second reply box that would notify nobody.
+   */
+  function loadDisputes() {
+    return fetch('/api/admin/data?table=questions')
+      .then(res => res.json())
+      .then(({ data }) => {
+        const rows = (data ?? []) as Array<{
+          id: string; invoice_id: string | null; answered_at: string | null
+          question: string; submitted_at: string
+          bams: { first_name: string; last_name: string } | null
+        }>
+        setDisputes(rows.filter(q => q.invoice_id && !q.answered_at))
+      })
+      .catch(() => {})
+  }
   const [batchNotice, setBatchNotice] = useState<Notice | null>(null)
   const [previewNumber, setPreviewNumber] = useState<string | null>(null)
   const [voidingNumber, setVoidingNumber] = useState<string | null>(null)
@@ -173,8 +215,10 @@ export default function InvoiceBatch() {
     if (kind === 'ok') setTimeout(() => setRowNotice(cur => (cur === n ? null : cur)), 6000)
   }
 
-  useEffect(() => {
-    fetch('/api/admin/data?table=invoices')
+  // Named so releasing can re-read the list afterwards: `released_at` decides what the
+  // buttons offer, and a stale row would keep offering a release that already happened.
+  function loadInvoices() {
+    return fetch('/api/admin/data?table=invoices')
       .then(res => res.json())
       .then(({ data }) => {
         if (data && data.length > 0) {
@@ -183,6 +227,11 @@ export default function InvoiceBatch() {
         }
       })
       .catch(() => {})
+  }
+
+  useEffect(() => {
+    loadInvoices()
+    loadDisputes()
 
     // Who "me" is, for the test send.
     fetch('/api/admin/team')
@@ -232,17 +281,78 @@ export default function InvoiceBatch() {
     }
   }
 
+  /*
+   * Releasing publishes a finished invoice to its BAM and starts the 24 hours Legal
+   * asked for. Only an unreleased draft can be released, and re-releasing is refused by
+   * the server rather than silently restarting somebody's clock.
+   */
+  const releasableSelected = selectedDrafts.filter(inv => !inv.released_at)
+
+  /*
+   * What the AP button will actually send, split from what it will refuse.
+   *
+   * The count on a button has to be the truth about what pressing it does. Before the
+   * objection window these were the same number, so "Approve selected (12)" sent 12.
+   * Now batch-approve refuses an invoice that is unreleased, inside its 24 hours, or
+   * carrying an open objection, and a button still promising 12 would report a screen
+   * of blocked rows and teach Robin to ignore the result.
+   *
+   * Recomputed here from the same three rules the server enforces. When they disagree
+   * the server wins: it refuses, and the toast names each one.
+   */
+  const disputedInvoiceIds = new Set(disputes.map(d => d.invoice_id))
+  const sendableSelected = selectedDrafts.filter(inv =>
+    inv.released_at
+    && !disputedInvoiceIds.has(inv.id)
+    && Date.now() >= sendEligibleAt(new Date(inv.released_at)).getTime()
+  )
+  const heldSelected = selectedDrafts.filter(inv => !sendableSelected.includes(inv))
+
+  async function releaseSelected() {
+    if (releasableSelected.length === 0) return
+    setReleasing(true)
+    try {
+      const res = await fetch('/api/admin/invoices/release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: releasableSelected.map(inv => inv.id) })
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.ok === false) {
+        reportBatch('error', json.message || `Release failed (${res.status})`)
+        return
+      }
+      const blocked = (json.results ?? []).filter((r: { blocked?: string }) => r.blocked)
+      if (blocked.length > 0) {
+        // Named, not counted. "3 blocked" sends her to ask which three.
+        reportBatch('error',
+          `Released ${json.released}. Not released: ` +
+          blocked.map((r: { invoice_number?: string; blocked?: string }) => `${r.invoice_number ?? '?'} (${r.blocked})`).join('; '))
+      } else {
+        reportBatch('ok', `Released ${json.released} to their BAMs. They can be sent to AP after ${new Date(json.window_closes).toLocaleString()}.`)
+      }
+      loadInvoices()
+    } catch (e) {
+      reportBatch('error', `Release failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setReleasing(false)
+    }
+  }
+
   async function confirmBatchApprove() {
     setBatchConfirming(false)
-    if (!useDb || selectedDrafts.length === 0) {
-      reportBatch('ok', `${selectedDrafts.length} invoices approved. AP emails queued (dryrun mode). BAM copies queued.`)
+    // Only what the button counted. Posting the whole selection would make the server
+    // refuse the held ones and report failures for rows this screen already said were
+    // not going, which reads as a broken send rather than a working gate.
+    if (!useDb || sendableSelected.length === 0) {
+      reportBatch('ok', `${sendableSelected.length} invoices approved. AP emails queued (dryrun mode). BAM copies queued.`)
       return
     }
     try {
       const res = await fetch('/api/admin/invoices/batch-approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_ids: selectedDrafts.map(inv => inv.id) })
+        body: JSON.stringify({ invoice_ids: sendableSelected.map(inv => inv.id) })
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
@@ -543,6 +653,45 @@ export default function InvoiceBatch() {
     <>
       <TopBar crumbs={['Invoices', 'Batch approval']} />
 
+      {disputes.length > 0 && (
+        <div className="surface" style={{ marginBottom: 16, borderLeft: '3px solid var(--amber, #d97706)' }}>
+          <div className="surface-header">
+            <div style={{ fontWeight: 600, fontSize: 14 }}>
+              {disputes.length} BAM{disputes.length > 1 ? 's' : ''} raised a question about their invoice
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>
+              Each one holds its invoice until you answer it
+            </span>
+          </div>
+          <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {disputes.map(d => (
+              <div key={d.id} style={{ borderTop: '1px solid var(--bl-silver)', paddingTop: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {d.bams ? `${d.bams.first_name} ${d.bams.last_name}` : 'Unknown BAM'}
+                  <span className="muted" style={{ fontWeight: 400, marginLeft: 8, fontFamily: 'monospace' }}>
+                    {/* The invoice number is already the first thing the BAM's own message
+                        says ("Invoice INV-EE1: ..."), so this resolves it from the table on
+                        screen rather than joining for a field we are about to print twice. */}
+                    {allInvoices.find(i => i.id === d.invoice_id)?.number ?? d.invoice_id}
+                  </span>
+                  <span className="muted" style={{ fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
+                    {new Date(d.submitted_at).toLocaleString()}
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, margin: '6px 0 8px', lineHeight: 1.6 }}>{d.question}</p>
+                <a
+                  href={`/admin/questions?q=${d.id}`}
+                  className="btn-ghost"
+                  style={{ fontSize: 12, textDecoration: 'none', display: 'inline-block', padding: '5px 12px' }}
+                >
+                  Open the thread and answer
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="surface">
         <div style={{
           padding: '8px 14px', marginBottom: 16, borderRadius: 6, fontSize: 12, color: 'var(--midgray)',
@@ -577,11 +726,47 @@ export default function InvoiceBatch() {
             <button className="btn-ghost" onClick={downloadZip} disabled={invoices.length === 0 || zipLoading}>
               {zipLoading ? 'Zipping…' : 'Download ZIP'}
             </button>
-            <button onClick={() => setBatchConfirming(true)} disabled={selectedDrafts.length === 0}>
-              Approve selected ({selectedDrafts.length})
+            {/*
+              TWO ACTIONS, NUMBERED, AND ONLY ONE OF THEM SPENDS MONEY.
+              ---------------------------------------------------------
+              These used to be one button called "Approve selected", which both approved
+              AND emailed accounts payable. The name described the internal half and said
+              nothing about the half that cannot be undone. Now the step number carries
+              the order, the label names the recipient, and the weight matches the stakes:
+              releasing is reversible in practice (nothing has left the building), sending
+              is not (Mirae, 2026-09-16).
+            */}
+            <button
+              className="btn-ghost"
+              onClick={releaseSelected}
+              disabled={releasableSelected.length === 0 || releasing}
+              title="Step 1. Publishes these to the BAMs and starts their 24 hours to raise anything wrong. Nothing leaves Salt."
+            >
+              {releasing ? 'Releasing…' : `1 · Release to BAMs (${releasableSelected.length})`}
+            </button>
+            <button
+              onClick={() => setBatchConfirming(true)}
+              disabled={sendableSelected.length === 0}
+              title="Step 2. Emails accounts payable. This cannot be undone."
+            >
+              2 · Send to accounts payable ({sendableSelected.length})
             </button>
           </div>
         </div>
+
+        {/*
+          Why the two counts differ. Without this the second button just looks broken:
+          twelve rows ticked, "Send (0)", and no way to find out which rule is holding
+          them. Says the rule and the number, not a generic "some are not ready".
+        */}
+        {heldSelected.length > 0 && (
+          <div className="muted" style={{ fontSize: 12, padding: '0 16px 10px', lineHeight: 1.6 }}>
+            {heldSelected.length} of the {selectedDrafts.length} selected cannot go to AP yet:
+            {' '}{heldSelected.filter(i => !i.released_at).length} not released to the BAM,
+            {' '}{heldSelected.filter(i => i.released_at && disputedInvoiceIds.has(i.id)).length} with a question open,
+            {' '}{heldSelected.filter(i => i.released_at && !disputedInvoiceIds.has(i.id)).length} still inside the BAM&rsquo;s 24 hours.
+          </div>
+        )}
 
         {/* Sits above the batch controls, not below the table: the count and total in
             the header line describe the filtered view, and Approve acts on it. */}
@@ -595,11 +780,18 @@ export default function InvoiceBatch() {
 
         {batchConfirming && (
           <div className="card" style={{ marginBottom: 16 }}>
-            <div style={{ marginBottom: 10, fontSize: 13 }}>
-              Approve <strong>{selectedDrafts.length}</strong> of {draftInvoices.length} draft invoices? This will queue AP emails for selected invoices only.
+            <div style={{ marginBottom: 10, fontSize: 13, lineHeight: 1.6 }}>
+              Email accounts payable <strong>{sendableSelected.length}</strong> invoice
+              {sendableSelected.length === 1 ? '' : 's'}, one message each, and send each BAM their copy?
+              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                {/* Said here rather than only in the button title: this is the last screen
+                    before the mail goes, and "cannot be undone" belongs where the decision is. */}
+                Sent mail cannot be recalled. Every one of these has been with its BAM for at
+                least 24 hours with nothing raised.
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={confirmBatchApprove}>Confirm approve</button>
+              <button onClick={confirmBatchApprove}>Send to accounts payable</button>
               <button className="btn-ghost" onClick={() => setBatchConfirming(false)}>Cancel</button>
             </div>
           </div>
@@ -697,7 +889,19 @@ export default function InvoiceBatch() {
                       ? <span className="badge badge-green">SENT</span>
                       : inv.status === 'approved'
                       ? <span className="badge badge-blue" title="Approved. Not confirmed as sent to AP yet.">APPROVED</span>
-                      : <span className="badge badge-yellow">DRAFT</span>}
+                      : inv.released_at
+                      /*
+                        A released draft is the state Robin acts on next, and the one she
+                        cannot act on yet, so the badge says which. Without it every draft
+                        looks alike and "Approve selected" silently blocks half of them.
+                      */
+                      ? <span
+                          className="badge badge-blue"
+                          title={`Published to the BAM at ${new Date(inv.released_at).toLocaleString()}. Can go to AP once their 24 hours are up.`}
+                        >
+                          WITH BAM
+                        </span>
+                      : <span className="badge badge-yellow" title="Not shown to the BAM yet. Release it before approving.">DRAFT</span>}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     {inv.status === 'void' ? (

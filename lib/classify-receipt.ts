@@ -50,6 +50,18 @@ export type ClassifyInput = {
   policy: Policy
   duplicateHash: boolean        // same sha256 already accepted for another bam this period
   lowResolutionHeuristic: boolean
+  /**
+   * The BAM declared this a special or limited release bought outside the normal
+   * window (`receipts.late_submission`). Their claim alone sends it to a person.
+   *
+   * Deliberately NOT derived from `ocr.date`. Measured on 2026-09-16 against 109 real
+   * receipts: only 70 carry a purchase date inside their own period, 17 carry a year
+   * that is not 2026, and 15 have no readable date. Gating on that field would push a
+   * quarter of ordinary receipts into the queue on evidence that is wrong a quarter of
+   * the time. Whether the paper actually supports the claim is Robin's call with the
+   * image open.
+   */
+  lateSubmission?: boolean
 }
 
 export type RecomputeBasis =
@@ -647,6 +659,25 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
   const padding = Number.isFinite(policy?.reviewBandPaddingCad) ? policy.reviewBandPaddingCad : 0
 
   // ── Force-REVIEW conditions (any → REVIEW, no auto_pass) ──────────────────
+
+  /*
+   * A declared special or limited release. Sits at the very top of this section, ABOVE
+   * the zero-Bud-Light rejection below, for the same reason the first-cohort switch
+   * does: auto-rejection is a money decision.
+   *
+   * It matters more here than anywhere else. A limited release is precisely the product
+   * whose name the model is least likely to recognise as Bud Light, so the receipt the
+   * BAM was specifically asked to submit is the one most likely to classify as "No Bud
+   * Light items detected" and be terminally rejected. The whole point of this path is
+   * that a person looks at it.
+   */
+  if (input.lateSubmission) {
+    return out(
+      'review',
+      'late_or_special_release: the BAM submitted this as a special or limited release bought ' +
+      'outside the normal window -- a program manager confirms the purchase and the amount'
+    )
+  }
 
   // P0-G: this safeguard is the first-cohort kill switch. Nothing auto-DECIDES while
   // it is on.

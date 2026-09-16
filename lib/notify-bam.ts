@@ -34,6 +34,12 @@ export type BamNotifType =
   | 'receipt_approved'
   /** A receipt was not accepted. Actionable: they can upload another before the deadline. */
   | 'receipt_rejected'
+  /**
+   * Their invoice is final and published to them, and their 24-hour window to object
+   * has started (2026-09-16, Legal). Actionable, and time-limited: this is the only
+   * notification a BAM has to act on before a deadline they did not set.
+   */
+  | 'invoice_review'
   /** Their invoice was sent to accounts payable. */
   | 'invoice_sent'
   /** They spent under the soft floor for the month. */
