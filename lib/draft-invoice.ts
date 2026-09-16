@@ -29,6 +29,7 @@ import { lookupReimbursement } from './invoice-ledger'
 import { adHocLines } from './invoice-lines'
 import { resolveSeqAndRevision } from './invoice-sequence'
 import { notifyAdmin } from './notify-admin'
+import { notifyInvoiceRevised } from './notify-invoice-revised'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AdminClient = { from: (...args: any[]) => any; rpc: (...args: any[]) => any }
@@ -150,14 +151,19 @@ export async function upsertDraftInvoice(
    * silently lost somebody's bar tab, which is the exact bug this is here to stop.
    */
   let existingAdHoc: Array<{ qty: number; description: string; unitPrice: number; total: number }> = []
+  let previousTotal: number | null = null
   if (sequence.existingId) {
     // Array form, not maybeSingle: the house style in this file, and the only shape the
     // callers' clients implement.
     const { data: prior, error: priorErr } = await db.from('invoices')
       .select('payload_json').eq('id', sequence.existingId)
     if (priorErr) return block(`could not read the invoice being rebuilt (${priorErr.message}), so its added lines could not be carried over`)
-    const priorLines = ((prior ?? [])[0] as { payload_json?: { lines?: unknown } } | undefined)?.payload_json?.lines
+    const priorPayload = ((prior ?? [])[0] as { payload_json?: { lines?: unknown; total?: unknown } } | undefined)?.payload_json
+    const priorLines = priorPayload?.lines
     if (Array.isArray(priorLines)) existingAdHoc = priorLines as typeof existingAdHoc
+    // Kept for the revision notice below: telling a BAM their invoice changed needs the
+    // figure it changed FROM, and after the update that number is gone.
+    previousTotal = typeof priorPayload?.total === 'number' ? priorPayload.total : null
   }
 
   if (sequence.existingStatus && sequence.existingStatus !== 'draft') {
@@ -248,6 +254,26 @@ export async function upsertDraftInvoice(
       return block(`invoice ${sequence.existingId} was no longer a draft when we tried to update it`)
     }
     await closeBlockedNotification(db, bamId, period)
+
+    /*
+     * If this invoice was already published and the figure moved, tell them.
+     *
+     * Without this the sequence is: we email a number, we change it, we say nothing, we
+     * send it. The row on their portal would say "Updated, please check again", which
+     * only reaches a student who happens to log in, and the deadline does not move to
+     * make room for that. The notice is what makes their silence mean anything.
+     *
+     * Never fatal, and never louder than the change: it returns quietly when the total is
+     * the same or the invoice was never released.
+     */
+    const notice = await notifyInvoiceRevised(db as never, sequence.existingId, {
+      previousTotal,
+      newTotal: typeof payload.total === 'number' ? payload.total : null
+    })
+    if (!notice.skipped && notice.note) {
+      console.error(`[draft-invoice] revision notice for ${sequence.existingId}: ${notice.note}`)
+    }
+
     return {
       ok: true,
       invoiceId: sequence.existingId,

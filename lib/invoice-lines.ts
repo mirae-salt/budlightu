@@ -45,6 +45,7 @@ import { computeHst } from './invoice-payload'
 import { reimbursementLineTotal, type PayloadLineish } from './invoice-ledger'
 import { assertPdfRenderable } from './pdf-text'
 import { INVOICE_PDF_BUCKET } from './invoice-pdf'
+import { notifyInvoiceRevised } from './notify-invoice-revised'
 
 /**
  * Only these two statuses are editable.
@@ -610,6 +611,22 @@ export async function applyInvoiceLineEdit(
   })
   if (auditErr) {
     warnings.push(`The change was saved but the audit log entry failed: ${auditErr.message}. Tell Mirae.`)
+  }
+
+  /*
+   * If this invoice was already with its BAM and the total moved, tell them.
+   *
+   * The deadline does not move for a correction (0036), so the only thing standing
+   * between "we changed the number" and "they agreed by saying nothing" is this notice.
+   * A failure is a warning on the admin's own screen rather than a failed edit: the edit
+   * is saved and correct, and Robin is the one who can follow up by hand.
+   */
+  const notice = await notifyInvoiceRevised(db as never, invoiceId, {
+    previousTotal: typeof stored.total === 'number' ? stored.total : null,
+    newTotal: totals.total
+  })
+  if (!notice.skipped && notice.note) {
+    warnings.push(`The change was saved, but telling the BAM did not fully work: ${notice.note}`)
   }
 
   return {

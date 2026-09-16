@@ -310,7 +310,7 @@ export default function InvoiceBatch() {
    */
   const disputedInvoiceIds = new Set(disputes.map(d => d.invoice_id))
   const sendableSelected = selectedDrafts.filter(inv => {
-    const start = windowStartedAt(inv.released_at, inv.revised_at)
+    const start = windowStartedAt(inv.released_at)
     // Mirrors the server: a cohort that is not live waives the wait, so the count on the
     // button matches what pressing it will actually send.
     const waitOver = inv.sendMode !== 'live' || Date.now() >= sendEligibleAt(start!).getTime()

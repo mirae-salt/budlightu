@@ -42,13 +42,13 @@ type InvoiceThread = {
   messages: ThreadMessage[]
 }
 
-/** The later of release and revision: what the BAM's current 24 hours run from. */
+/**
+ * The 24 hours run from publication and a correction does not restart them, so a
+ * corrected invoice is still due at the same time. `revised_at` changes what the row
+ * SAYS, never when it is due.
+ */
 function windowStart(inv: InvoiceRow): Date | null {
-  if (!inv.released_at) return null
-  const released = new Date(inv.released_at)
-  if (!inv.revised_at) return released
-  const revised = new Date(inv.revised_at)
-  return revised > released ? revised : released
+  return inv.released_at ? new Date(inv.released_at) : null
 }
 
 /** An invoice thread nobody has answered yet. That is what holds the payment. */
@@ -338,7 +338,7 @@ export default function MyInvoices() {
     return (
       <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
         {wasRevised(inv)
-          ? `This was corrected on ${new Date(inv.revised_at as string).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}, so please look again. `
+          ? `This was corrected on ${new Date(inv.revised_at as string).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}, so please look again. The deadline has not moved. `
           : ''}
         If we do not hear from you by {closesLabel}, it goes to accounts payable as it stands.
       </div>
@@ -552,7 +552,20 @@ export default function MyInvoices() {
                     <tr>
                       <td style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{periodLabel(inv.period)}</td>
                       <td style={{ fontFamily: 'monospace', color: 'var(--bl-blue)' }}>{inv.invoice_number ?? '—'}</td>
-                      <td><span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span></td>
+                      <td>
+                        <span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span>
+                        {/* The word does the work a colour cannot: a student scanning the
+                            list needs to see that THIS row changed since they last looked. */}
+                        {wasRevised(inv) && inv.status === 'draft' && (
+                          <span
+                            className="badge badge-red"
+                            style={{ marginLeft: 6, fontSize: 10 }}
+                            title={`Updated ${new Date(inv.revised_at as string).toLocaleString()}`}
+                          >
+                            NEW
+                          </span>
+                        )}
+                      </td>
                       <td>{invoiceActions(inv, false)}</td>
                     </tr>
                     {detail.length > 0 && (
@@ -574,7 +587,12 @@ export default function MyInvoices() {
               <div key={inv.id} className="invoice-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontWeight: 600, color: 'var(--bl-navy)', fontSize: 15 }}>{periodLabel(inv.period)}</span>
-                  <span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span>
+                  <span>
+                    <span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span>
+                    {wasRevised(inv) && inv.status === 'draft' && (
+                      <span className="badge badge-red" style={{ marginLeft: 6, fontSize: 10 }}>NEW</span>
+                    )}
+                  </span>
                 </div>
                 <div style={{ fontFamily: 'monospace', color: 'var(--bl-blue)', fontSize: 13, marginTop: 4 }}>
                   {inv.invoice_number ?? '—'}

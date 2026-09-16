@@ -184,10 +184,9 @@ export async function POST(req: NextRequest) {
       })
       continue
     }
-    // The later of released_at and revised_at: a correction restarts the window rather
-    // than un-publishing, so the 24 hours always run against the figure the BAM was last
-    // shown (0036).
-    const windowStart = windowStartedAt(inv.released_at, inv.revised_at)
+    // From release only. A correction does not restart the clock: the send day is fixed,
+    // so corrections happen inside the first window rather than moving it (0036).
+    const windowStart = windowStartedAt(inv.released_at)
     if (!windowStart) {
       results.push({
         id: inv.id,

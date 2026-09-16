@@ -55,24 +55,20 @@ export function sendEligibleAt(releasedAt: Date, windowHours = 24): Date {
 }
 
 /**
- * When the BAM's window actually started, given that a correction restarts it (0036).
+ * When the BAM's window started: the moment the invoice was published, full stop.
  *
- * A revision does not un-publish an invoice; it moves the clock to the moment the figure
- * changed. Taking the later of the two means the 24 hours always run against the number
- * the BAM was last shown, and never against one that has since been replaced.
+ * A CORRECTION DOES NOT RESTART IT (Mirae, 2026-09-16: "24시간 없음. 처음 24시간 내에서
+ * 다 수정완료돼야함"). This briefly took the later of released_at and revised_at, which
+ * read well and broke the thing the cadence exists for: the send day is fixed at the 17th,
+ * so a clock that restarts on every correction moves the payment instead of the work.
+ * Corrections belong inside the first window.
  *
- * Returns null when the invoice has not been released, which is the caller's cue to
- * refuse the send outright rather than compute a deadline for something nobody has seen.
+ * `revised_at` still matters, just not here. It is what tells the BAM the figure moved and
+ * what puts "Updated, please check again" on their row, against the same deadline.
+ *
+ * Returns null when the invoice has not been released, which is the caller's cue to refuse
+ * the send outright rather than compute a deadline for something nobody has seen.
  */
-export function windowStartedAt(
-  releasedAt: string | Date | null | undefined,
-  revisedAt: string | Date | null | undefined
-): Date | null {
-  if (!releasedAt) return null
-  const released = new Date(releasedAt)
-  if (!revisedAt) return released
-  const revised = new Date(revisedAt)
-  // A revision recorded BEFORE the release belongs to an older cycle and is ignored:
-  // it cannot shorten or extend a window that started after it.
-  return revised > released ? revised : released
+export function windowStartedAt(releasedAt: string | Date | null | undefined): Date | null {
+  return releasedAt ? new Date(releasedAt) : null
 }
