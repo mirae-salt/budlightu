@@ -795,7 +795,11 @@ export default function Roster() {
         />
 
         <div className="table-scroll">
-          <table className="admin-table">
+          {/* one-line: every row the same height. Before this, rows alternated 54px and
+              71px depending on whether that BAM's school, bank or cohort happened to
+              wrap. School and email are the only two columns long enough to need
+              cutting, and both keep a title so the full value is still readable. */}
+          <table className="admin-table one-line">
             <thead>
               <tr>
                 <SortTh sortKey="name" sort={sort} onSort={toggleSort}>Name</SortTh>
@@ -803,7 +807,7 @@ export default function Roster() {
                 <SortTh sortKey="school" sort={sort} onSort={toggleSort}>School</SortTh>
                 <SortTh sortKey="cohort" sort={sort} onSort={toggleSort}>Cohort</SortTh>
                 <SortTh sortKey="bank" sort={sort} onSort={toggleSort}>Bank</SortTh>
-                <SortTh sortKey="invoiceCode" sort={sort} onSort={toggleSort}>Invoice code</SortTh>
+                <SortTh sortKey="invoiceCode" sort={sort} onSort={toggleSort}>Invoice #</SortTh>
                 <SortTh sortKey="status" sort={sort} onSort={toggleSort}>Status</SortTh>
                 <th></th>
               </tr>
@@ -811,7 +815,7 @@ export default function Roster() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ padding: 24, textAlign: 'center' }}>
+                  <td colSpan={8} className="muted wrap" style={{ padding: 24, textAlign: 'center' }}>
                     {bams.length === 0 ? 'No BAMs on the roster yet.' : 'No BAMs match this filter.'}
                   </td>
                 </tr>
@@ -821,11 +825,19 @@ export default function Roster() {
                   <tr>
                     {/* The TEST marker used to sit here as well. It lives in the status
                         column now, which is the column somebody scans for it. */}
-                    <td style={{ fontWeight: 600 }}>{b.name}</td>
-                    <td className="muted" style={{ fontSize: 12.5 }}>{b.email}</td>
-                    <td className="muted">{b.school}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      <span className="cell-trunc" style={{ '--trunc': '21ch' } as React.CSSProperties} title={b.name}>{b.name}</span>
+                    </td>
+                    <td className="muted" style={{ fontSize: 12.5 }}>
+                      <span className="cell-trunc" style={{ '--trunc': '20ch' } as React.CSSProperties} title={b.email}>{b.email}</span>
+                    </td>
+                    <td className="muted">
+                      <span className="cell-trunc" style={{ '--trunc': '16ch' } as React.CSSProperties} title={b.school}>{b.school}</span>
+                    </td>
                     <td className="muted">{b.cohort}</td>
-                    <td>{b.bank}</td>
+                    <td>
+                      <span className="cell-trunc" style={{ '--trunc': '16ch' } as React.CSSProperties} title={b.bank}>{b.bank}</span>
+                    </td>
                     <td style={{ fontFamily: 'monospace', color: 'var(--bl-navy)', fontWeight: 600 }}>
                       {b.invoiceCode ?? <span className="muted">—</span>}
                     </td>
@@ -839,7 +851,10 @@ export default function Roster() {
 
                   {editingId === b.id && (
                     <tr>
-                      <td colSpan={8} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                      {/* `wrap` opts this cell out of the table's one-line rule. Without it the
+                          edit panel's help text ran on a single line off the right edge: the
+                          rule is for list rows, and this cell holds a form, not a value. */}
+                      <td colSpan={8} className="wrap" style={{ background: 'var(--bl-silver)', padding: 16 }}>
                         <div className="card" style={{ maxWidth: 520 }}>
                           <div style={{ display: 'flex', gap: 12 }}>
                             <div className="field" style={{ flex: 1 }}>
@@ -1076,7 +1091,7 @@ export default function Roster() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={8} className="wrap">
                     <div className="empty-state">No BAMs found. Sign in as admin to view roster data.</div>
                   </td>
                 </tr>

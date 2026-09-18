@@ -115,7 +115,14 @@ export default function AuditLog() {
           </div>
         </div>
 
-        <table className="admin-table">
+        {/* Without this the whole PAGE scrolled sideways below about 900px: measured
+            2026-09-18 at 820px, document width 1199 against a 820 viewport. Every
+            other admin list confines its overflow to the table; this one did not. */}
+        <div className="table-scroll">
+        {/* one-line: rows were 52px and 67px depending on whether that entry's actor
+            or action happened to wrap. Target keeps wrapping -- it is the one column
+            that holds something long enough to be worth reading in full. */}
+        <table className="admin-table one-line">
           <thead>
             <tr>
               <th style={{ minWidth: 160 }}>Time</th><th>Actor</th><th>Role</th><th>Entity</th><th>Action</th><th>Target</th>
@@ -132,9 +139,9 @@ export default function AuditLog() {
                 <td>{roleBadge(e.role)}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{e.entity}</td>
                 <td style={{ fontWeight: 500 }}>{e.action}</td>
-                <td className="muted" style={{ fontSize: 12.5, maxWidth: 280 }}>
-                          <TargetCell value={e.target} />
-                        </td>
+                <td className="muted wrap" style={{ fontSize: 12.5, maxWidth: 280 }}>
+                  <TargetCell value={e.target} />
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
@@ -146,6 +153,7 @@ export default function AuditLog() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   )

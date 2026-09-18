@@ -961,7 +961,10 @@ export default function InvoiceBatch() {
             sideways on a phone. This is the table Mirae's 2026-08-14 screenshots showed
             breaking, PDF/void buttons and all pushed off the right edge. */}
         <div className="table-scroll">
-        <table className="admin-table">
+        {/* one-line: "September 2026" was wrapping in the period column and making
+            every row two lines tall. The four full-width cells below carry panels
+            and prose, so each opts back out with `wrap`. */}
+        <table className="admin-table one-line">
           <thead>
             <tr>
               <th style={{ width: 32 }}>
@@ -1011,7 +1014,7 @@ export default function InvoiceBatch() {
                     ) : <span />}
                   </td>
                   <td>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{inv.bam}</div>
+                    <div className="cell-trunc" style={{ fontWeight: 600, fontSize: 13, '--trunc': '19ch' } as React.CSSProperties} title={inv.bam}>{inv.bam}</div>
                     <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--midgray)' }}>{inv.number}</div>
                   </td>
                   <td className="muted" style={{ fontSize: 13 }}>{periodLabel(inv.period)}</td>
@@ -1191,7 +1194,7 @@ export default function InvoiceBatch() {
 
                 {previewNumber === inv.number && (
                   <tr>
-                    <td colSpan={7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={7} className="wrap" style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
                         <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => downloadOne(inv)}>
                           Download PDF
@@ -1226,7 +1229,7 @@ export default function InvoiceBatch() {
                   )
                   return (
                   <tr>
-                    <td colSpan={7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={7} className="wrap" style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div className="card" style={{ maxWidth: 760 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--bl-navy)', marginBottom: 4 }}>
                           Edit lines · {inv.number} ({inv.bam})
@@ -1383,7 +1386,7 @@ export default function InvoiceBatch() {
 
                 {voidingNumber === inv.number && (
                   <tr>
-                    <td colSpan={7} style={{ background: 'var(--bl-silver)', padding: 16 }}>
+                    <td colSpan={7} className="wrap" style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div className="card" style={{ maxWidth: 420 }}>
                         <p style={{ fontSize: 13, marginBottom: 8 }}>
                           Voiding <strong>{inv.number}</strong> ({inv.bam}) will generate an AP cancellation email draft.
@@ -1422,7 +1425,7 @@ export default function InvoiceBatch() {
             })}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={7} className="wrap">
                   <div className="empty-state" style={{ padding: '28px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
                     No invoices yet. <strong>Auto-generated on the 16th</strong> after receipt review.
                   </div>

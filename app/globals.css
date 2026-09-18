@@ -676,18 +676,56 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 table.admin-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 600px; }
 table.admin-table th {
-  text-align: left; padding: 12px 16px;
+  /* 16px of side padding on an eight-column list spends 96px on whitespace between
+     columns that are already short of room. 13px reads the same and gives it back. */
+  text-align: left; padding: 12px 13px;
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--midgray); font-weight: 600;
   border-bottom: 1px solid var(--stone);
 }
 table.admin-table td {
-  padding: 14px 16px;
+  padding: 13px 13px;
   border-bottom: 1px solid var(--bl-fog);
   color: var(--ink);
+  /* Cells in a row are middle-aligned, so a badge or a button no longer sits a few
+     pixels higher than the text beside it. */
+  vertical-align: middle;
 }
 table.admin-table tr:last-child td { border-bottom: none; }
 table.admin-table tr:hover td { background: var(--bl-silver); }
+
+/*
+ * EVERY ROW THE SAME HEIGHT.
+ *
+ * Measured 2026-09-18 on /admin/roster at 1512px: rows alternated 54px and 71px,
+ * because "Class of 2027", "TD Canada Trust" and "University of Saskatchewan" each
+ * wrapped to a second line while their neighbours did not. A list where the row
+ * height depends on how long somebody's bank is named is hard to scan and looks
+ * broken. /admin/audit had the same problem at 52px and 67px.
+ *
+ * OPT-IN, not a default. Several admin tables carry real prose in a cell (an audit
+ * payload, a receipt's rejection reason, the text of a question), and forcing those
+ * onto one line would push the table wider and trade a ragged list for a horizontal
+ * scrollbar. So a table asks for this by adding `one-line`, and any cell inside it
+ * that genuinely needs to wrap opts back out with `wrap`.
+ */
+table.admin-table.one-line td { white-space: nowrap; }
+table.admin-table.one-line td.wrap { white-space: normal; }
+
+/*
+ * For the one or two columns whose content really is too long: keep the row at one
+ * line and cut the text, rather than letting it set the height of the row. Always
+ * pair it with a `title` attribute so the full value is still readable on hover --
+ * a school name or an email that is silently cut and cannot be recovered is worse
+ * than a tall row.
+ */
+.cell-trunc {
+  display: block;
+  max-width: var(--trunc, 20ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .empty-state {
   padding: 40px 20px; text-align: center; color: var(--midgray);

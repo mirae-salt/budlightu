@@ -453,6 +453,9 @@ export default function Cohorts() {
           </div>
         )}
 
+        {/* Confines the overflow to the table. Without it this page scrolled
+            sideways as a whole on anything narrower than about 900px. */}
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -815,6 +818,7 @@ export default function Cohorts() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </>
   )
