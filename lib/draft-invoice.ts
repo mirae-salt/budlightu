@@ -153,13 +153,19 @@ export async function upsertDraftInvoice(
    */
   let existingAdHoc: Array<{ qty: number; description: string; unitPrice: number; total: number }> = []
   let previousTotal: number | null = null
+  let priorReleasedAt: Date | null = null
   if (sequence.existingId) {
     // Array form, not maybeSingle: the house style in this file, and the only shape the
     // callers' clients implement.
     const { data: prior, error: priorErr } = await db.from('invoices')
-      .select('payload_json').eq('id', sequence.existingId)
+      // released_at decides the printed invoice date: a rebuild before publication is
+      // still the invoice being produced, one after it is a correction. See invoiceDateFor.
+      .select('payload_json, released_at').eq('id', sequence.existingId)
     if (priorErr) return block(`could not read the invoice being rebuilt (${priorErr.message}), so its added lines could not be carried over`)
-    const priorPayload = ((prior ?? [])[0] as { payload_json?: { lines?: unknown; total?: unknown } } | undefined)?.payload_json
+    const priorRow = (prior ?? [])[0] as
+      { payload_json?: { lines?: unknown; total?: unknown }; released_at?: string | null } | undefined
+    priorReleasedAt = priorRow?.released_at ? new Date(priorRow.released_at) : null
+    const priorPayload = priorRow?.payload_json
     const priorLines = priorPayload?.lines
     if (Array.isArray(priorLines)) existingAdHoc = priorLines as typeof existingAdHoc
     // Kept for the revision notice below: telling a BAM their invoice changed needs the
@@ -207,7 +213,7 @@ export async function upsertDraftInvoice(
       // The 15th of the month being invoiced, or the date of a later correction.
       // `new Date()` alone printed the day this BAM's last receipt happened to be
       // approved, which spread one month's invoices across six different dates.
-      generatedAt: invoiceDateFor(new Date(period)),
+      generatedAt: invoiceDateFor(new Date(period), new Date(), priorReleasedAt),
       /*
        * Carried over from the invoice we are about to overwrite. This function replaces
        * payload_json whole, and the line editor writes into that same field, so without

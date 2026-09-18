@@ -109,20 +109,35 @@ export function spendingWindowLabel(period: string): string {
  * THE RULE (Mirae, 2026-09-18)
  * ----------------------------
  * The 15th of the month being invoiced, which is the receipt deadline and therefore the
- * day the month's spend is final. If the invoice is corrected after that, the date of the
- * correction instead.
+ * day the month's spend is final. Once the invoice has been published to its BAM, a
+ * change after that takes the date of the change.
  *
- * So a normal month gives every invoice the same date, and an invoice that changed on the
- * 18th says the 18th rather than claiming to have been issued three days before it was
- * last true. The date can never be earlier than the deadline and never earlier than the
- * last change.
+ * WHY `releasedAt` AND NOT SIMPLY "LATER THAN THE 15th"
+ * ----------------------------------------------------
+ * The first version of this compared the rebuild time against the 15th and took whichever
+ * was later. That does not survive the calendar: the audit cron runs on the 16th and the
+ * generate cron on the 17th, and Robin decides the month's flagged receipts on the 16th.
+ * Every one of those rebuilds the payload, so almost every invoice would have printed the
+ * 16th or the 17th and "all dated the 15th" would have been true of hardly any of them.
  *
- * Noon UTC, because the payload renders this with `timeZone: 'UTC'`: any hour near a
- * boundary would print the wrong day somewhere.
+ * Producing an invoice is not correcting it. The line between the two is publication: up
+ * to the moment a BAM is shown their invoice it is still being made, and everything after
+ * that is a correction somebody should be able to date. `released_at` already marks
+ * exactly that moment (0035), so it is the input rather than a second rule about days.
  */
-export function invoiceDateFor(period: Date, changedAt: Date = new Date()): Date {
+export function invoiceDateFor(
+  period: Date,
+  /** When this rebuild is happening. */
+  changedAt: Date = new Date(),
+  /** `invoices.released_at`, or null while the invoice has never been published. */
+  releasedAt: Date | null = null
+): Date {
   const deadline = new Date(Date.UTC(
     period.getUTCFullYear(), period.getUTCMonth(), DEADLINE_DAY, 12, 0, 0
   ))
-  return changedAt.getTime() > deadline.getTime() ? changedAt : deadline
+  // Not published yet: still being produced, however many times that takes.
+  if (!releasedAt) return deadline
+  // Published, and this change came after. Date it honestly.
+  if (changedAt.getTime() > releasedAt.getTime()) return changedAt
+  return deadline
 }
