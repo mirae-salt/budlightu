@@ -18,6 +18,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
+import { refreshOpenInvoices } from '../../../../../lib/refresh-invoice-snapshot'
+import { notifyBam } from '../../../../../lib/notify-bam'
+import { sendEmail } from '../../../../../lib/send-email'
+import { supportRecipient } from '../../../../../lib/question-alert'
+import { bankingChangedEmail } from '../../../../../lib/banking-changed-notice'
 import {
   accountConfirmMatches,
   buildAppliedBamPatch,
@@ -190,13 +195,15 @@ export async function POST(req: NextRequest) {
   const before = (curDec ?? {}) as Banking
 
   const { data: bamRows, error: bamErr } = await db.from('bams')
-    .select('bank_name, email_verified_at')
+    // first_name and email are here for the "your payment details were updated"
+    // notice at step 7, read BEFORE the write like everything else in this route.
+    .select('bank_name, email_verified_at, first_name, email')
     .eq('id', request.bam_id)
     .limit(1)
   if (bamErr) {
     return NextResponse.json({ ok: false, message: bamErr.message }, { status: 500 })
   }
-  const beforeBam = (bamRows ?? [])[0] as { bank_name: string | null; email_verified_at: string | null } | undefined
+  const beforeBam = (bamRows ?? [])[0] as { bank_name: string | null; email_verified_at: string | null; first_name: string | null; email: string | null } | undefined
 
   // 1. bank_name + the email_verified_at reset. buildAppliedBamPatch owns the
   //    reset so it is one testable decision rather than an inline null.
@@ -329,36 +336,20 @@ export async function POST(req: NextRequest) {
   // never moves off just this: batch-approve re-checks live banking against
   // the payload right before sending, so this is a courtesy that keeps the
   // draft honest in the meantime, not the safety net.
-  const invoiceNotes: string[] = []
-  const { data: openInvoices, error: openErr } = await db.from('invoices')
-    .select('id, period, status, payload_json')
-    .eq('bam_id', request.bam_id)
-    .in('status', ['draft', 'approved'])
-  if (openErr) {
-    invoiceNotes.push(`Could not check for open invoices to update: ${openErr.message}. Check /admin/invoices by hand.`)
-  } else {
-    for (const inv of (openInvoices ?? []) as { id: string; period: string; status: string; payload_json: Record<string, unknown> | null }[]) {
-      const payload = inv.payload_json ?? {}
-      const dd = (payload.directDeposit ?? {}) as Record<string, unknown>
-      const nextPayload = {
-        ...payload,
-        directDeposit: { ...dd, bank: v.bankName, institutionNumber: v.institutionNo, transitNumber: v.transitNo, accountNumber: v.accountNo }
-      }
-      const { data: swapped, error: swapErr } = await db.from('invoices')
-        .update({ payload_json: nextPayload })
-        .eq('id', inv.id)
-        .eq('status', inv.status)
-        .select('id')
-      if (swapErr || !(swapped ?? []).length) {
-        invoiceNotes.push(
-          `${inv.period} invoice (${inv.status}) still has the OLD banking baked in -- ` +
-          `could not update it (${swapErr?.message ?? 'no row matched'}). Fix it by hand before sending.`
-        )
-      } else {
-        invoiceNotes.push(`${inv.period} invoice (${inv.status}) banking updated to match.`)
-      }
-    }
-  }
+  //
+  // This used to swap `payload_json.directDeposit` here and stop there, which left
+  // `pdf_key` pointing at the PDF rendered from the OLD numbers. ensureInvoicePdf
+  // returns those stored bytes, so the portal and the admin preview (both of which
+  // re-render from the payload) showed the corrected account while the AP email
+  // carried the old one. refreshOpenInvoices clears pdf_key as well, so the next
+  // render is a real render.
+  const refreshed = await refreshOpenInvoices(db, request.bam_id, {
+    bankName: v.bankName,
+    institutionNo: v.institutionNo,
+    transitNo: v.transitNo,
+    accountNo: v.accountNo
+  })
+  const invoiceNotes = refreshed.notes
 
   const { data: sentInvoices, error: sentErr } = await db.from('invoices')
     .select('period')
@@ -372,15 +363,61 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // 7. TELL THE STUDENT. An admin can now raise this request on their behalf
+  //    (/api/admin/banking), so the numbers deciding where their pay lands can move
+  //    without them doing anything, and they cannot read their stored account number
+  //    back to check it. The last 4 is the only thing they can compare against their
+  //    own bank. Same message either way — see lib/banking-changed-notice.ts.
+  //
+  //    Reported, never swallowed, and never allowed to fail the change: the banking is
+  //    applied and audited by this point, and rolling it back because an email bounced
+  //    would be the worse outcome.
+  const noticeProblems: string[] = []
+  // tail4 is typed nullable; the slice keeps the message readable rather than printing
+  // "account ending null" at the student in the one email they are asked to check.
+  const last4 = tail4(v.accountNo) ?? v.accountNo.slice(-4)
+  const bell = await notifyBam({
+    bam_id: request.bam_id,
+    type: 'banking_changed',
+    title: 'Your payment details were updated',
+    body: `Payments now go to ${v.bankName}, account ending ${last4}. Tell us today if you did not ask for this.`,
+    link: '/portal/account'
+  })
+  if (!bell.ok) noticeProblems.push(`portal notification failed: ${bell.error}`)
+
+  const notifyTo = str(beforeBam?.email ?? '')
+  if (!notifyTo) {
+    noticeProblems.push('no email on file for this BAM, so they were not told their banking changed')
+  } else {
+    const mail = bankingChangedEmail({
+      firstName: str(beforeBam?.first_name) || 'there',
+      accountLast4: last4,
+      bankName: v.bankName,
+      portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices`,
+      contactEmail: supportRecipient()
+    })
+    const sent = await sendEmail({
+      to: notifyTo,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text
+    })
+    if (!sent.sent) noticeProblems.push(`email to the BAM failed: ${sent.error}`)
+  }
+
   return NextResponse.json({
     ok: true,
     status: 'applied',
     email_verification_reset: true,
     account_last4: tail4(v.accountNo),
     audit_logged: true,
+    bam_notified: noticeProblems.length === 0,
+    ...(noticeProblems.length > 0 ? { notice_problem: noticeProblems.join('; ') } : {}),
     ...(invoiceNotes.length > 0 ? { invoice_note: invoiceNotes.join(' ') } : {})
   })
 }
+
+const str = (v: unknown): string => String(v ?? '').trim()
 
 type Db = ReturnType<typeof serviceClient>
 

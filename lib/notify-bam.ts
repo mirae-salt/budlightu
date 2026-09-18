@@ -46,6 +46,12 @@ export type BamNotifType =
   | 'shortfall'
   /** Somebody answered their support question. */
   | 'question_answered'
+  /**
+   * Their banking details on file were changed. Sent whoever made the change, including
+   * when an admin applied it: a student who did not ask for it is the only person who can
+   * tell us the change was wrong, and they cannot read their own stored numbers back.
+   */
+  | 'banking_changed'
 
 export interface BamNotification {
   bam_id: string

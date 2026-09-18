@@ -34,6 +34,7 @@ import { testRowCohortProblem, isTestForCohort } from '../../../../lib/admin-tes
 import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
 import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
+import { refreshOpenInvoices } from '../../../../lib/refresh-invoice-snapshot'
 
 const ALLOWED_FIELDS = [
   'first_name', 'last_name', 'email', 'phone', 'status',
@@ -369,6 +370,41 @@ export async function PATCH(req: NextRequest) {
     warnings.push('Saved, but the audit log entry could not be written. Tell Mirae.')
   }
 
+  // THE EDIT HAS TO REACH THE INVOICE, NOT JUST THE ROSTER ROW.
+  //
+  // generateInvoicePayload copies name, address, email and phone into payload_json
+  // when the invoice is created and never re-reads them. So fixing a mailing address
+  // here used to change `bams` and nothing else: the payload, the archived PDF, the
+  // AP email and the student's own copy all kept the old address, and the admin who
+  // made the correction had no way to tell. Emma Thompson, 2026-09-17.
+  //
+  // Values come from `saved`, the read-back, not from `update` -- the point is what
+  // is in the database, not what we asked for.
+  const invoiceNotes: string[] = []
+  const SNAPSHOT_KEYS = ['first_name', 'last_name', 'email', 'phone', 'street', 'city', 'prov', 'postal'] as const
+  if (SNAPSHOT_KEYS.some(k => k in update)) {
+    const s = saved as Record<string, unknown>
+    const pick = (k: typeof SNAPSHOT_KEYS[number]) =>
+      k in update ? (s[k] as string | null) : undefined
+    const refreshed = await refreshOpenInvoices(db, id, {
+      firstName: pick('first_name'),
+      lastName: pick('last_name'),
+      email: pick('email'),
+      phone: pick('phone'),
+      street: pick('street'),
+      city: pick('city'),
+      prov: pick('prov'),
+      postal: pick('postal')
+    })
+    // Every note is surfaced, but only a FAILED refresh is a warning. "The September
+    // invoice was updated" is the good outcome and must not be painted red, or the
+    // colour stops meaning anything and the real failures stop being read.
+    invoiceNotes.push(...refreshed.notes)
+    if (!refreshed.ok) {
+      warnings.push('The roster was saved but an open invoice still shows the old details. See the note below.')
+    }
+  }
+
   // AN EMAIL EDIT MUST ALSO MOVE THE LOGIN ACCOUNT, OR THE TWO SPLIT FOREVER.
   //
   // `email` above only ever wrote bams.email. The Supabase Auth user that actually
@@ -462,7 +498,8 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     bam: data[0],
-    ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {})
+    ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {}),
+    ...(invoiceNotes.length > 0 ? { invoice_note: invoiceNotes.join(' ') } : {})
   })
 }
 

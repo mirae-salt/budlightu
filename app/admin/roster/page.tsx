@@ -169,6 +169,13 @@ export default function Roster() {
   const [inviting, setInviting] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  // Banking correction raised from this screen. It is a SEPARATE form from the row
+  // edit on purpose: everything else here saves straight to `bams`, and this one only
+  // files a request that still has to be approved with a retyped account number.
+  // Sharing the Save button would have made two very different actions look the same.
+  const [bankingFor, setBankingFor] = useState<string | null>(null)
+  const [bankingBusy, setBankingBusy] = useState(false)
+  const [bankingForm, setBankingForm] = useState({ bank: '', institution: '', transit: '', account: '', reason: '' })
   const [addForm, setAddForm] = useState({ firstName: '', lastName: '', email: '', school: '', cohortId: '', isTest: false, sendInvite: true })
   // Cohorts are held as {id, name}: the API writes cohort_id, so a name-only
   // list cannot be saved. Empty means "no cohorts in the database", and the
@@ -265,6 +272,38 @@ export default function Roster() {
     setAdding(false)
   }
 
+  async function submitBanking(bamId: string) {
+    setBankingBusy(true)
+    try {
+      const res = await fetch('/api/admin/banking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bam_id: bamId,
+          bank_name: bankingForm.bank,
+          institution_no: bankingForm.institution,
+          transit_no: bankingForm.transit,
+          account_no: bankingForm.account,
+          reason: bankingForm.reason
+        })
+      })
+      const j = await res.json()
+      if (!res.ok || !j.ok) {
+        report('error', j.message || res.statusText)
+        return
+      }
+      // Deliberately not 'ok' green and not auto-closed: nothing has changed yet, and
+      // an admin who reads "Saved" here and walks away leaves the invoice still wrong.
+      report('error', j.message)
+      setBankingFor(null)
+      setBankingForm({ bank: '', institution: '', transit: '', account: '', reason: '' })
+    } catch (e) {
+      report('error', `Could not save the correction: ${(e as Error).message}`)
+    } finally {
+      setBankingBusy(false)
+    }
+  }
+
   async function saveEdit(id: string) {
     const [firstName, ...rest] = editForm.name.trim().split(' ')
     const lastName = rest.join(' ')
@@ -321,7 +360,16 @@ export default function Roster() {
       // Changing the bank re-derives its institution number in a second, encrypted
       // write. That can fail on its own, and the route says so via `warning` — a clean
       // "Saved" there would hide a row whose PDF names one bank and pays another.
-      report(j.warning ? 'error' : 'ok', j.warning ? `Saved, but: ${j.warning}` : 'Saved')
+      // The invoice note is the point of the address fields: an edit that stops at the
+      // roster row leaves the PDF AP receives showing the old address, and until
+      // 2026-09-17 it did exactly that with no way to tell.
+      const note = typeof j.invoice_note === 'string' ? j.invoice_note : ''
+      report(
+        j.warning ? 'error' : 'ok',
+        j.warning
+          ? `Saved, but: ${j.warning}${note ? ` ${note}` : ''}`
+          : note ? `Saved. ${note}` : 'Saved'
+      )
     } catch (e) {
       report('error', `Save failed: ${(e as Error).message}`)
     } finally {
@@ -872,6 +920,100 @@ export default function Roster() {
                               An invoice cannot be generated until all four address fields are filled in.
                             </span>
                           )}
+
+                          {/* BANKING. Not part of Save.
+                              The account number is the one field on this screen that
+                              decides where money lands, and the only protection against a
+                              typo in it has never been who types it -- it is that the
+                              digits get entered twice and compared. So this files a
+                              request and the approval screen asks for them again. */}
+                          <div style={{ borderTop: '1px solid var(--bl-border, #e4e4e7)', marginTop: 14, paddingTop: 12 }}>
+                            {bankingFor !== b.id ? (
+                              <button
+                                className="btn-ghost"
+                                style={{ fontSize: 12, color: 'var(--bl-blue)' }}
+                                onClick={() => {
+                                  setBankingFor(b.id)
+                                  setBankingForm({
+                                    bank: b.bank === EMPTY_CELL ? '' : b.bank,
+                                    institution: '', transit: '', account: '', reason: ''
+                                  })
+                                }}
+                              >
+                                Correct their banking details
+                              </button>
+                            ) : (
+                              <div>
+                                <p className="muted" style={{ fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>
+                                  Use this when the BAM has told you the right numbers and you do not want to
+                                  wait for them to file it themselves. Saving here does <strong>not</strong> change
+                                  anything yet. It creates a request on the Banking requests page, where you
+                                  retype the account number to apply it. {b.name} is emailed once it is applied.
+                                </p>
+                                <div style={{ display: 'flex', gap: 12 }}>
+                                  <div className="field" style={{ flex: 2 }}>
+                                    <label>Bank</label>
+                                    <select
+                                      value={bankingForm.bank}
+                                      onChange={e => setBankingForm(f => ({ ...f, bank: e.target.value }))}
+                                    >
+                                      <option value="">Select…</option>
+                                      {BANK_SEED.map(x => <option key={x.normalized} value={x.displayName}>{x.displayName}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="field" style={{ flex: 1 }}>
+                                    <label>Institution</label>
+                                    <input
+                                      value={bankingForm.institution}
+                                      onChange={e => setBankingForm(f => ({ ...f, institution: e.target.value }))}
+                                      placeholder="003"
+                                      inputMode="numeric"
+                                    />
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 12 }}>
+                                  <div className="field" style={{ flex: 1 }}>
+                                    <label>Transit</label>
+                                    <input
+                                      value={bankingForm.transit}
+                                      onChange={e => setBankingForm(f => ({ ...f, transit: e.target.value }))}
+                                      placeholder="00002"
+                                      inputMode="numeric"
+                                    />
+                                  </div>
+                                  <div className="field" style={{ flex: 1 }}>
+                                    <label>Account</label>
+                                    <input
+                                      value={bankingForm.account}
+                                      onChange={e => setBankingForm(f => ({ ...f, account: e.target.value }))}
+                                      placeholder="5134481"
+                                      inputMode="numeric"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="field">
+                                  <label>Where did these numbers come from?</label>
+                                  <input
+                                    value={bankingForm.reason}
+                                    onChange={e => setBankingForm(f => ({ ...f, reason: e.target.value }))}
+                                    placeholder="BAM corrected it on the INV-LB1 invoice thread, Sept 17"
+                                  />
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                  <button onClick={() => submitBanking(b.id)} disabled={bankingBusy}>
+                                    {bankingBusy ? 'Saving…' : 'Create the correction'}
+                                  </button>
+                                  <button className="btn-ghost" onClick={() => setBankingFor(null)}>Cancel</button>
+                                  <a
+                                    href="/admin/banking-requests"
+                                    style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue)' }}
+                                  >
+                                    Banking requests
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </div>
 
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <button onClick={() => saveEdit(b.id)} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
