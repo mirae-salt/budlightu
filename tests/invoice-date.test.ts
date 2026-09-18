@@ -1,48 +1,37 @@
 import { describe, it, expect } from 'vitest'
-import { invoiceDateFor } from '../lib/deadline'
+import { invoiceDateFor, INVOICE_DATE_DAY } from '../lib/deadline'
 
-const sept = new Date('2026-09-01T00:00:00Z')
-const oct = new Date('2026-10-01T00:00:00Z')
 const readable = (d: Date) =>
   d.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 
 describe('the date printed on an invoice', () => {
-  it('is the 15th for every rebuild before the invoice is published', () => {
-    // The whole month gets one date. Before this it said whatever day that BAM's last
-    // receipt happened to be approved: the 56 live September invoices carried six
-    // different dates between September 5th and the 16th.
-    for (const on of ['2026-09-02T16:12:00Z', '2026-09-09T20:00:00Z', '2026-09-15T07:59:00Z']) {
-      expect(readable(invoiceDateFor(sept, new Date(on), null))).toBe('September 15, 2026')
-    }
+  it('is the 16th of the month being invoiced', () => {
+    // Before this it said whatever day that BAM's last receipt happened to be approved.
+    // The 56 live September invoices carried six different dates between the 5th and the
+    // 16th, and the sixteen sent to AP in the same thirty seconds carried six of them.
+    expect(readable(invoiceDateFor(new Date('2026-09-01T00:00:00Z')))).toBe('September 16, 2026')
+    expect(readable(invoiceDateFor(new Date('2026-10-01T00:00:00Z')))).toBe('October 16, 2026')
+    expect(readable(invoiceDateFor(new Date('2027-01-01T00:00:00Z')))).toBe('January 16, 2027')
   })
 
-  it('survives the 16th and the 17th, which is where the first version failed', () => {
-    // The audit cron runs on the 16th, generate on the 17th, and Robin decides flagged
-    // receipts on the 16th. Every one of those rebuilds the payload. A rule of "the later
-    // of the 15th and now" would have printed the 16th or 17th on nearly every invoice.
-    expect(readable(invoiceDateFor(oct, new Date('2026-10-16T13:00:00Z'), null))).toBe('October 15, 2026')
-    expect(readable(invoiceDateFor(oct, new Date('2026-10-17T13:00:00Z'), null))).toBe('October 15, 2026')
+  it('depends on nothing but the period', () => {
+    // The point of the rule. Two earlier versions took the rebuild time or the release
+    // time as well, and both let one month's invoices end up carrying two dates: the
+    // audit cron runs on the 16th and generate on the 17th, so "when this was last
+    // rebuilt" is never the same answer twice.
+    const sept = new Date('2026-09-01T00:00:00Z')
+    expect(invoiceDateFor(sept).getTime()).toBe(invoiceDateFor(sept).getTime())
+    expect(invoiceDateFor(new Date('2026-09-01T23:59:59Z')).getTime())
+      .toBe(invoiceDateFor(sept).getTime())
   })
 
-  it('takes the date of a change made after the invoice was published', () => {
-    // Noah Cardinal and Danica Ryan, 2026-09-18: released on the 17th, address corrected
-    // on the 18th. Those two should say the 18th, not claim to be three days older.
-    const released = new Date('2026-09-17T13:12:49Z')
-    expect(readable(invoiceDateFor(sept, new Date('2026-09-18T14:30:00Z'), released)))
-      .toBe('September 18, 2026')
-  })
-
-  it('stays on the 15th when a published invoice is rebuilt without changing', () => {
-    const released = new Date('2026-10-17T13:00:00Z')
-    expect(readable(invoiceDateFor(oct, new Date('2026-10-17T12:00:00Z'), released))).toBe('October 15, 2026')
-  })
-
-  it('uses the month being invoiced, not the month it runs in', () => {
-    expect(readable(invoiceDateFor(oct, new Date('2026-10-03T00:00:00Z'), null))).toBe('October 15, 2026')
-    expect(readable(invoiceDateFor(oct, new Date('2026-11-02T00:00:00Z'), null))).toBe('October 15, 2026')
+  it('is the audit day, not the receipt deadline', () => {
+    // The 15th is the last day a student may submit. The 16th is when the audit runs and
+    // Robin decides what it flagged, so it is the first day the total is actually true.
+    expect(INVOICE_DATE_DAY).toBe(16)
   })
 
   it('sits at midday so a UTC render cannot land on the wrong day', () => {
-    expect(invoiceDateFor(sept, new Date('2026-09-01T00:00:00Z'), null).getUTCHours()).toBe(12)
+    expect(invoiceDateFor(new Date('2026-09-01T00:00:00Z')).getUTCHours()).toBe(12)
   })
 })

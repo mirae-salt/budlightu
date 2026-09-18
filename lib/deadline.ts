@@ -93,10 +93,23 @@ export function spendingWindowLabel(period: string): string {
 }
 
 /**
- * The date that prints on the invoice PDF.
+ * The day an invoice is dated: the 16th of the month it covers.
  *
- * WHAT IT USED TO BE, AND WHY THAT WAS WRONG
- * ------------------------------------------
+ * Not DEADLINE_DAY. The 15th is when a student may last submit a receipt; the 16th is
+ * when the audit cron runs and Robin decides whatever it flagged, so the 16th is the
+ * first day the month's total is actually true. Dating an invoice the 15th would put a
+ * date on it from before its own figure was settled.
+ *
+ * It matches AUDIT_DAY in app/api/cron/route.ts. The two are the same number for the same
+ * reason and will move together if that cadence ever changes.
+ */
+export const INVOICE_DATE_DAY = 16
+
+/**
+ * The date that prints on the invoice PDF: the 16th of the month being invoiced, always.
+ *
+ * WHAT IT USED TO BE
+ * ------------------
  * `generatedAt: new Date()` — the moment the draft was last rebuilt. A draft is rebuilt
  * every time a receipt decision moves the money, so the printed date was really "the day
  * this BAM's last receipt was approved". Measured 2026-09-18 across the 56 live September
@@ -106,38 +119,21 @@ export function spendingWindowLabel(period: string): string {
  * That matters because the AP email asks for net15. An invoice dated the 5th that arrives
  * on the 18th has already spent thirteen of its fifteen days, and nobody chose that.
  *
- * THE RULE (Mirae, 2026-09-18)
- * ----------------------------
- * The 15th of the month being invoiced, which is the receipt deadline and therefore the
- * day the month's spend is final. Once the invoice has been published to its BAM, a
- * change after that takes the date of the change.
+ * WHY THERE IS NO SECOND CASE (Mirae, 2026-09-18)
+ * -----------------------------------------------
+ * Two richer versions were written and thrown away before this one. The first took the
+ * later of the 15th and the rebuild time, which the program's own calendar defeats: the
+ * audit cron runs on the 16th and generate on the 17th, so nearly every invoice would have
+ * printed one of those instead. The second dated post-publication corrections by the day
+ * they were made, which works but means one month's invoices still carry two different
+ * dates and somebody has to explain why.
  *
- * WHY `releasedAt` AND NOT SIMPLY "LATER THAN THE 15th"
- * ----------------------------------------------------
- * The first version of this compared the rebuild time against the 15th and took whichever
- * was later. That does not survive the calendar: the audit cron runs on the 16th and the
- * generate cron on the 17th, and Robin decides the month's flagged receipts on the 16th.
- * Every one of those rebuilds the payload, so almost every invoice would have printed the
- * 16th or the 17th and "all dated the 15th" would have been true of hardly any of them.
- *
- * Producing an invoice is not correcting it. The line between the two is publication: up
- * to the moment a BAM is shown their invoice it is still being made, and everything after
- * that is a correction somebody should be able to date. `released_at` already marks
- * exactly that moment (0035), so it is the input rather than a second rule about days.
+ * An invoice for September is dated September, whenever the work of producing it happened.
+ * That is one sentence to tell AP, one sentence to tell a BAM, and there is no branch in
+ * it to be wrong about. `period` is the only input.
  */
-export function invoiceDateFor(
-  period: Date,
-  /** When this rebuild is happening. */
-  changedAt: Date = new Date(),
-  /** `invoices.released_at`, or null while the invoice has never been published. */
-  releasedAt: Date | null = null
-): Date {
-  const deadline = new Date(Date.UTC(
-    period.getUTCFullYear(), period.getUTCMonth(), DEADLINE_DAY, 12, 0, 0
+export function invoiceDateFor(period: Date): Date {
+  return new Date(Date.UTC(
+    period.getUTCFullYear(), period.getUTCMonth(), INVOICE_DATE_DAY, 12, 0, 0
   ))
-  // Not published yet: still being produced, however many times that takes.
-  if (!releasedAt) return deadline
-  // Published, and this change came after. Date it honestly.
-  if (changedAt.getTime() > releasedAt.getTime()) return changedAt
-  return deadline
 }
