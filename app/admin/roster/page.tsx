@@ -927,24 +927,36 @@ export default function Roster() {
                               typo in it has never been who types it -- it is that the
                               digits get entered twice and compared. So this files a
                               request and the approval screen asks for them again. */}
-                          <div style={{ borderTop: '1px solid var(--bl-border, #e4e4e7)', marginTop: 14, paddingTop: 12 }}>
+                          <div style={{ borderTop: '1.5px solid var(--stone)', marginTop: 18, paddingTop: 14, marginBottom: 18 }}>
                             {bankingFor !== b.id ? (
-                              <button
-                                className="btn-ghost"
-                                style={{ fontSize: 12, color: 'var(--bl-blue)' }}
-                                onClick={() => {
-                                  setBankingFor(b.id)
-                                  setBankingForm({
-                                    bank: b.bank === EMPTY_CELL ? '' : b.bank,
-                                    institution: '', transit: '', account: '', reason: ''
-                                  })
-                                }}
-                              >
-                                Correct their banking details
-                              </button>
+                              <div>
+                                {/* A label and a line of help, not a lone button.
+                                    Styled blue and unlabelled it read as a link wedged
+                                    above Save, and nobody could tell it was a section of
+                                    its own. btn-ghost's own navy is left alone now. */}
+                                <label style={{ marginBottom: 2 }}>Banking</label>
+                                <p className="muted" style={{ fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>
+                                  Account, transit and institution numbers. These are not part of Save:
+                                  changing them needs a second confirmation.
+                                </p>
+                                <button
+                                  className="btn-ghost"
+                                  style={{ fontSize: 12 }}
+                                  onClick={() => {
+                                    setBankingFor(b.id)
+                                    setBankingForm({
+                                      bank: b.bank === EMPTY_CELL ? '' : b.bank,
+                                      institution: '', transit: '', account: '', reason: ''
+                                    })
+                                  }}
+                                >
+                                  Correct their banking details
+                                </button>
+                              </div>
                             ) : (
                               <div>
-                                <p className="muted" style={{ fontSize: 12, margin: '0 0 10px', lineHeight: 1.5 }}>
+                                <label style={{ marginBottom: 2 }}>Banking</label>
+                                <p className="muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.5 }}>
                                   Use this when the BAM has told you the right numbers and you do not want to
                                   wait for them to file it themselves. Saving here does <strong>not</strong> change
                                   anything yet. It creates a request on the Banking requests page, where you
@@ -1003,7 +1015,10 @@ export default function Roster() {
                                   <button onClick={() => submitBanking(b.id)} disabled={bankingBusy}>
                                     {bankingBusy ? 'Saving…' : 'Create the correction'}
                                   </button>
-                                  <button className="btn-ghost" onClick={() => setBankingFor(null)}>Cancel</button>
+                                  {/* Not "Cancel": the row's own Cancel sits a few pixels below
+                                      it, and two of them stacked left no way to tell which
+                                      one abandoned which edit. */}
+                                  <button className="btn-ghost" onClick={() => setBankingFor(null)}>Close</button>
                                   <a
                                     href="/admin/banking-requests"
                                     style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue)' }}
