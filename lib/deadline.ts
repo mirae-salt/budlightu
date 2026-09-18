@@ -91,3 +91,38 @@ export function spendingWindowLabel(period: string): string {
 
   return `${fmt(start)} to ${fmt(end)}`
 }
+
+/**
+ * The date that prints on the invoice PDF.
+ *
+ * WHAT IT USED TO BE, AND WHY THAT WAS WRONG
+ * ------------------------------------------
+ * `generatedAt: new Date()` — the moment the draft was last rebuilt. A draft is rebuilt
+ * every time a receipt decision moves the money, so the printed date was really "the day
+ * this BAM's last receipt was approved". Measured 2026-09-18 across the 56 live September
+ * invoices: six different dates, spread from September 5th to the 16th, and the sixteen
+ * sent to AP in the same thirty seconds carried six of them between them.
+ *
+ * That matters because the AP email asks for net15. An invoice dated the 5th that arrives
+ * on the 18th has already spent thirteen of its fifteen days, and nobody chose that.
+ *
+ * THE RULE (Mirae, 2026-09-18)
+ * ----------------------------
+ * The 15th of the month being invoiced, which is the receipt deadline and therefore the
+ * day the month's spend is final. If the invoice is corrected after that, the date of the
+ * correction instead.
+ *
+ * So a normal month gives every invoice the same date, and an invoice that changed on the
+ * 18th says the 18th rather than claiming to have been issued three days before it was
+ * last true. The date can never be earlier than the deadline and never earlier than the
+ * last change.
+ *
+ * Noon UTC, because the payload renders this with `timeZone: 'UTC'`: any hour near a
+ * boundary would print the wrong day somewhere.
+ */
+export function invoiceDateFor(period: Date, changedAt: Date = new Date()): Date {
+  const deadline = new Date(Date.UTC(
+    period.getUTCFullYear(), period.getUTCMonth(), DEADLINE_DAY, 12, 0, 0
+  ))
+  return changedAt.getTime() > deadline.getTime() ? changedAt : deadline
+}

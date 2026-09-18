@@ -24,6 +24,7 @@
  * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
 import { generateInvoicePayload } from './invoice-payload'
+import { invoiceDateFor } from './deadline'
 import { ensureInitialsResolved } from './ensure-initials'
 import { lookupReimbursement } from './invoice-ledger'
 import { adHocLines } from './invoice-lines'
@@ -203,7 +204,10 @@ export async function upsertDraftInvoice(
       period: new Date(period),
       seq: sequence.seq,
       revision: sequence.revision,
-      generatedAt: new Date(),
+      // The 15th of the month being invoiced, or the date of a later correction.
+      // `new Date()` alone printed the day this BAM's last receipt happened to be
+      // approved, which spread one month's invoices across six different dates.
+      generatedAt: invoiceDateFor(new Date(period)),
       /*
        * Carried over from the invoice we are about to overwrite. This function replaces
        * payload_json whole, and the line editor writes into that same field, so without
