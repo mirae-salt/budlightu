@@ -5,7 +5,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { TopBar } from '../_components/TopBar'
 import { PROVINCE_CODES } from '@/lib/invoice-payload'
-import { Toast } from '../_components/Toast'
+import { Toast, type ToastKind, type ToastNotice } from '../_components/Toast'
 import { BAMS, type BamRow } from '../_lib/dummy'
 import { BANK_SEED } from '@/lib/banks'
 import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
@@ -164,7 +164,7 @@ export default function Roster() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<EditForm>({ name: '', email: '', bank: '', status: '', cohortId: '', school: '', street: '', city: '', prov: '', postal: '' })
   /** kind drives the badge colour: a failure must never render green. */
-  const [editMsg, setEditMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [editMsg, setEditMsg] = useState<ToastNotice | null>(null)
   const [saving, setSaving] = useState(false)
   const [inviting, setInviting] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
@@ -249,9 +249,11 @@ export default function Roster() {
                               : <span className="badge badge-red">ARCHIVED</span>
 
   /** Success notices clear themselves; failures stay until the next action. */
-  function report(kind: 'ok' | 'error', text: string) {
-    const msg = { kind, text }
+  function report(kind: ToastKind, text: string, action?: ToastNotice['action']) {
+    const msg = { kind, text, action }
     setEditMsg(msg)
+    // Only a plain success fades. 'error' and 'next' both need the reader to do
+    // something, and something that vanishes after four seconds does not get done.
     if (kind === 'ok') setTimeout(() => setEditMsg(cur => (cur === msg ? null : cur)), 4000)
   }
 
@@ -292,9 +294,10 @@ export default function Roster() {
         report('error', j.message || res.statusText)
         return
       }
-      // Deliberately not 'ok' green and not auto-closed: nothing has changed yet, and
-      // an admin who reads "Saved" here and walks away leaves the invoice still wrong.
-      report('error', j.message)
+      // The request IS saved; the banking is not applied. This was reported as an error
+      // at first, so a screen that had worked perfectly announced "That did not go
+      // through". 'next' is the state that says both true things at once.
+      report('next', j.message, { label: 'Open Banking requests', href: '/admin/banking-requests' })
       setBankingFor(null)
       setBankingForm({ bank: '', institution: '', transit: '', account: '', reason: '' })
     } catch (e) {
