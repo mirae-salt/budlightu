@@ -1136,14 +1136,29 @@ export default function InvoiceBatch() {
                             {editingId === inv.id ? 'Close edit' : 'Edit lines'}
                           </button>
                         )}
-                        {(inv.status === 'draft' || inv.status === 'approved') && (
+                        {/* TEST AP IS ONLY ON REHEARSING COHORTS.
+                            It sat on every draft row, which in September is 55 of them, and
+                            the whole AP path has been exercised four times in five weeks --
+                            invoice_sends holds four rows across two invoices. A rehearsal is
+                            something you do once for a cohort, not once per invoice, and a
+                            button that sends mail does not belong beside the ones Robin
+                            presses daily.
+
+                            The gate is send_mode rather than the cohort's name, because what
+                            makes a test send sensible is that mail does not actually leave.
+
+                            RETRY AP IS NOT THE SAME BUTTON and is left alone: on an approved
+                            invoice it is the only way to finish a send that got as far as
+                            'approved' and no further. It shows on approved rows only, which
+                            is a handful. */}
+                        {(inv.status === 'approved' || (inv.status === 'draft' && inv.sendMode !== 'live')) && (
                           <button
                             className="btn-ghost"
                             style={{ padding: '3px 8px', fontSize: 11 }}
                             onClick={() => openApPreview(inv)}
                             title={inv.status === 'approved'
                               ? 'Approved but not marked sent. Retry the AP send.'
-                              : 'Test send only. Run batch approval before this invoice can go to AP.'}
+                              : 'Test send only, and only because this cohort is rehearsing. Run batch approval before this invoice can go to AP.'}
                           >
                             {inv.status === 'approved' ? 'Retry AP' : 'Test AP'}
                           </button>
