@@ -34,6 +34,10 @@ import { sendEmail } from '../../../../../lib/send-email'
 import { invoiceReleaseEmail } from '../../../../../lib/invoice-review-email'
 import { ensureInvoicePdf } from '../../../../../lib/invoice-pdf'
 
+// Renders a PDF and emails one BAM per invoice, in sequence. Same reason as batch-approve:
+// a release cut short leaves half the cohort notified and half not.
+export const maxDuration = 300
+
 /**
  * The deadline as a person reads it.
  *

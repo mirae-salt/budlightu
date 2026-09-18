@@ -56,6 +56,19 @@ import { lookupReimbursement, payloadLedgerMismatch, undecidedReceiptsProblem } 
 import type { InvoicePayload } from '../../../../../lib/invoice-payload'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { ensureInvoicePdf } from '../../../../../lib/invoice-pdf'
+
+/*
+ * WHY THIS ROUTE DECLARES ITS OWN WALL CLOCK
+ *
+ * Every invoice in the batch is rendered, archived and emailed in sequence. On 2026-09-18
+ * sixteen of them took 29 seconds, so about 1.8s each: all 55 of September would be a
+ * hundred seconds of one request. Without this line the platform default applies, and a
+ * batch that runs past it is killed mid-loop -- some invoices at AP, some not, and a
+ * network error on screen that says nothing about which were which.
+ *
+ * 300 is what app/api/cron already declares and deploys on this plan.
+ */
+export const maxDuration = 300
 import { invoicePdfFilename } from '../../../../../lib/invoice-numbering'
 
 type StepResult = { ok: boolean; error?: string; skipped?: boolean }
@@ -333,6 +346,40 @@ export async function POST(req: NextRequest) {
       if (updErr) approveError = `approve write failed: ${updErr.message}`
       else approved = (updated ?? []).length > 0
     }
+
+    /*
+     * WHO SENT THIS INVOICE.
+     *
+     * Until 2026-09-18 nothing recorded that. The triggers on `invoices` and
+     * `invoice_sends` fire as the service role and write actor_role 'bam', actor_id null,
+     * and `invoice_sends` has no column for a person at all. So when 16 of September's 55
+     * went to AP and nobody could say who had pressed the button or what they had
+     * selected, the database genuinely did not know. On a path that moves real money,
+     * that is the one fact worth keeping.
+     *
+     * Written per invoice rather than once for the batch: a run that dies partway still
+     * leaves a row for every invoice that actually went out.
+     *
+     * A failed audit write does not fail the send. The email has already left; refusing
+     * to report it would make the screen disagree with AP's inbox.
+     */
+    await admin.from('audit_log').insert({
+      actor_id: auth.devBypass ? null : auth.userId,
+      actor_role: auth.role,
+      entity: 'invoices',
+      entity_id: inv.id,
+      action: 'batch_approve',
+      before_json: { status: inv.status },
+      after_json: {
+        invoice_number: inv.invoice_number,
+        actor_email: auth.email,
+        send_mode: cohort.send_mode,
+        batch_size: invoices.length,
+        ap_sent: ap.ok,
+        approved,
+        ...(ap.error ? { ap_error: ap.error } : {})
+      }
+    })
 
     results.push({
       id: inv.id,

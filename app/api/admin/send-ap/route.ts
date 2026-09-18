@@ -35,6 +35,10 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
+
+// Same reason as batch-approve: this route also loops, and a batch killed halfway leaves
+// some invoices at AP and some not, with nothing on screen saying which were which.
+export const maxDuration = 300
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { sendEmail } from '../../../../lib/send-email'
 import { apEmailSubject, apEmailBody, invoicePdfFilename } from '../../../../lib/invoice-numbering'
@@ -101,7 +105,36 @@ export async function POST(req: NextRequest) {
   const outcomes: SendOutcome[] = []
 
   for (const invoiceId of invoiceIds) {
-    outcomes.push(await sendOneInvoiceToAp(admin, invoiceId, testEmail))
+    const outcome = await sendOneInvoiceToAp(admin, invoiceId, testEmail)
+    outcomes.push(outcome)
+    /*
+     * WHO SENT THIS INVOICE (2026-09-18).
+     *
+     * The triggers on `invoices` and `invoice_sends` run as the service role and record
+     * actor_role 'bam', actor_id null, and `invoice_sends` has no column for a person.
+     * So a send left no trace of who caused it -- which is exactly the question nobody
+     * could answer about September's first 16.
+     *
+     * Per invoice, not once per batch: a run cut short still leaves a row for each
+     * invoice that actually went out. A failed audit write never fails the send, because
+     * the email has already left.
+     */
+    await admin.from('audit_log').insert({
+      actor_id: auth.devBypass ? null : auth.userId,
+      actor_role: auth.role,
+      entity: 'invoices',
+      entity_id: invoiceId,
+      action: 'send_ap',
+      before_json: null,
+      after_json: {
+        actor_email: auth.email,
+        batch_size: invoiceIds.length,
+        ok: outcome.ok,
+        ...(testEmail ? { test_email: true } : {}),
+        ...(outcome.blocked ? { blocked: true } : {}),
+        ...(outcome.error ? { error: outcome.error } : {})
+      }
+    })
   }
 
   const sent = outcomes.filter(o => o.ok).length

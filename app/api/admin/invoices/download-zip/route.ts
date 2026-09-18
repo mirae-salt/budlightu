@@ -13,6 +13,9 @@ import { renderInvoicePdfToBuffer, buildSamplePayload } from '@/lib/render-pdf'
 import type { InvoicePayload } from '@/lib/invoice-payload'
 import { requireAdmin, denied } from '@/lib/admin-auth'
 
+// Renders one PDF per invoice in sequence. 55 of them is longer than a default request.
+export const maxDuration = 300
+
 export async function POST(req: Request) {
   const auth = await requireAdmin()
   if (!auth.ok) return denied(auth)
