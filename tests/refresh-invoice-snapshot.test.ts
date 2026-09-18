@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeInvoiceSnapshot, refreshOpenInvoices } from '../lib/refresh-invoice-snapshot'
+import { mergeInvoiceSnapshot, refreshOpenInvoices, rosterDrift } from '../lib/refresh-invoice-snapshot'
 
 const payload = {
   invoiceNumber: 'INV-ET1',
@@ -159,5 +159,68 @@ describe('pushing the correction out to open invoices', () => {
     const r = await refreshOpenInvoices(db, 'bam-1', { accountNo: '5134481' })
     expect(r.ok).toBe(false)
     expect(r.notes[0]).toMatch(/confirm them by hand/)
+  })
+})
+
+describe('spotting an invoice that drifted from the roster', () => {
+  const roster = {
+    first_name: 'Emma', last_name: 'Thompson',
+    email: 'emma@example.com', phone: '6136626070',
+    street: '56 Vin Vista Dr', city: 'Kingston', prov: 'ON', postal: 'K7K 4L9'
+  }
+
+  it('says nothing when the invoice already matches', () => {
+    expect(rosterDrift(payload, roster)).toEqual([])
+  })
+
+  it('names the address once the roster moves under it', () => {
+    // The case the push already covers. This is the second line of defence, for the
+    // write paths that never call it: CSV import, onboarding ingest, a fix- script.
+    expect(rosterDrift(payload, { ...roster, city: 'Ingleside', postal: 'K0C 1M0' }))
+      .toEqual(['mailing address'])
+  })
+
+  it('names several fields at once', () => {
+    const d = rosterDrift(payload, { ...roster, phone: '4160000000', street: '1 King St' })
+    expect(d).toContain('phone')
+    expect(d).toContain('street')
+  })
+
+  it('reports field names only, never the values', () => {
+    // This list is rendered in a badge and written to audit_log. A home address in
+    // either of those is a second copy of PII nobody asked for.
+    const d = rosterDrift(payload, { ...roster, city: 'Ingleside', postal: 'K0C 1M0' })
+    expect(d.join(' ')).not.toMatch(/Ingleside|K0C/)
+  })
+
+  it('does not report banking, which has its own gate before the send', () => {
+    // batch-approve re-decrypts and refuses to send on a banking mismatch. Comparing it
+    // here would cost one decrypt per row to render a list of 55.
+    expect(rosterDrift(payload, roster)).not.toContain('account number')
+  })
+})
+
+describe('whitespace is not a change', () => {
+  // INV-KR1, a live September invoice: the roster city is "Thornhill " with a trailing
+  // space, baked into the payload the same way. A strict comparison rebuilt the line as
+  // "Thornhill, ON, L3T 3K8", called it drift, and painted a real invoice red for a
+  // character nobody can see.
+  const spaced = {
+    ...payload,
+    influencer: { ...payload.influencer, cityProvPostal: 'Thornhill , ON, L3T 3K8', street: '59 Kirk drive' }
+  }
+  const roster = {
+    first_name: 'Emma', last_name: 'Thompson', email: 'emma@example.com', phone: '6136626070',
+    street: '59 Kirk drive', city: 'Thornhill ', prov: 'ON', postal: 'L3T 3K8'
+  }
+
+  it('does not flag an invoice whose only difference is a stray space', () => {
+    expect(rosterDrift(spaced, roster)).toEqual([])
+    expect(mergeInvoiceSnapshot(spaced, { city: 'Thornhill ', prov: 'ON', postal: 'L3T 3K8' }).next).toBeNull()
+  })
+
+  it('still flags and cleans a real change in the same field', () => {
+    const r = mergeInvoiceSnapshot(spaced, { city: 'Markham', prov: 'ON', postal: 'L3R 0B8' })
+    expect((r.next as typeof payload).influencer.cityProvPostal).toBe('Markham, ON, L3R 0B8')
   })
 })

@@ -27,10 +27,8 @@ export type BankingChangedInput = {
   /** Last four digits of the NEW account number, already extracted by the caller. */
   accountLast4: string
   bankName: string
-  /** Where they go to raise it if this is wrong. */
+  /** Their invoices page, which is where a question gets raised against an invoice. */
   portalUrl: string
-  /** Who to contact. Shown as plain text, never as a mailto the caller did not vet. */
-  contactEmail: string
 }
 
 const esc = (s: string) =>
@@ -49,9 +47,10 @@ export function bankingChangedEmail(i: BankingChangedInput): { subject: string; 
     '',
     'If you asked for this change, there is nothing to do.',
     '',
-    `If you did NOT ask for this, tell us today at ${i.contactEmail}. Do not reply to this address.`,
+    'If you did not ask for this, raise a question on your invoice in the portal, or contact',
+    'your program manager. Do not reply to this email.',
     '',
-    `You can see your invoices at ${i.portalUrl}`,
+    i.portalUrl,
     '',
     'Bud Light U'
   ].join('\n')
@@ -68,8 +67,9 @@ export function bankingChangedEmail(i: BankingChangedInput): { subject: string; 
           <p style="margin:0 0 16px;font-size:15px;line-height:1.55;">The banking details we use to pay you have been updated. Payments now go to:</p>
           <p style="margin:0 0 20px;padding:12px 14px;background:#f4f4f5;border-radius:6px;font-size:15px;line-height:1.5;"><strong>${esc(i.bankName)}</strong>, account ending ${esc(i.accountLast4)}</p>
           <p style="margin:0 0 16px;font-size:15px;line-height:1.55;">If you asked for this change, there is nothing to do.</p>
-          <p style="margin:0 0 20px;font-size:15px;line-height:1.55;">If you did not ask for this, tell us today at ${esc(i.contactEmail)}.</p>
-          <p style="margin:0;font-size:13px;line-height:1.5;color:#52525b;">You can see your invoices at ${esc(i.portalUrl)}. This address does not receive replies.</p>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.55;">If you did not ask for this, raise a question on your invoice in the portal, or contact your program manager.</p>
+          <p style="margin:0 0 22px;"><a href="${esc(i.portalUrl)}" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:6px;font-size:14px;font-weight:600;">Go to my invoices</a></p>
+          <p style="margin:0;font-size:13px;line-height:1.5;color:#52525b;">This address does not receive replies.</p>
         </td></tr>
       </table>
     </td></tr>

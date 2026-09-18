@@ -32,6 +32,14 @@ type Row = InvoiceRow & {
   /** PO number as stored on the invoice, so the preview shows what will be sent. */
   poNumber: string | null
   taxRate: number | null
+  /**
+   * Which of the BAM's details this invoice no longer matches on the roster, as field
+   * names. The edit screens push corrections into open invoices when they save, but a
+   * CSV import or a script does not, and a stale snapshot is invisible until it prints.
+   * Banking is not in here: it is encrypted, and batch-approve already refuses to send
+   * an invoice whose banking disagrees with the roster.
+   */
+  rosterDrift: string[]
 }
 
 /**
@@ -64,6 +72,8 @@ type DbInvoice = {
   receipt_count: number
   tax_applicable?: boolean
   tax_rate?: number | null
+  /** Field names this invoice no longer agrees with the roster on. Empty is the good case. */
+  roster_drift?: string[]
 }
 
 function periodLabel(period: string): string {
@@ -109,7 +119,8 @@ function mapDbInvoice(inv: DbInvoice): Row {
     tax: inv.payload_json?.tax,
     taxApplicable: inv.tax_applicable === true,
     poNumber: inv.payload_json?.jobNumber ?? null,
-    taxRate: inv.tax_rate ?? null
+    taxRate: inv.tax_rate ?? null,
+    rosterDrift: Array.isArray(inv.roster_drift) ? inv.roster_drift : []
   }
 }
 
@@ -242,6 +253,7 @@ export default function InvoiceBatch() {
   }
   const [batchNotice, setBatchNotice] = useState<Notice | null>(null)
   const [previewNumber, setPreviewNumber] = useState<string | null>(null)
+  const [syncingId, setSyncingId] = useState<string | null>(null)
   const [voidingNumber, setVoidingNumber] = useState<string | null>(null)
   const [voidReason, setVoidReason] = useState('')
   const [rowNotice, setRowNotice] = useState<Notice | null>(null)
@@ -591,6 +603,35 @@ export default function InvoiceBatch() {
     })
     if (!res.ok) return null
     return res.blob()
+  }
+
+  /**
+   * Pull this invoice's snapshot back into line with the roster.
+   *
+   * The edit screens already push a correction into open invoices when they save. This is
+   * the repair for everything that does not go through them -- an import, a script, a hand
+   * edit -- and for confirming that an invoice IS current, which nothing could answer
+   * before. It clears the archived PDF too, so the next render is a real render rather
+   * than the bytes stored before the correction.
+   */
+  async function syncRoster(inv: Row) {
+    setSyncingId(inv.id)
+    try {
+      const res = await fetch('/api/admin/invoices/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: inv.id })
+      })
+      const json = await res.json()
+      // `ok: false` here means an open invoice could not be brought up to date, which is
+      // the state that quietly sends a wrong document. It does not get a green badge.
+      reportRow(res.ok && json.ok ? 'ok' : 'error', `${inv.number}: ${json.message ?? res.statusText}`)
+      loadInvoices()
+    } catch (e) {
+      reportRow('error', `Sync failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setSyncingId(null)
+    }
   }
 
   async function previewPdf(inv: Row) {
@@ -1040,6 +1081,20 @@ export default function InvoiceBatch() {
                             : 'WITH BAM'}
                         </span>
                       : <span className="badge badge-yellow" title="Not shown to the BAM yet. Release it before approving.">DRAFT</span>}
+                    {/* The invoice is a snapshot of the roster taken when it was created.
+                        Everything that edits a BAM from a screen pushes the correction back
+                        into it, but an import or a script does not, and nobody can see a
+                        stale snapshot until it prints. So the difference is shown rather
+                        than waited for. */}
+                    {inv.rosterDrift.length > 0 && (
+                      <span
+                        className="badge badge-red"
+                        style={{ marginLeft: 6, fontSize: 10 }}
+                        title={`This invoice still shows the old ${inv.rosterDrift.join(', ')}. The roster has been changed since it was created. Press Sync to bring it up to date.`}
+                      >
+                        OUT OF DATE
+                      </span>
+                    )}
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     {inv.status === 'void' ? (
@@ -1049,6 +1104,23 @@ export default function InvoiceBatch() {
                         <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => previewPdf(inv)} title="Preview & download PDF">
                           {previewNumber === inv.number ? 'Close' : 'PDF'}
                         </button>
+                        {(inv.status === 'draft' || inv.status === 'approved') && (
+                          <button
+                            className="btn-ghost"
+                            style={{
+                              padding: '3px 8px',
+                              fontSize: 11,
+                              ...(inv.rosterDrift.length > 0 ? { color: 'var(--bl-red, #b91c1c)', fontWeight: 600 } : {})
+                            }}
+                            disabled={!useDb || syncingId === inv.id}
+                            onClick={() => syncRoster(inv)}
+                            title={inv.rosterDrift.length > 0
+                              ? `Pull the current name, address and banking off the roster. This invoice still shows the old ${inv.rosterDrift.join(', ')}.`
+                              : 'Pull the current name, address and banking off the roster. Nothing here looks out of date, so this should report no change.'}
+                          >
+                            {syncingId === inv.id ? 'Syncing…' : 'Sync'}
+                          </button>
+                        )}
                         {(inv.status === 'draft' || inv.status === 'approved') && (
                           <button
                             className="btn-ghost"

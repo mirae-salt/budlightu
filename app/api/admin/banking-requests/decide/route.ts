@@ -21,7 +21,6 @@ import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { refreshOpenInvoices } from '../../../../../lib/refresh-invoice-snapshot'
 import { notifyBam } from '../../../../../lib/notify-bam'
 import { sendEmail } from '../../../../../lib/send-email'
-import { supportRecipient } from '../../../../../lib/question-alert'
 import { bankingChangedEmail } from '../../../../../lib/banking-changed-notice'
 import {
   accountConfirmMatches,
@@ -380,8 +379,8 @@ export async function POST(req: NextRequest) {
     bam_id: request.bam_id,
     type: 'banking_changed',
     title: 'Your payment details were updated',
-    body: `Payments now go to ${v.bankName}, account ending ${last4}. Tell us today if you did not ask for this.`,
-    link: '/portal/account'
+    body: `Payments now go to ${v.bankName}, account ending ${last4}. If you did not ask for this, raise a question on your invoice.`,
+    link: '/portal/invoices'
   })
   if (!bell.ok) noticeProblems.push(`portal notification failed: ${bell.error}`)
 
@@ -393,8 +392,7 @@ export async function POST(req: NextRequest) {
       firstName: str(beforeBam?.first_name) || 'there',
       accountLast4: last4,
       bankName: v.bankName,
-      portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices`,
-      contactEmail: supportRecipient()
+      portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal/invoices`
     })
     const sent = await sendEmail({
       to: notifyTo,

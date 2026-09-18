@@ -21,6 +21,7 @@ import { summarizeReceipts, reimbursementOnInvoice } from '@/lib/receipt-badge'
 import { serviceClient } from '../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../lib/admin-auth'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
+import { rosterDrift, type RosterFacts } from '../../../../lib/refresh-invoice-snapshot'
 import { SHORTFALL_WARN_BELOW_CAD, DEFAULT_POLICY } from '../../../../lib/policy'
 import { REEVALUATE_THRESHOLD, consecutiveWarningStreak } from '../../../../lib/shortfall-warning'
 
@@ -67,15 +68,24 @@ function redactPayload(payload: unknown): unknown {
 }
 
 /**
- * Pulls `prov` out of the embedded bams row and returns the row without it.
- * The province is used server-side to derive the tax rate for the invoice line
- * editor; it is not part of what the invoices table needs in the browser, so it
- * does not travel. supabase-js types an embedded one-to-one as an array.
+ * Columns fetched on the embedded bams row for SERVER-SIDE work only, dropped before the
+ * response is built. `prov` derives the tax rate for the invoice line editor. The rest are
+ * compared against payload_json to compute `roster_drift`, and the browser only ever needs
+ * the resulting field NAMES. The invoices table has no use for a BAM's address, email or
+ * phone, so none of it travels.
+ */
+const SERVER_ONLY_BAM_KEYS = ['prov', 'email', 'phone', 'street', 'city', 'postal'] as const
+
+/**
+ * Splits the embedded bams row into what the browser gets and the province the caller
+ * needs. supabase-js types an embedded one-to-one as an array.
  */
 function stripBamProv(rel: unknown): { bams: unknown; prov: string | null } {
   const row = Array.isArray(rel) ? rel[0] : rel
   if (!row || typeof row !== 'object') return { bams: rel ?? null, prov: null }
-  const { prov, ...rest } = row as Record<string, unknown>
+  const rest = { ...(row as Record<string, unknown>) }
+  const prov = rest.prov
+  for (const k of SERVER_ONLY_BAM_KEYS) delete rest[k]
   return { bams: rest, prov: typeof prov === 'string' ? prov : null }
 }
 
@@ -123,7 +133,7 @@ export async function GET(req: Request) {
       // needs to preview tax at the SAME rate the server will apply; it does not
       // need the BAM's address.
       const { data: invoices, error } = await admin.from('invoices')
-        .select('id, invoice_number, period, status, cohort_id, bam_id, released_at, revised_at, accepted_at, payload_json, bams(first_name, last_name, prov), cohorts(send_mode)')
+        .select('id, invoice_number, period, status, cohort_id, bam_id, released_at, revised_at, accepted_at, payload_json, bams(first_name, last_name, prov, email, phone, street, city, postal), cohorts(send_mode)')
         // Must include 'approved', 'paid' and 'void'. The filter used to be
         // ['draft','sent'], which hid an invoice the moment batch-approve set it to
         // 'approved' — and /api/admin/send-ap only accepts status='approved', so the
@@ -169,6 +179,23 @@ export async function GET(req: Request) {
         // from what the generator already decided. The HST NUMBER itself is never
         // exposed (REDACTED_PAYLOAD_KEYS), only this boolean and the rate.
         const taxApplicable = Number(payload.tax ?? 0) > 0
+        /*
+         * WHICH FIELDS THIS INVOICE NO LONGER AGREES WITH THE ROSTER ON.
+         *
+         * Computed here, before redactPayload strips the payload, and returned as field
+         * NAMES only -- the browser never needs the BAM's address to render a badge.
+         *
+         * The edit screens push a correction into open invoices when they save, and that
+         * covers what people do. It does not cover onboarding ingest, a CSV import, a
+         * fix- script or a hand edit in the dashboard. Comparing the two sides on load is
+         * what turns "it probably propagated" into something the screen can answer.
+         * Banking is not compared: it is encrypted and one decrypt per row is too much
+         * for a list. batch-approve already refuses to send on a banking mismatch.
+         */
+        const rosterRow = (Array.isArray(inv.bams) ? inv.bams[0] : inv.bams) as RosterFacts | null
+        const drift = (inv.status === 'draft' || inv.status === 'approved') && rosterRow
+          ? rosterDrift(inv.payload_json as Record<string, unknown> | null, rosterRow)
+          : []
         const { bams, prov } = stripBamProv(inv.bams)
         return {
           ...inv,
@@ -188,7 +215,9 @@ export async function GET(req: Request) {
           tax_applicable: taxApplicable,
           /** 0 when no tax applies, null when the province code is unknown (the
            *  server would refuse the edit rather than guess a rate). */
-          tax_rate: taxApplicable ? provinceTaxRate(prov) : 0
+          tax_rate: taxApplicable ? provinceTaxRate(prov) : 0,
+          /** Field names that disagree with the roster right now. Empty is the good case. */
+          roster_drift: drift
         }
       })
       return NextResponse.json({ data: enriched, error: null })

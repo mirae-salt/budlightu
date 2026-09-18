@@ -67,6 +67,22 @@ export type MergeResult = {
 const str = (v: unknown): string => String(v ?? '').trim()
 
 /**
+ * Whitespace-insensitive comparison, used ONLY to decide whether something changed.
+ *
+ * Real case: a roster row holds the city as "Thornhill " with a trailing space, and the
+ * payload baked that in, so rebuilding the line produced "Thornhill, ON, L3T 3K8" against
+ * a stored "Thornhill , ON, L3T 3K8". Nothing had changed and nobody could see a
+ * difference, but a strict comparison called it drift and painted a live September
+ * invoice red. A badge that cries wolf over an invisible character stops being read,
+ * which costs more than the whitespace does.
+ *
+ * The cleaned value is still what gets written when something genuinely moves. This
+ * only governs whether a write happens at all.
+ */
+const same = (a: unknown, b: unknown): boolean =>
+  String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim()
+
+/**
  * PURE. Merge a roster patch into one stored payload.
  *
  * Returns `next: null` when the stored values already match, so a caller editing a
@@ -95,22 +111,22 @@ export function mergeInvoiceSnapshot(
     const currentName = str(influencer.name)
     const [curFirst, ...curRest] = currentName.split(' ')
     const composed = `${first ?? curFirst ?? ''} ${last ?? curRest.join(' ')}`.trim()
-    if (composed && composed !== currentName) nextName = composed
+    if (composed && !same(composed, currentName)) nextName = composed
   }
   if (nextName) {
     influencer.name = nextName
     changed.push('name')
   }
 
-  if (patch.email !== undefined && str(patch.email) && str(patch.email) !== str(influencer.email)) {
+  if (patch.email !== undefined && str(patch.email) && !same(patch.email, influencer.email)) {
     influencer.email = str(patch.email)
     changed.push('email')
   }
-  if (patch.phone !== undefined && str(patch.phone) !== str(influencer.phone)) {
+  if (patch.phone !== undefined && !same(patch.phone, influencer.phone)) {
     influencer.phone = str(patch.phone)
     changed.push('phone')
   }
-  if (patch.street !== undefined && str(patch.street) && str(patch.street) !== str(influencer.street)) {
+  if (patch.street !== undefined && str(patch.street) && !same(patch.street, influencer.street)) {
     influencer.street = str(patch.street)
     changed.push('street')
   }
@@ -126,7 +142,11 @@ export function mergeInvoiceSnapshot(
     const prov = patch.prov === undefined ? curProv : str(patch.prov)
     const postal = patch.postal === undefined ? curPostal : str(patch.postal)
     const composed = `${city}, ${prov}, ${postal}`
-    if (city && prov && postal && composed !== current) {
+    // Compared part by part, not as one joined string. Collapsing runs of whitespace
+    // does not remove the space in "Thornhill , ON", so comparing the joined strings
+    // still called an untouched invoice out of date.
+    const moved = !same(city, curCity) || !same(prov, curProv) || !same(postal, curPostal)
+    if (city && prov && postal && moved) {
       influencer.cityProvPostal = composed
       changed.push('mailing address')
     }
@@ -144,11 +164,11 @@ export function mergeInvoiceSnapshot(
     // Strings all the way: a transit number coerced through a number loses its
     // leading zero, and that is a payment sent somewhere else.
     const clean = str(value)
-    if (!clean || clean === str(directDeposit[payloadKey])) continue
+    if (!clean || same(clean, directDeposit[payloadKey])) continue
     directDeposit[payloadKey] = clean
     changed.push(label)
   }
-  if (patch.email !== undefined && str(patch.email) && str(patch.email) !== str(directDeposit.email)) {
+  if (patch.email !== undefined && str(patch.email) && !same(patch.email, directDeposit.email)) {
     directDeposit.email = str(patch.email)
     if (!changed.includes('email')) changed.push('email')
   }
@@ -163,12 +183,63 @@ export function mergeInvoiceSnapshot(
   // would still add up, so nothing downstream would flag it.
   const provMoved = changed.includes('mailing address')
     && patch.prov !== undefined
-    && str(patch.prov) !== str(str(p.influencer?.cityProvPostal).split(',')[1])
+    && !same(patch.prov, str(p.influencer?.cityProvPostal).split(',')[1])
   const warning = provMoved
     ? 'The province changed, which changes the HST on this invoice. The tax line was NOT recalculated — void and reissue this invoice if the tax is wrong.'
     : undefined
 
   return { next, changed, ...(warning ? { warning } : {}) }
+}
+
+/** The roster columns a drift check compares. Banking is deliberately absent — see below. */
+export type RosterFacts = {
+  first_name?: string | null
+  last_name?: string | null
+  email?: string | null
+  phone?: string | null
+  street?: string | null
+  city?: string | null
+  prov?: string | null
+  postal?: string | null
+}
+
+/**
+ * PURE. Which fields on this invoice no longer agree with the roster.
+ *
+ * WHY A PULL EXISTS WHEN THERE IS ALREADY A PUSH
+ * ----------------------------------------------
+ * refreshOpenInvoices runs from the two screens that edit a BAM today. That covers
+ * what people actually do and it does not cover everything: onboarding ingest, a CSV
+ * import, a fix- script and a hand edit in the Supabase dashboard all write `bams`
+ * without going near it, and a push that silently missed one leaves no trace. This
+ * compares the two sides after the fact, so an invoice that drifted for ANY reason
+ * says so instead of waiting to be noticed on a PDF.
+ *
+ * BANKING IS NOT CHECKED HERE, ON PURPOSE
+ * ---------------------------------------
+ * The stored numbers are encrypted and reading them costs one RPC per BAM, which on a
+ * 55-row list is 55 decrypts of other people's account numbers to render a badge.
+ * Banking drift is already fail-closed where it counts: batch-approve re-decrypts and
+ * refuses to send any invoice whose payload disagrees with the BAM's current banking.
+ * This function covers the fields that have no such gate.
+ */
+export function rosterDrift(
+  payload: Record<string, unknown> | null | undefined,
+  roster: RosterFacts
+): string[] {
+  const merged = mergeInvoiceSnapshot(payload, {
+    firstName: roster.first_name,
+    lastName: roster.last_name,
+    email: roster.email,
+    phone: roster.phone,
+    street: roster.street,
+    city: roster.city,
+    prov: roster.prov,
+    postal: roster.postal
+  })
+  // "Nothing to write" and "nothing has drifted" are the same question asked twice,
+  // so the comparison lives in one place rather than two that can disagree.
+  return merged.changed
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -191,15 +262,19 @@ export type RefreshResult = {
 export async function refreshOpenInvoices(
   db: Db,
   bamId: string,
-  patch: SnapshotPatch
+  patch: SnapshotPatch,
+  /** Restrict to one invoice. Used by the per-invoice "Sync with roster" action. */
+  onlyInvoiceId?: string
 ): Promise<RefreshResult> {
   const notes: string[] = []
   let ok = true
 
-  const { data, error } = await db.from('invoices')
+  let q = db.from('invoices')
     .select('id, period, status, payload_json')
     .eq('bam_id', bamId)
     .in('status', ['draft', 'approved'])
+  if (onlyInvoiceId) q = q.eq('id', onlyInvoiceId)
+  const { data, error } = await q
   if (error) {
     return {
       ok: false,
