@@ -51,8 +51,23 @@ describe('undecidedReceiptsProblem', () => {
     expect(await undecidedReceiptsProblem(fakeDb([{ status: 'pending' }]), 'b1', '2026-08-01')).toBeTruthy()
   })
 
-  it('blocks on auto_pass, which has money but is not in the ledger yet', async () => {
-    expect(await undecidedReceiptsProblem(fakeDb([{ status: 'auto_pass' }]), 'b1', '2026-08-01')).toBeTruthy()
+  it('allows auto_pass: its money is already in the ledger', async () => {
+    // This blocked until 2026-09-21, on the belief that auto_pass was not yet settled. The
+    // ledger counts pending/auto_pass/review/approved alike, so an auto-passed receipt is in
+    // spent_cad from the moment it lands and is already inside the invoice's reimbursement
+    // line. Blocking held 39 of September's live invoices, every one of them correct.
+    expect(await undecidedReceiptsProblem(fakeDb([{ status: 'auto_pass' }]), 'b1', '2026-08-01')).toBe(OK)
+  })
+
+  it('still blocks when a review receipt sits beside an auto-passed one', async () => {
+    // The gate that matters is unchanged: one undecided receipt holds the invoice no matter
+    // what else the month contains.
+    const problem = await undecidedReceiptsProblem(
+      fakeDb([{ status: 'auto_pass' }, { status: 'review' }]), 'b1', '2026-08-01'
+    )
+    expect(problem).toBeTruthy()
+    expect(problem).toContain('1 review')
+    expect(problem).not.toContain('auto_pass')
   })
 
   it('allows an approved receipt: decided, and the money is in the ledger', async () => {

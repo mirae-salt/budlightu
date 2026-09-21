@@ -121,14 +121,31 @@ export async function lookupReimbursement(
 /**
  * States where a receipt still owes a decision AND the ledger does not yet reflect it.
  *
- * Derived from RECEIPT_STATES_WITH_MONEY above by removing 'approved', which is the only one
- * of them that has been settled into reimbursement_ledger. 'rejected' is decided and worth
- * nothing. 'ocr_failed' is deliberately absent, matching the existing policy that it is
- * excluded from shortfall judgement and handled through the review queue and retry: it can
- * stay unreadable indefinitely, and a receipt nobody can decide must not block a payment
- * forever.
+ * 'rejected' is decided and worth nothing. 'approved' is decided and already in the ledger.
+ * 'ocr_failed' is deliberately absent, matching the existing policy that it is excluded from
+ * shortfall judgement and handled through the review queue and retry: it can stay unreadable
+ * indefinitely, and a receipt nobody can decide must not block a payment forever.
+ *
+ * 'auto_pass' WAS IN THIS LIST AND WAS WRONG (removed 2026-09-21).
+ *
+ * The original comment said auto_pass had not been settled into reimbursement_ledger. It has.
+ * The ledger counts every receipt in pending/auto_pass/review/approved, which is the list
+ * directly above, so an auto-passed receipt is in `spent_cad` the moment it lands and is
+ * already inside the reimbursement line on the invoice.
+ *
+ * What that cost: on 2026-09-18 Janet selected all 55 of September's live invoices. Sixteen
+ * went to AP and 39 came back "Batch approve failed (39 of 55 failed)", and every one of the
+ * 39 was held by this rule. The 16 that went through were exactly the 16 whose receipts had
+ * all been decided by hand. Checked against production on 2026-09-21: for all 39, the
+ * ledger's spent_cad equals the sum of their receipts INCLUDING the auto-passed ones, and not
+ * one of them had a receipt in pending or review.
+ *
+ * The rule's own justification is "so the BAM is not underpaid". An auto-passed receipt
+ * cannot cause that: its money is already counted. Deciding one can only ever take money
+ * away, never add it. So this was blocking 39 correct invoices to protect against a direction
+ * of error it does not have.
  */
-const RECEIPT_STATES_UNDECIDED = ['pending', 'auto_pass', 'review']
+const RECEIPT_STATES_UNDECIDED = ['pending', 'review']
 
 /**
  * Refuse to SEND an invoice while a receipt for that month is still waiting on a decision.

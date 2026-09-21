@@ -449,7 +449,33 @@ export default function InvoiceBatch() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
-        reportBatch('error', json.message || `Batch approve failed (${json.failures ?? '?'} of ${json.processed ?? '?'} failed)`)
+        /*
+         * SAY WHY, NOT HOW MANY.
+         *
+         * This used to read "Batch approve failed (39 of 39 failed)" and nothing else, while
+         * the response carried a sentence per invoice explaining exactly what held it. Janet
+         * hit that on 2026-09-18, retried it for three days, and the reason was only found by
+         * querying production by hand. A refusal nobody can act on is the same as no refusal.
+         *
+         * Grouped by reason rather than listed per invoice: 39 copies of one sentence is a
+         * wall, and the thing worth knowing is that all 39 share one cause.
+         */
+        const held = (json.results ?? []).filter((r: { blocked?: string }) => r.blocked)
+        if (held.length > 0) {
+          const byReason = new Map<string, string[]>()
+          for (const r of held as Array<{ invoice_number?: string; blocked: string }>) {
+            const list = byReason.get(r.blocked) ?? []
+            list.push(r.invoice_number ?? '?')
+            byReason.set(r.blocked, list)
+          }
+          const lines = [...byReason.entries()].map(([reason, nums]) =>
+            `${nums.length} held: ${reason} (${nums.slice(0, 5).join(', ')}${nums.length > 5 ? `, +${nums.length - 5} more` : ''})`
+          )
+          const checked = json.processed ?? held.length
+          reportBatch('error', `${checked} checked, ${checked - held.length} sent. ${lines.join('. ')}`)
+        } else {
+          reportBatch('error', json.message || `Batch approve failed (${json.failures ?? '?'} of ${json.processed ?? '?'} failed)`)
+        }
       } else {
         // "N invoice(s) processed" was true and useless on a dryrun cohort: nothing was emailed and
         // the rows are still drafts. Say which it was, or the operator reasonably concludes the batch
