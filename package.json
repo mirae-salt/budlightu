@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Bud Light U — BAM invoice automation (portal + admin + Supabase backend)",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
