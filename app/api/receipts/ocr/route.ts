@@ -1,7 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getMonthlyBalance } from '@/lib/balance'
-import { classifyReceipt, recomputeBudLightTotal, type OcrResult, depositShapedGap, isDepositLine } from '@/lib/classify-receipt'
+import { classifyReceipt, recomputeBudLightTotal, type OcrResult, depositShapedGap, isDepositLine, taxIncludedInLines } from '@/lib/classify-receipt'
 import { DEFAULT_POLICY } from '@/lib/policy'
 import { parseNonNegativeMoney } from '@/lib/money'
 import { cleanEnvValue } from '@/lib/sanitize'
@@ -115,8 +115,11 @@ function checkOcrPatterns(ocr: Record<string, unknown>, mixedLines: boolean): st
      * total more than their own subtotal plus tax. Three of those were flagged in the
      * first week of September with nothing wrong with them. depositShapedGap forgives
      * only a gap in that direction and of that size; a delivery fee is still flagged.
+     *
+     * A receipt whose line totals already add up to the printed total has tax inside its
+     * prices (the LCBO), so subtotal plus tax was never going to equal it.
      */
-    if (diff > 2.00 && diff / grandTotal > 0.03 && !depositShapedGap(subtotal, tax, grandTotal))
+    if (diff > 2.00 && diff / grandTotal > 0.03 && !depositShapedGap(subtotal, tax, grandTotal) && !taxIncludedInLines(ocr as OcrResult))
       // Written to be read: "grand_total" is a column name, not a thing on a receipt.
       flags.push(`total_mismatch: subtotal ($${subtotal.toFixed(2)}) plus tax ($${tax.toFixed(2)}) comes to $${expected.toFixed(2)}, but the receipt total is $${grandTotal.toFixed(2)}`)
   }

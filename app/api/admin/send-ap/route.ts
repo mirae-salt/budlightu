@@ -48,6 +48,7 @@ import { resolveApAddresses } from '../../../../lib/ap-addresses'
 import { claimSend, markSendFailed, markSendSucceeded } from '../../../../lib/send-guard'
 import { ensureInvoicePdf } from '../../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../../lib/bam-cc'
+import { addressPendingProblem } from '../../../../lib/invoice-address-placeholder'
 import { lookupReimbursement, payloadLedgerMismatch, undecidedReceiptsProblem } from '../../../../lib/invoice-ledger'
 import { notifyBam } from '../../../../lib/notify-bam'
 import { handler as sendBamCopy } from '../../../../supabase/functions/sendBamCopy/index'
@@ -255,6 +256,8 @@ async function sendOneInvoiceToAp(admin: ReturnType<typeof serviceClient>, invoi
   if (!payload || typeof payload !== 'object' || !('invoiceNumber' in (payload as object))) {
     return blocked('invoice has no usable payload_json — regenerate the invoice before sending')
   }
+  const noAddress = addressPendingProblem(payload)
+  if (noAddress) return blocked(noAddress)
   const ledger = await lookupReimbursement(admin, inv.bam_id, inv.cohort_id, inv.period)
   if (!ledger.ok) return blocked(ledger.error)
   const mismatch = payloadLedgerMismatch((payload as unknown as InvoicePayload).lines, ledger.paidCad)

@@ -20,6 +20,7 @@ const period = process.argv[2] || '2026-09-01'
 ;(async () => {
   const db = serviceClient()
   const L = loadTs('lib/invoice-ledger.ts')
+  const A = loadTs('lib/invoice-address-placeholder.ts')
 
   const { data: invoices, error } = await db.from('invoices')
     .select('id, invoice_number, status, released_at, bam_id, cohort_id, period, payload_json, bams(status), cohorts(name, send_mode, po_number)')
@@ -49,6 +50,8 @@ const period = process.argv[2] || '2026-09-01'
     const c = inv.cohorts
     if (!c) { add(inv, 'cohort not found'); continue }
     if (!c.po_number) { add(inv, `cohort ${c.name} has no po_number (HARD BLOCK, fails the whole batch)`); continue }
+    const noAddress = A.addressPendingProblem(inv.payload_json)
+    if (noAddress) { add(inv, noAddress); continue }
     if (inv.bams?.status !== 'active') { add(inv, `BAM is ${inv.bams?.status ?? 'missing'}, not active`); continue }
     if (disputed.has(inv.id)) { add(inv, 'an unanswered question is open on it'); continue }
     if (!inv.released_at) { add(inv, 'not released to the BAM yet'); continue }

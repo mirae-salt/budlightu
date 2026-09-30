@@ -35,6 +35,8 @@ import { ensureInitialsResolved } from '../../../../lib/ensure-initials'
 import { sendBamInvite } from '../../../../lib/send-invite'
 import { provinceTaxRate } from '../../../../lib/invoice-payload'
 import { refreshOpenInvoices } from '../../../../lib/refresh-invoice-snapshot'
+import { periodOf } from '../../../../lib/seed-period-invoice'
+import { CONFIRMATION_COLUMNS, missingConfirmations, seedIfMissing, shouldSeedAfterEdit } from '../../../../lib/roster-activation'
 
 const ALLOWED_FIELDS = [
   'first_name', 'last_name', 'email', 'phone', 'status',
@@ -384,8 +386,13 @@ export async function PATCH(req: NextRequest) {
   const SNAPSHOT_KEYS = ['first_name', 'last_name', 'email', 'phone', 'street', 'city', 'prov', 'postal'] as const
   if (SNAPSHOT_KEYS.some(k => k in update)) {
     const s = saved as Record<string, unknown>
+    // Any address edit passes all four saved address fields. The payload holds city,
+    // province and postal as one line, and a draft built without an address has nothing
+    // in it to keep, so a partial patch could never complete it.
+    const addressTouched = (['street', 'city', 'prov', 'postal'] as const).some(k => k in update)
     const pick = (k: typeof SNAPSHOT_KEYS[number]) =>
-      k in update ? (s[k] as string | null) : undefined
+      k in update || (addressTouched && ['street', 'city', 'prov', 'postal'].includes(k))
+        ? (s[k] as string | null) : undefined
     const refreshed = await refreshOpenInvoices(db, id, {
       firstName: pick('first_name'),
       lastName: pick('last_name'),
@@ -403,6 +410,59 @@ export async function PATCH(req: NextRequest) {
     if (!refreshed.ok) {
       warnings.push('The roster was saved but an open invoice still shows the old details. See the note below.')
     }
+  }
+
+  // AN ACTIVE STUDENT WITH NO INVOICE CANNOT BE PAID.
+  //
+  // The monthly job opens invoices for whoever is active on the 1st, and onboarding opens
+  // one when the student finishes. An admin who fills in an address and sets a student
+  // active did neither, which left Lea Major (2026-09) with an approved reimbursement and
+  // nothing to put it on. So this edit asks for the invoice itself. It never rewrites one
+  // that exists: seedIfMissing leaves any invoice, in any status, as it is.
+  //
+  // The student's own confirmations are not something this form can give, and nothing in
+  // the send path checks them. Activating without them is allowed and said out loud, and
+  // recorded, so whoever approves the invoice knows they are the only check.
+  if (shouldSeedAfterEdit({
+    beforeStatus: before?.status,
+    afterStatus: saved.status,
+    isTest: saved.is_test,
+    changedKeys: changedFields as string[]
+  })) {
+    const savedRow = saved as Record<string, unknown>
+    if (before?.status !== 'active') {
+      const { data: confRows, error: confErr } = await db.from('bams').select(CONFIRMATION_COLUMNS).eq('id', id).limit(1)
+      if (confErr) {
+        warnings.push(`Activated, but the student's confirmations could not be read (${confErr.message}), so none are listed here.`)
+      } else {
+        const missing = missingConfirmations((confRows ?? [])[0])
+        if (missing.length > 0) {
+          invoiceNotes.push(
+            `This student has not yet given: ${missing.join(', ')}. They will be asked at their next sign-in. ` +
+            'Nothing in the send path checks these, so the person who approves the invoice is the only check.'
+          )
+          const { error: missAuditErr } = await db.from('audit_log').insert({
+            actor_id: auth.devBypass ? null : auth.userId,
+            actor_role: auth.role,
+            entity: 'bams',
+            entity_id: id,
+            action: 'activated_without_confirmations',
+            before_json: { status: before?.status ?? null },
+            after_json: { status: 'active', missing }
+          })
+          if (missAuditErr) warnings.push('Activated, but the audit log entry for the missing confirmations could not be written. Tell Mirae.')
+        }
+      }
+    }
+    const now = new Date()
+    const out = await seedIfMissing(db, {
+      bamId: id,
+      cohortId: String(savedRow.cohort_id ?? ''),
+      period: periodOf(now),
+      monthLabel: now.toLocaleString('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    })
+    if (out.ok) { if (!out.quiet || out.created) invoiceNotes.push(out.note) }
+    else warnings.push(`Saved, but ${out.note.charAt(0).toLowerCase()}${out.note.slice(1)}`)
   }
 
   // AN EMAIL EDIT MUST ALSO MOVE THE LOGIN ACCOUNT, OR THE TWO SPLIT FOREVER.

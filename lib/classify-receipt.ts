@@ -144,6 +144,20 @@ export const OVERSPEND_OUTLIER_MULTIPLE = 2
 /** Dollars of disagreement between model summary and server recompute that we tolerate. */
 export const TOTAL_MISMATCH_TOLERANCE_CAD = 1.0
 
+/**
+ * The same tolerance, widened to 1% of the total on a large receipt.
+ *
+ * The model rounds the tax rate. Asked for the Bud Light total on Maxi's $168.22 receipt
+ * it multiplied by 1.14 where the receipt charged 14.975%, and came out $1.35 short once
+ * the deposit was allowed for. Nothing was wrong: our figure was the printed total to the
+ * cent. A flat dollar cannot tell that from a real disagreement, because the error scales
+ * with the receipt. One percent of $150 is $1.50, well under the price of a food item or
+ * a second product, which is the mistake this check exists to catch.
+ */
+function mismatchTolerance(total: number): number {
+  return Math.max(TOTAL_MISMATCH_TOLERANCE_CAD, round2(total * 0.01))
+}
+
 /** How closely the sum of line totals must land on subtotal / grand_total to pick a basis. */
 /**
  * Combined sales-tax rates actually charged in Canada, as of 2026.
@@ -221,9 +235,60 @@ const DEPOSIT_PATTERN = /\b(consigne|d[ée]p[oô]ts?|deposits?)\b/i
  */
 const DEPOSIT_ABBREV = /\bdep\b[\s.:]*\$?\s*\d/i
 
+/**
+ * Quebec prints the container's environmental fee as its own line next to the deposit,
+ * "Frais l'environnement" on Roi d'la biere's receipt, and it sits outside the tax base
+ * the same way the deposit does. Left as a product it made the receipt look mixed, and the
+ * amount came out $12.83 under the printed $178.24 until an admin corrected it. With the
+ * fees treated as deposits the recompute lands on $178.24 exactly.
+ *
+ * "BOUT" is Green's Superette's whole line for a bottle deposit. It is matched only as the
+ * entire description, because "bouteille" inside a longer line is a product.
+ */
+const DEPOSIT_ENV_FEE = /\bfrais\s+(?:(?:de\s+)?l['’]\s*|d['’]\s*|de\s+)?environnement\b/i
+const DEPOSIT_BOTTLE_ONLY = /^\s*bout\.?\s*$/i
+
 export function isDepositLine(desc: unknown): boolean {
   if (typeof desc !== 'string') return false
-  return DEPOSIT_PATTERN.test(desc) || DEPOSIT_ABBREV.test(desc)
+  return DEPOSIT_PATTERN.test(desc) || DEPOSIT_ABBREV.test(desc) ||
+    DEPOSIT_ENV_FEE.test(desc) || DEPOSIT_BOTTLE_ONLY.test(desc)
+}
+
+/**
+ * A line that is the receipt's own tax rather than something bought.
+ *
+ * The model sometimes lists "HST 5.98" as a line item. Read as a second product it turned
+ * a Beer Store receipt of nothing but beer into a mixed one and dropped $8.38 from the
+ * amount. The whole description has to be a tax name, optionally with a rate, so a product
+ * that merely contains the letters is safe.
+ */
+const TAX_LINE_PATTERN = /^\s*(?:hst|gst|pst|qst|tps|tvq|tvh|tax(?:es)?)\b[\s.:%()\d-]*$/i
+
+export function isTaxLine(desc: unknown): boolean {
+  return typeof desc === 'string' && TAX_LINE_PATTERN.test(desc)
+}
+
+/**
+ * Do the line totals already add up to the printed total?
+ *
+ * Then the prices on the receipt include the tax, as at the LCBO, and "subtotal plus tax
+ * equals total" is the wrong test for it: 33.30 + 3.97 is not 34.50, but the two lines are
+ * $17.25 each and the till charged $34.50. Two September LCBO receipts went to an admin
+ * for exactly this and were approved untouched.
+ *
+ * Every line has to be readable, so a receipt with an unreadable line never qualifies.
+ */
+export function taxIncludedInLines(ocr: OcrResult | null | undefined): boolean {
+  const grand = parseNonNegativeMoney(ocr?.grand_total)
+  const lines = Array.isArray(ocr?.lines) ? (ocr?.lines as OcrLine[]) : []
+  if (grand === null || grand <= 0 || lines.length === 0) return false
+  let sum = 0
+  for (const l of lines) {
+    const t = parseMoney(l?.total)
+    if (t === null) return false
+    sum = round2(sum + t)
+  }
+  return Math.abs(sum - grand) <= 0.02
 }
 
 /**
@@ -337,6 +402,9 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
       continue
     }
     allSum = round2(allSum + t)
+    // The receipt's own tax is in the sum it reconciles against, but it is not a product
+    // and not Bud Light's to gross up again, whatever the model ticked.
+    if (isTaxLine(l?.desc)) continue
     if (isBl) {
       blSum = round2(blSum + t)
       budLightLineCount++
@@ -587,13 +655,13 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
 
   const depositExplainsGap =
     modelTotal !== null && explainingDeposit > 0 &&
-    Math.abs(round2(modelTotal + explainingDeposit) - total) <= TOTAL_MISMATCH_TOLERANCE_CAD
+    Math.abs(round2(modelTotal + explainingDeposit) - total) <= mismatchTolerance(total)
 
   const mismatch =
     modelTotal === null ||
-    (!depositExplainsGap && (mismatchDelta as number) > TOTAL_MISMATCH_TOLERANCE_CAD)
+    (!depositExplainsGap && (mismatchDelta as number) > mismatchTolerance(total))
 
-  if (depositExplainsGap && (mismatchDelta as number) > TOTAL_MISMATCH_TOLERANCE_CAD) {
+  if (depositExplainsGap && (mismatchDelta as number) > mismatchTolerance(total)) {
     notes.push(
       `the model reported $${(modelTotal as number).toFixed(2)}, which is this total less the ` +
       `$${explainingDeposit.toFixed(2)} deposit it leaves out` +

@@ -161,11 +161,26 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, message: 'You can only upload receipts for your own account' }, { status: 403 })
       }
       const { data: sessionBam, error: sessionErr } = await admin.from('bams')
-        .select('id, cohort_id')
+        .select('id, cohort_id, status, is_test')
         .eq('id', bamAuth.bamId)
         .maybeSingle()
       if (sessionErr || !sessionBam) {
         return NextResponse.json({ ok: false, message: 'No BAM account found for this user' }, { status: 403 })
+      }
+      /*
+       * A student who has not finished onboarding has no address on file, so no invoice can
+       * be built for them (generateInvoicePayload hard-blocks on it) and the monthly job
+       * only opens invoices for active BAMs. Lea Major uploaded two receipts while still
+       * pending in September 2026, one was approved, and nothing could pay her. The
+       * dashboard already sends a pending student to /portal/onboarding; this makes the
+       * upload agree with it instead of leaving the direct link open. Test accounts are
+       * exempt so a tester can try the flow before onboarding.
+       */
+      if (sessionBam.status === 'pending' && sessionBam.is_test !== true) {
+        return NextResponse.json({
+          ok: false,
+          message: 'Please finish setting up your account before uploading receipts. Open the portal dashboard and complete the onboarding steps, then upload again.'
+        }, { status: 403 })
       }
       cohortId = cohortId || sessionBam.cohort_id
     }

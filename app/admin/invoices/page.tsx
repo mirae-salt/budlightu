@@ -289,6 +289,52 @@ export default function InvoiceBatch() {
     if (kind === 'ok') setTimeout(() => setRowNotice(cur => (cur === n ? null : cur)), 6000)
   }
 
+  /*
+   * Students owed an invoice that does not exist. The table below lists invoices, so a
+   * student with none was invisible: Lea Major (2026-09) had an approved reimbursement
+   * and no row anywhere on this screen.
+   */
+  type MissingRow = {
+    kind: 'missing' | 'held'
+    id: string; name: string; status: string; cohort: string; period: string; month: string
+    receipts: number
+    /** kind 'missing' */
+    missing_address?: string[]; has_bank?: boolean
+    /** kind 'held' */
+    invoice_number?: string; reasons?: string[]
+  }
+  const [missingRows, setMissingRows] = useState<MissingRow[]>([])
+  const [creatingKey, setCreatingKey] = useState<string | null>(null)
+  function loadMissing() {
+    return fetch('/api/admin/invoices/missing')
+      .then(res => res.json())
+      .then(j => { if (j.ok) setMissingRows(j.rows as MissingRow[]) })
+      .catch(() => {})
+  }
+  async function createMissing(row: MissingRow) {
+    setCreatingKey(`${row.id}|${row.period}`)
+    try {
+      const res = await fetch('/api/admin/invoices/missing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: row.id, period: row.period })
+      })
+      const j = await res.json()
+      const extra = [
+        j.hold,
+        Array.isArray(j.missing_confirmations) && j.missing_confirmations.length
+          ? `Not yet given by the student: ${j.missing_confirmations.join(', ')}.` : '',
+        j.warning
+      ].filter(Boolean).join(' ')
+      reportBatch(res.ok && j.ok ? 'ok' : 'error', `${row.name}: ${j.message || res.statusText}${extra ? ` ${extra}` : ''}`)
+      await Promise.all([loadMissing(), loadInvoices()])
+    } catch (e) {
+      reportBatch('error', `${row.name}: could not create the invoice (${(e as Error).message})`)
+    } finally {
+      setCreatingKey(null)
+    }
+  }
+
   // Named so releasing can re-read the list afterwards: `released_at` decides what the
   // buttons offer, and a stale row would keep offering a release that already happened.
   function loadInvoices() {
@@ -305,6 +351,7 @@ export default function InvoiceBatch() {
 
   useEffect(() => {
     loadInvoices()
+    loadMissing()
     loadDisputes()
 
     // Who "me" is, for the test send.
@@ -838,6 +885,62 @@ export default function InvoiceBatch() {
             ))}
           </div>
         </div>
+      )}
+
+      {missingRows.length > 0 && (
+        <details className="surface" style={{ marginBottom: 16 }}>
+          {/* Collapsed by default: it is a to-do list, not the work of the page. The count
+              in the title is what has to stay visible. */}
+          <summary className="surface-header" style={{ cursor: 'pointer', listStyle: 'revert' }}>
+            <span className="surface-title">Can&apos;t be sent yet ({missingRows.length})</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              No invoice, or a draft that is held. Creating one makes a draft only.
+            </span>
+          </summary>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr><th>BAM</th><th>Month</th><th>Receipts</th><th>Why not sent</th><th></th></tr>
+              </thead>
+              <tbody>
+                {missingRows.map(r => {
+                  const key = `${r.id}|${r.period}`
+                  const gaps = r.kind === 'held'
+                    ? (r.reasons ?? [])
+                    : ['no invoice',
+                       r.status === 'pending' ? 'onboarding not finished' : '',
+                       r.missing_address?.length ? 'no mailing address' : '',
+                       r.has_bank ? '' : 'no banking'
+                      ].filter(Boolean)
+                  return (
+                    <tr key={key}>
+                      <td>{r.name} <span className="muted" style={{ fontSize: 11 }}>{r.cohort}</span></td>
+                      <td className="muted" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{r.month}</td>
+                      <td style={{ fontSize: 13 }}>{r.receipts}</td>
+                      <td style={{ fontSize: 12 }}>{gaps.length ? gaps.join(', ') : <span className="muted">nothing</span>}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {r.kind === 'held' ? (
+                          <a href="/admin/roster" className="btn-ghost" style={{ fontSize: 12, whiteSpace: 'nowrap', textDecoration: 'none' }}>
+                            {r.invoice_number}: fill in on Roster
+                          </a>
+                        ) : (
+                        <button
+                          className="btn-ghost"
+                          style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                          disabled={creatingKey !== null}
+                          onClick={() => createMissing(r)}
+                        >
+                          {creatingKey === key ? 'Creating…' : `Create ${r.month} draft`}
+                        </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
 
       <div className="surface">

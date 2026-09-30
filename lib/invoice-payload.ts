@@ -7,6 +7,7 @@
  * Invoice engine implementation: Mirae Lee, mirae.lee@ilovesalt.com.
  */
 
+import { missingAddressFields, STREET_PLACEHOLDER, CITY_LINE_PLACEHOLDER } from './invoice-address-placeholder'
 import { validateInstitution, validateTransit, validateAccount } from './validation'
 import { formatInvoiceNumber } from './invoice-numbering'
 // ONE rounding helper. This file used to carry a private `round2` identical to
@@ -84,6 +85,8 @@ export type InvoicePayload = {
     dateReadable: string         // "SEPTEMBER 16TH, 2026"
   }
   currency: 'CAD'
+  /** Set when the address was not on file. The invoice cannot be sent while present. */
+  addressPending?: string[]
 }
 
 export function generateInvoicePayload(input: {
@@ -124,15 +127,12 @@ export function generateInvoicePayload(input: {
   // 2026-07-15, so it is required. Blocking is the same fail-closed choice already
   // made for banking, and a BAM who has banking but no address is an anomaly worth
   // stopping on rather than papering over.
-  const missingAddress = (['street', 'city', 'prov', 'postal'] as const)
-    .filter(f => !String(bam[f] ?? '').trim())
-  if (missingAddress.length > 0) {
-    throw new Error(
-      `HARD BLOCK: mailing address incomplete (missing ${missingAddress.join(', ')}) — ` +
-      'invoice NOT created. An invoice with a blank address must not reach AP. ' +
-      'Have the BAM complete onboarding, or fill it in on the roster.'
-    )
-  }
+  //
+  // 2026-09-30: the block moved from here to the send. A missing address now builds a
+  // draft with a placeholder and `addressPending`, which batch-approve and send-ap refuse
+  // (lib/invoice-address-placeholder). Stopping at creation had left Lea Major owed money
+  // with no invoice anyone could see. Banking above still blocks creation outright.
+  const missingAddress = missingAddressFields(bam)
 
   const invoiceNumber = formatInvoiceNumber(bam.initialsResolved, seq, revision)
   const monthLong = period.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
@@ -186,8 +186,8 @@ export function generateInvoicePayload(input: {
     },
     influencer: {
       name: `${bam.firstName} ${bam.lastName}`,
-      street: bam.street,
-      cityProvPostal: `${bam.city}, ${bam.prov}, ${bam.postal}`,
+      street: missingAddress.length ? STREET_PLACEHOLDER : bam.street,
+      cityProvPostal: missingAddress.length ? CITY_LINE_PLACEHOLDER : `${bam.city}, ${bam.prov}, ${bam.postal}`,
       email: bam.email,
       phone: bam.phone
     },
@@ -211,7 +211,8 @@ export function generateInvoicePayload(input: {
       invoiceNumber,
       dateReadable
     },
-    currency: 'CAD'
+    currency: 'CAD',
+    ...(missingAddress.length ? { addressPending: missingAddress } : {})
   }
 }
 

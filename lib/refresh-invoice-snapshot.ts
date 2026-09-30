@@ -35,6 +35,7 @@
  * invoice is a record of what AP received and must keep saying so.
  */
 import type { InvoicePayload } from './invoice-payload'
+import { STREET_PLACEHOLDER, CITY_LINE_PLACEHOLDER } from './invoice-address-placeholder'
 
 /** The roster facts an invoice snapshot carries. All optional: pass what changed. */
 export type SnapshotPatch = {
@@ -136,7 +137,8 @@ export function mergeInvoiceSnapshot(
   // the stored string would reintroduce a parser nobody needs; the caller passes
   // whichever of the three it did not change.
   if (patch.city !== undefined || patch.prov !== undefined || patch.postal !== undefined) {
-    const current = str(influencer.cityProvPostal)
+    // A placeholder line is not an address to keep parts of.
+    const current = str(influencer.cityProvPostal) === CITY_LINE_PLACEHOLDER ? '' : str(influencer.cityProvPostal)
     const [curCity = '', curProv = '', curPostal = ''] = current.split(',').map(s => s.trim())
     const city = patch.city === undefined ? curCity : str(patch.city)
     const prov = patch.prov === undefined ? curProv : str(patch.prov)
@@ -176,6 +178,15 @@ export function mergeInvoiceSnapshot(
   if (changed.length === 0) return { next: null, changed }
 
   const next: Record<string, unknown> = { ...payload, influencer, directDeposit }
+  // The draft was built without an address. Once both lines are real, it may be sent.
+  if (Array.isArray((payload as { addressPending?: unknown }).addressPending)) {
+    const stillPlaceholder =
+      str(influencer.street) === STREET_PLACEHOLDER || str(influencer.cityProvPostal) === CITY_LINE_PLACEHOLDER
+    if (!stillPlaceholder) {
+      delete next.addressPending
+      changed.push('address no longer missing')
+    }
+  }
   if (nextName) next.makeChecksTo = nextName
 
   // The province drives computeHst. Moving it silently would leave a document whose

@@ -40,6 +40,7 @@ import { addressProblem, cleanAddress } from '../../../lib/sanitize'
 import { resolveApAddresses } from '../../../lib/ap-addresses'
 import { claimSend, markSendDrafted, markSendFailed, markSendSucceeded } from '../../../lib/send-guard'
 import { lookupReimbursement, payloadLedgerMismatch, undecidedReceiptsProblem } from '../../../lib/invoice-ledger'
+import { addressPendingProblem } from '../../../lib/invoice-address-placeholder'
 import { ensureInvoicePdf } from '../../../lib/invoice-pdf'
 import { bamCcProblem } from '../../../lib/bam-cc'
 import { sendEmail } from '../../../lib/send-email'
@@ -75,6 +76,11 @@ export async function handler(req: { invoice_id: string; mode: 'dryrun' | 'live'
   if (req.mode === 'live' && cohort.send_mode !== 'live') {
     return { ok: false, error: `cohort.send_mode="${cohort.send_mode}" does not permit a live AP send` }
   }
+
+  // The last chokepoint before the email, so it holds even if a caller forgets to check.
+  // A draft built without an address prints a placeholder where the address goes.
+  const noAddress = addressPendingProblem(inv.payload_json)
+  if (noAddress) return { ok: false, error: noAddress }
 
   // P0-D: the document must agree with the ledger before anything leaves.
   const ledger = await lookupReimbursement(db, inv.bam_id, inv.cohort_id, inv.period)

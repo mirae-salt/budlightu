@@ -31,6 +31,7 @@
  * shared lib/invoice-pdf.ts path, BEFORE the three sends — so all three attach
  * the same bytes and pdf_key is written exactly once.
  */
+import { addressPendingProblem } from '../../../../../lib/invoice-address-placeholder'
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { sendEligibleAt, windowStartedAt } from '../../../../../lib/business-days'
@@ -162,6 +163,14 @@ export async function POST(req: NextRequest) {
     // draft seeded on the 1st and archived before the 17th survives, sits in
     // the list with everyone else's, and this was the only thing standing
     // between checking its box and it going to AP. Mirae, 2026-09-15.
+    // A draft may exist without an address (lib/invoice-address-placeholder). It may not
+    // leave. Checked first, because it is the one an admin can fix on the roster today.
+    const noAddress = addressPendingProblem(inv.payload_json)
+    if (noAddress) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: noAddress })
+      continue
+    }
+
     if (bamRow?.status !== 'active') {
       // Fail CLOSED, not just on 'archived'/'pending': a missing join (a bam row
       // deleted outright, not merely archived) reads the same as bamRow being
@@ -170,7 +179,9 @@ export async function POST(req: NextRequest) {
       results.push({
         id: inv.id,
         invoice_number: inv.invoice_number,
-        blocked: bamRow?.status
+        blocked: bamRow?.status === 'pending'
+          ? 'BAM has not finished onboarding (pending) -- have them finish it, or set them active on the roster'
+          : bamRow?.status
           ? `BAM is ${bamRow.status}, not active -- void this invoice instead of approving it`
           : 'Could not confirm this BAM is active (no matching roster row) -- refusing to send'
       })

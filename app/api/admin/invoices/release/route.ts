@@ -33,6 +33,7 @@ import { notifyBam } from '../../../../../lib/notify-bam'
 import { sendEmail } from '../../../../../lib/send-email'
 import { invoiceReleaseEmail } from '../../../../../lib/invoice-review-email'
 import { ensureInvoicePdf } from '../../../../../lib/invoice-pdf'
+import { addressPendingProblem } from '../../../../../lib/invoice-address-placeholder'
 
 // Renders a PDF and emails one BAM per invoice, in sequence. Same reason as batch-approve:
 // a release cut short leaves half the cohort notified and half not.
@@ -94,6 +95,15 @@ export async function POST(req: NextRequest) {
         invoice_number: inv.invoice_number,
         blocked: `already released at ${inv.released_at} -- releasing again would restart their 24 hours`
       })
+      continue
+    }
+
+    // Releasing says "this figure is final" and starts the student's 24 hours. A draft
+    // with no address is not final, and the student would be asked to review a document
+    // that prints ADDRESS NOT ON FILE.
+    const noAddress = addressPendingProblem(inv.payload_json)
+    if (noAddress) {
+      results.push({ id: inv.id, invoice_number: inv.invoice_number, blocked: noAddress })
       continue
     }
 

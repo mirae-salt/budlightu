@@ -11,7 +11,7 @@
  * Override via OPENROUTER_MODEL env var (e.g. google/gemini-2.0-flash-001).
  */
 import { serviceClient } from '../_shared/supabase-admin'
-import { recomputeBudLightTotal, depositShapedGap, isDepositLine, type OcrResult } from '../../../lib/classify-receipt'
+import { recomputeBudLightTotal, depositShapedGap, isDepositLine, taxIncludedInLines, type OcrResult } from '../../../lib/classify-receipt'
 import { parseConfidence } from '../../../lib/money'
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -140,7 +140,7 @@ function checkOcrPatterns(ocr: Record<string, unknown>): string[] {
     const diff = Math.abs(expected - grandTotal)
     // Same deposit exemption as app/api/receipts/ocr, from the same function, because two
     // copies of a rule disagreeing is how one of them quietly becomes the wrong one.
-    if (diff > 2.00 && diff / grandTotal > 0.03 && !depositShapedGap(subtotal, tax, grandTotal))
+    if (diff > 2.00 && diff / grandTotal > 0.03 && !depositShapedGap(subtotal, tax, grandTotal) && !taxIncludedInLines(ocr as OcrResult))
       flags.push(`total_mismatch: subtotal($${subtotal.toFixed(2)}) + tax($${tax.toFixed(2)}) = $${expected.toFixed(2)} but grand_total is $${grandTotal.toFixed(2)}`)
   }
 

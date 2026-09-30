@@ -30,7 +30,7 @@ async function main() {
   if (!inWindow.length) { info('no cohort runs this month, so no invoices are due'); return verdict('period invoices') }
 
   const { data: bams, error: bErr } = await db.from('bams')
-    .select('id, first_name, last_name, status, cohort_id')
+    .select('id, first_name, last_name, status, cohort_id, is_test')
     .in('cohort_id', inWindow.map(c => c.id))
   if (bErr) { fail(`bams unreadable: ${bErr.message}`); return verdict('period invoices') }
 
@@ -46,13 +46,38 @@ async function main() {
   if (missing.length === 0) pass(`all ${active.length} active BAMs have a ${period} invoice`)
   else for (const b of missing) fail(`${b.first_name} ${b.last_name} is active with no invoice, so no line can be added to them`)
 
-  // The dangerous direction.
-  const shouldNotHave = notActive.filter(b => byBam.has(b.id))
-  if (shouldNotHave.length === 0) {
-    pass(`none of the ${notActive.length} BAMs still onboarding has one`)
-  } else {
-    for (const b of shouldNotHave) {
-      fail(`${b.first_name} ${b.last_name} is ${b.status} but has ${byBam.get(b.id).invoice_number}: it may carry no banking, and nothing re-checks that at send time`)
+  // The dangerous direction. Since 2026-09-30 a pending student may hold a DRAFT on
+  // purpose (/api/admin/invoices/missing), because batch-approve refuses a pending BAM and
+  // an invoice with no address. So a draft is reported, and only one that has left draft,
+  // or one on an archived student that was not voided, is a failure.
+  const nonActiveWithInvoice = notActive.filter(b => byBam.has(b.id))
+  const bad = nonActiveWithInvoice.filter(b => {
+    const st = byBam.get(b.id).status
+    return b.status === 'archived' ? st !== 'void' : st !== 'draft'
+  })
+  if (bad.length === 0) pass(`no BAM who is not active holds an invoice that has left draft`)
+  for (const b of bad) {
+    fail(`${b.first_name} ${b.last_name} is ${b.status} but ${byBam.get(b.id).invoice_number} is ${byBam.get(b.id).status}`)
+  }
+  for (const b of nonActiveWithInvoice.filter(x => !bad.includes(x))) {
+    info(`${b.first_name} ${b.last_name} is ${b.status} with ${byBam.get(b.id).invoice_number}:${byBam.get(b.id).status} (held: cannot be sent while not active)`)
+  }
+
+  // The quiet direction. A student who is not active but has receipts on file this month
+  // will never get an invoice: the 1st-of-month job only opens active BAMs and onboarding
+  // opens one on completion. Lea Major sat in exactly this state in September 2026 with an
+  // approved receipt, and the check above passed because she had no invoice to object to.
+  const stuck = notActive.filter(b => !b.is_test && !byBam.has(b.id))
+  if (stuck.length) {
+    const { data: recs, error: rErr } = await db.from('receipts')
+      .select('bam_id, status').eq('period', period).in('bam_id', stuck.map(b => b.id))
+    if (rErr) fail(`receipts unreadable: ${rErr.message}`)
+    else {
+      const counts = new Map()
+      for (const r of recs ?? []) counts.set(r.bam_id, (counts.get(r.bam_id) ?? 0) + 1)
+      const owed = stuck.filter(b => counts.has(b.id))
+      if (owed.length === 0) pass(`no ${stuck.length === 1 ? 'BAM' : 'BAMs'} still onboarding hold${stuck.length === 1 ? 's' : ''} a ${period} receipt`)
+      else for (const b of owed) fail(`${b.first_name} ${b.last_name} is ${b.status} with ${counts.get(b.id)} receipt(s) for ${period} and no invoice: create the draft under "No invoice yet" on /admin/invoices`)
     }
   }
 
