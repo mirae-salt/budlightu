@@ -25,6 +25,8 @@ type Row = InvoiceRow & {
   sendMode: string | null
   /** Line items from payload_json. Banking is stripped server-side (redactPayload). */
   lines: PayloadLine[]
+  /** The date printed on the invoice, YYYY-MM-DD. Empty when the payload has none. */
+  invoiceDate: string
   subtotal?: number
   tax?: number
   /** Whether this invoice charges tax, and at what rate. Never the HST number. */
@@ -64,7 +66,7 @@ type DbInvoice = {
   /** The cohort's send mode. A non-live cohort waives the 24-hour wait, not the rest. */
   cohorts?: { send_mode?: string | null } | Array<{ send_mode?: string | null }> | null
   cohort_id: string
-  payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[]; jobNumber?: string } | null
+  payload_json: { total?: number; subtotal?: number; tax?: number; lines?: PayloadLine[]; jobNumber?: string; invoiceDate?: string } | null
   bams: { first_name: string; last_name: string } | null
   receipt_status: string | null
   receipt_total: number | null
@@ -115,6 +117,7 @@ function mapDbInvoice(inv: DbInvoice): Row {
     receiptSpent: inv.receipt_spent != null ? Number(inv.receipt_spent) : null,
     receiptCount: Number(inv.receipt_count ?? 0),
     lines: Array.isArray(inv.payload_json?.lines) ? inv.payload_json!.lines! : [],
+    invoiceDate: typeof inv.payload_json?.invoiceDate === 'string' ? inv.payload_json.invoiceDate.slice(0, 10) : '',
     subtotal: inv.payload_json?.subtotal,
     tax: inv.payload_json?.tax,
     taxApplicable: inv.tax_applicable === true,
@@ -272,6 +275,7 @@ export default function InvoiceBatch() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [lineDrafts, setLineDrafts] = useState<LineDraft[]>([])
   const [editReason, setEditReason] = useState('')
+  const [editDate, setEditDate] = useState('')
   const [savingLines, setSavingLines] = useState(false)
 
   const { sort, toggleSort } = useTableSort<'bam' | 'period' | 'amount' | 'status'>()
@@ -586,6 +590,7 @@ export default function InvoiceBatch() {
     setEditingId(inv.id)
     setLineDrafts(toDrafts(inv.lines))
     setEditReason('')
+    setEditDate(inv.invoiceDate)
     setVoidingNumber(null)
     setPreviewNumber(null)
     if (pdfUrl) { URL.revokeObjectURL(pdfUrl); setPdfUrl(null) }
@@ -611,6 +616,8 @@ export default function InvoiceBatch() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reason: editReason,
+          // Sent only when it changed, so an edit to the lines never re-stamps the date.
+          ...(editDate && editDate !== inv.invoiceDate ? { invoice_date: editDate } : {}),
           // No subtotal / tax / total is sent. The server recomputes them and
           // would ignore them anyway.
           lines: lineDrafts.map(d => ({
@@ -628,6 +635,7 @@ export default function InvoiceBatch() {
         setAllInvoices(list => list.map(i => i.id === inv.id ? {
           ...i,
           lines: json.lines ?? i.lines,
+          invoiceDate: typeof json.invoice_date === 'string' ? json.invoice_date.slice(0, 10) : i.invoiceDate,
           subtotal: json.subtotal,
           tax: json.tax,
           amount: `$${Number(json.total).toFixed(2)}`
@@ -635,7 +643,7 @@ export default function InvoiceBatch() {
         setEditingId(null)
         const warnings: string[] = Array.isArray(json.warnings) ? json.warnings : []
         const saved =
-          `${json.invoice_number}: lines saved. Server total ${money(Number(json.total))}.` +
+          `${json.invoice_number}: saved. Server total ${money(Number(json.total))}.` +
           (json.pdf_invalidated ? ' The stored PDF was cleared, so the next send re-renders it.' : '')
         // A caveat is not a success. It stays on screen, in red, and it says the
         // edit WAS saved so nobody re-submits it.
@@ -1263,9 +1271,9 @@ export default function InvoiceBatch() {
                               ? 'Sample data only. Line editing needs the database.'
                               : inv.lines.length === 0
                               ? 'This invoice has no stored line items. Regenerate it first.'
-                              : 'Edit the salary line and ad-hoc items. The reimbursement line is changed on the receipt.'}
+                              : 'Edit the salary line, ad-hoc items and the invoice date. The reimbursement line is changed on the receipt.'}
                           >
-                            {editingId === inv.id ? 'Close edit' : 'Edit lines'}
+                            {editingId === inv.id ? 'Close edit' : 'Edit'}
                           </button>
                         )}
                         {/* TEST AP IS ONLY ON REHEARSING COHORTS.
@@ -1361,7 +1369,7 @@ export default function InvoiceBatch() {
                     <td colSpan={7} className="wrap" style={{ background: 'var(--bl-silver)', padding: 16 }}>
                       <div className="card" style={{ maxWidth: 760 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--bl-navy)', marginBottom: 4 }}>
-                          Edit lines · {inv.number} ({inv.bam})
+                          Edit · {inv.number} ({inv.bam})
                         </div>
                         <p className="muted" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
                           Salary and ad-hoc items (bar tab, gas, event costs) are edited here. The reimbursement line is
@@ -1469,8 +1477,38 @@ export default function InvoiceBatch() {
                           </div>
                         </div>
 
+                        {(() => {
+                          const first = `${inv.period.slice(0, 7)}-01`
+                          const last = new Date(Date.UTC(Number(inv.period.slice(0, 4)), Number(inv.period.slice(5, 7)), 0)).toISOString().slice(0, 10)
+                          const today = new Date().toISOString().slice(0, 10)
+                          const max = last < today ? last : today
+                          const outside = editDate !== '' && (editDate < first || editDate > max)
+                          return (
+                            <div className="field">
+                              <label>Invoice date</label>
+                              <input
+                                type="date"
+                                value={editDate}
+                                min={first}
+                                max={max}
+                                onChange={e => setEditDate(e.target.value)}
+                                style={{ maxWidth: 200 }}
+                              />
+                              <span className="muted" style={{ fontSize: 11 }}>
+                                Normally the 16th. It has to be in {periodLabel(inv.period)} and cannot be in the future.
+                                A date you choose stays if the invoice is rebuilt.
+                              </span>
+                              {outside && (
+                                <span className="muted" style={{ fontSize: 11, color: 'var(--amber)' }}>
+                                  That date is outside {periodLabel(inv.period)}.
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })()}
+
                         <div className="field">
-                          <label>Why are the amounts changing?</label>
+                          <label>Why is this changing?</label>
                           <input
                             placeholder="e.g. Program manager approved $60 bar tab for the Sept 12 event"
                             value={editReason}
@@ -1498,13 +1536,14 @@ export default function InvoiceBatch() {
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <button
                             onClick={() => saveLines(inv)}
-                            disabled={savingLines || !reasonOk || emptyDesc || badNumber}
+                            disabled={savingLines || !reasonOk || emptyDesc || badNumber
+                              || (editDate !== '' && (editDate < `${inv.period.slice(0, 7)}-01` || editDate.slice(0, 7) !== inv.period.slice(0, 7)))}
                           >
-                            {savingLines ? 'Saving…' : 'Save lines'}
+                            {savingLines ? 'Saving…' : 'Save'}
                           </button>
                           <button className="btn-ghost" onClick={() => setEditingId(null)} disabled={savingLines}>Cancel</button>
                           <span className="muted" style={{ fontSize: 11, lineHeight: 1.4 }}>
-                            Saving clears the stored PDF so the next send re-renders it from these lines.
+                            Saving clears the stored PDF so the next send re-renders it from these lines and this date.
                           </span>
                         </div>
                       </div>

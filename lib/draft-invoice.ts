@@ -153,13 +153,21 @@ export async function upsertDraftInvoice(
    */
   let existingAdHoc: Array<{ qty: number; description: string; unitPrice: number; total: number }> = []
   let previousTotal: number | null = null
+  /** The date an admin chose on the invoice being rebuilt, if they chose one. */
+  let customDate: Date | null = null
   if (sequence.existingId) {
     // Array form, not maybeSingle: the house style in this file, and the only shape the
     // callers' clients implement.
     const { data: prior, error: priorErr } = await db.from('invoices')
       .select('payload_json').eq('id', sequence.existingId)
     if (priorErr) return block(`could not read the invoice being rebuilt (${priorErr.message}), so its added lines could not be carried over`)
-    const priorPayload = ((prior ?? [])[0] as { payload_json?: { lines?: unknown; total?: unknown } } | undefined)?.payload_json
+    const priorPayload = ((prior ?? [])[0] as { payload_json?: { lines?: unknown; total?: unknown; invoiceDate?: unknown; invoiceDateCustom?: unknown } } | undefined)?.payload_json
+    // Kept only while it is still inside the month being invoiced, so a stale value can
+    // never drag a rebuilt invoice into another month.
+    if (priorPayload?.invoiceDateCustom === true && typeof priorPayload.invoiceDate === 'string') {
+      const kept = new Date(priorPayload.invoiceDate)
+      if (!Number.isNaN(kept.getTime()) && kept.toISOString().slice(0, 7) === String(period).slice(0, 7)) customDate = kept
+    }
     const priorLines = priorPayload?.lines
     if (Array.isArray(priorLines)) existingAdHoc = priorLines as typeof existingAdHoc
     // Kept for the revision notice below: telling a BAM their invoice changed needs the
@@ -207,7 +215,8 @@ export async function upsertDraftInvoice(
       // The 16th of the month being invoiced, always. `new Date()` alone printed the
       // day this BAM's last receipt happened to be approved, which spread one month's
       // invoices across six different dates.
-      generatedAt: invoiceDateFor(new Date(period)),
+      generatedAt: customDate ?? invoiceDateFor(new Date(period)),
+      dateIsCustom: customDate !== null,
       /*
        * Carried over from the invoice we are about to overwrite. This function replaces
        * payload_json whole, and the line editor writes into that same field, so without

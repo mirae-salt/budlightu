@@ -98,6 +98,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     invoiceId: id,
     lines: fields.lines,
     reason: fields.reason,
+    invoiceDate: fields.invoice_date,
     actor: { userId: auth.devBypass ? null : auth.userId, role: auth.role },
     hstOnFile,
     province
@@ -112,6 +113,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     invoice_id: result.invoiceId,
     invoice_number: result.invoiceNumber,
     status: result.status,
+    invoice_date: result.invoiceDate ?? null,
     lines: result.lines,
     subtotal: result.subtotal,
     tax: result.tax,

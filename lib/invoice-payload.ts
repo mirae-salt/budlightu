@@ -87,6 +87,8 @@ export type InvoicePayload = {
   currency: 'CAD'
   /** Set when the address was not on file. The invoice cannot be sent while present. */
   addressPending?: string[]
+  /** invoiceDate was chosen by an admin. A rebuild keeps it instead of using the 16th. */
+  invoiceDateCustom?: true
 }
 
 export function generateInvoicePayload(input: {
@@ -105,6 +107,11 @@ export function generateInvoicePayload(input: {
    * would leave a document whose lines do not add up to its own total.
    */
   extraLines?: InvoicePayload['lines']
+  /**
+   * `generatedAt` was set by a person, not by the 16th rule. Stored on the payload so a
+   * rebuild (a receipt decision, or the student finishing onboarding) keeps it.
+   */
+  dateIsCustom?: boolean
 }): InvoicePayload {
   const { bam, cohort, ledger, period, seq, generatedAt } = input
   const revision = input.revision ?? 1
@@ -168,9 +175,7 @@ export function generateInvoicePayload(input: {
   const tax = bam.hstNumber ? computeHst(subtotal, bam.prov) : 0
   const total = round2(subtotal + tax)
 
-  const dateReadable = generatedAt.toLocaleString('en-US', {
-    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'
-  }).replace(/(\d+),/, ordinal).toUpperCase()
+  const dateReadable = readableInvoiceDate(generatedAt)
 
   return {
     invoiceNumber,
@@ -212,7 +217,8 @@ export function generateInvoicePayload(input: {
       dateReadable
     },
     currency: 'CAD',
-    ...(missingAddress.length ? { addressPending: missingAddress } : {})
+    ...(missingAddress.length ? { addressPending: missingAddress } : {}),
+    ...(input.dateIsCustom ? { invoiceDateCustom: true } : {})
   }
 }
 
@@ -260,6 +266,13 @@ export function computeHst(subtotal: number, province?: string): number {
     throw new Error(`Unknown province code "${key}" — cannot compute tax. Fix BAM province before invoicing.`)
   }
   return round2(subtotal * rate)
+}
+
+/** "SEPTEMBER 30TH, 2026": the date as the invoice prints it. One place, so an edit matches a build. */
+export function readableInvoiceDate(d: Date): string {
+  return d.toLocaleString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'
+  }).replace(/(\d+),/, ordinal).toUpperCase()
 }
 
 function ordinal(_m: string, day: string): string {

@@ -39,6 +39,7 @@
  *
  * Author: Mirae Lee <mirae.lee@ilovesalt.com>
  */
+import { parseInvoiceDateEdit } from './invoice-date-edit'
 import { cleanText } from './sanitize'
 import { round2, parseMoney } from './money'
 import { computeHst } from './invoice-payload'
@@ -368,6 +369,8 @@ export type LineEditSuccess = {
   invoiceId: string
   invoiceNumber: string
   status: string
+  /** The printed date after the edit, ISO. Null when the invoice carries none. */
+  invoiceDate?: string | null
   lines: InvoiceLine[]
   subtotal: number
   tax: number
@@ -381,6 +384,7 @@ export type LineEditSuccess = {
 export type LineEditResult = LineEditSuccess | Failed
 
 type StoredPayload = {
+  invoiceDate?: unknown
   lines?: PayloadLineish[]
   subtotal?: unknown
   tax?: unknown
@@ -415,6 +419,8 @@ export async function applyInvoiceLineEdit(
     hstOnFile: boolean
     /** `bams.prov`, used only for the tax rate. */
     province: string
+    /** A new printed date, YYYY-MM-DD. Absent or empty leaves the date alone. */
+    invoiceDate?: unknown
   }
 ): Promise<LineEditResult> {
   const { invoiceId, actor } = input
@@ -482,12 +488,23 @@ export async function applyInvoiceLineEdit(
   const totals = recomputeTotals(afterLines, { hstApplicable: hst.hstApplicable, province: input.province })
   if (!totals.ok) return totals
 
-  const newPayload = {
+  // The printed date. Validated here, with the lines, so a bad date saves nothing.
+  const dateEdit = parseInvoiceDateEdit(input.invoiceDate, invoice.period)
+  if (!dateEdit.ok) return fail(dateEdit.status, dateEdit.message)
+  const beforeDate = (stored as { invoiceDate?: unknown }).invoiceDate ?? null
+  const dateChanged = dateEdit.provided && String(beforeDate ?? '').slice(0, 10) !== dateEdit.iso.slice(0, 10)
+
+  const newPayload: Record<string, unknown> = {
     ...(payload as Record<string, unknown>),
     lines: afterLines,
     subtotal: totals.subtotal,
     tax: totals.tax,
     total: totals.total
+  }
+  if (dateChanged && dateEdit.provided) {
+    newPayload.invoiceDate = dateEdit.iso
+    newPayload.footer = { ...((payload as { footer?: Record<string, unknown> }).footer ?? {}), dateReadable: dateEdit.readable }
+    newPayload.invoiceDateCustom = true
   }
 
   // ── 6. would this still print? (P1-9) ──────────────────────────────────────
@@ -593,6 +610,7 @@ export async function applyInvoiceLineEdit(
     entity_id: invoiceId,
     action: 'invoice_lines_edit',
     before_json: {
+      ...(dateChanged ? { invoice_date: beforeDate } : {}),
       lines: beforeLines,
       subtotal: stored.subtotal ?? null,
       tax: stored.tax ?? null,
@@ -602,6 +620,7 @@ export async function applyInvoiceLineEdit(
     },
     after_json: {
       reason: parsedReason.reason,
+      ...(dateChanged && dateEdit.provided ? { invoice_date: dateEdit.iso } : {}),
       lines: afterLines,
       subtotal: totals.subtotal,
       tax: totals.tax,
@@ -636,6 +655,7 @@ export async function applyInvoiceLineEdit(
     invoiceId,
     invoiceNumber: invoice.invoice_number,
     status: savedRow.status,
+    invoiceDate: typeof savedPayload.invoiceDate === 'string' ? savedPayload.invoiceDate : null,
     lines: afterLines,
     subtotal: totals.subtotal,
     tax: totals.tax,
