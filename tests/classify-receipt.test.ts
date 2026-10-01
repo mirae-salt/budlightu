@@ -60,11 +60,23 @@ describe('classifyReceipt', () => {
     expect(out.reason).toContain('first_cohort_all_review')
   })
 
-  it('boundary at fresh max ($148) → review', () => {
+  it('$148, just under the cap, clears: the review band is off by default', () => {
     const out = classifyReceipt({
       ocr: mkOcr({ total: 148 }),
       spendableCap: 150,
       policy: basePolicy,
+      duplicateHash: false,
+      lowResolutionHeuristic: false
+    })
+    expect(out.status).toBe('auto_pass')
+    expect(out.budLightTotalInclTax).toBe(148)
+  })
+
+  it('$148 still goes to review when a cohort sets a padding', () => {
+    const out = classifyReceipt({
+      ocr: mkOcr({ total: 148 }),
+      spendableCap: 150,
+      policy: { ...basePolicy, reviewBandPaddingCad: 10 },
       duplicateHash: false,
       lowResolutionHeuristic: false
     })

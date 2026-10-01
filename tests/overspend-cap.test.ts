@@ -98,11 +98,11 @@ describe('a figure several times the cap is checked whatever confirms it', () =>
 })
 
 describe('nothing else about the band changed', () => {
-  it('just under the cap is still a program manager decision', () => {
-    // The soft-floor band, $140 to $150, is untouched by this.
+  it('just under the cap clears: the soft-floor band is off by default', () => {
+    // It was $140 to $150 and a program manager decided. Retired with the pay-what-was-spent
+    // rule; the payout is the receipt's own amount, so there is nothing to decide.
     const out = decide(beerOnly(145, 139, 6))
-    expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/^review_band:/)
+    expect(out.status).toBe('auto_pass')
   })
 
   it('an ordinary receipt well under the cap still clears', () => {

@@ -13,7 +13,14 @@ export const DEFAULT_POLICY: Policy = {
   reimbursementMax: 150,
   rolloverMode: 'forfeit',
   capMultiplier: 1,
-  reviewBandPaddingCad: 10,
+  // 0: no "just under the cap" review. The band was the PASS/REVIEW/FAIL model's soft
+  // floor ($140 to $150, Robin decides), retired on 2026-08-04 when the rule became
+  // "reimbursed what was spent, up to $150". Nothing is left for a person to decide in
+  // it: the payout is the receipt's own amount, and a misread there is no likelier than on
+  // a $60 receipt, which is never reviewed. Of the 4 September receipts it sent to an
+  // admin, all 4 were approved with the amount unchanged. A receipt AT or over the cap
+  // still follows the overspend rules in classify-receipt.
+  reviewBandPaddingCad: 0,
   // Review-everything mode is OFF (Mirae, 2026-08-10, stated repeatedly).
   //
   // The program exists to remove ~5 hours a month of manual checking. With this on,

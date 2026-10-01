@@ -248,11 +248,17 @@ describe('P0-G: REVIEW band + first-cohort safeguard', () => {
     lines: [{ desc: 'BUD LIGHT', qty: 1, unit: total, total, is_bud_light: true, confidence: 0.99 }],
     grand_total: total, bud_light_total_incl_tax: total, overall_confidence: 0.99
   })
-  it('$140-$149 soft-floor band routes to Robin (was unreachable: isInReviewBand had no callers)', () => {
+  it('$140-$149 routes to Robin when a padding is set (the default is 0, so the band is off)', () => {
     for (const t of [140, 145, 149, 149.99]) {
-      const out = classifyReceipt({ ocr: clean(t) as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
+      const out = classifyReceipt({ ocr: clean(t) as any, spendableCap: 150, policy: { ...P, reviewBandPaddingCad: 10 }, duplicateHash: false, lowResolutionHeuristic: false })
       expect(out.status, `total ${t}`).toBe('review')
       expect(out.reason).toMatch(/^review_band: /)
+    }
+  })
+  it('$140-$149 clears under the default policy', () => {
+    for (const t of [140, 145, 149, 149.99]) {
+      const out = classifyReceipt({ ocr: clean(t) as any, spendableCap: 150, policy: P, duplicateHash: false, lowResolutionHeuristic: false })
+      expect(out.status, `total ${t}`).toBe('auto_pass')
     }
   })
   it('$139.99 and below can still auto_pass', () => {
