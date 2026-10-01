@@ -1062,8 +1062,8 @@ export default function InvoiceBatch() {
           cohortOptions={cohortOptions}
           showTestToggle={false}
           trailing={(
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-              <label htmlFor="invoice-month" className="muted" style={{ fontSize: 12, margin: 0 }}>Month</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
+              <label htmlFor="invoice-month" style={{ fontSize: 13, fontWeight: 700, color: 'var(--bl-navy)', margin: 0 }}>Month</label>
               <select
                 id="invoice-month"
                 value={monthFilter === 'current' ? thisMonth : monthFilter === 'all' ? 'all' : shownMonth}
@@ -1073,8 +1073,15 @@ export default function InvoiceBatch() {
                   setMonthFilter(e.target.value === thisMonth ? 'current' : e.target.value)
                   setSelected(new Set())
                 }}
-                // width: auto, because the global select rule stretches it across the page.
-                style={{ fontSize: 12, padding: '5px 8px', width: 'auto', minWidth: 170 }}
+                // Larger and outlined so it reads as a filter, and amber when it is NOT the
+                // current month: a list that quietly shows an old month looks like a
+                // list with missing invoices. width: auto, because the global select rule
+                // stretches it across the page.
+                style={{
+                  fontSize: 14, fontWeight: 600, padding: '7px 12px', width: 'auto', minWidth: 210,
+                  border: '2px solid var(--bl-navy)', borderRadius: 6, cursor: 'pointer',
+                  background: monthFilter === 'current' ? '#fff' : 'rgba(245,158,11,0.18)'
+                }}
               >
                 {monthOptions.map(m => (
                   <option key={m} value={m}>{periodLabel(`${m}-01`)}{m === thisMonth ? ' (this month)' : ''}</option>
