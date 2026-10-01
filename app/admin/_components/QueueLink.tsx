@@ -18,6 +18,13 @@
  * now" is different information from "this does not exist". Being on the page it belongs to
  * is what makes one quiet line affordable, where a permanent sidebar row was not.
  *
+ * `hideWhenNone` is the exception, for a queue that has never had an entry. Unmatched onboarding
+ * forms (a student typed an email that is not on the roster) have had none in the whole first
+ * term, and a permanent green line on the Receipts page, called "receipts", read as a feature
+ * that should be doing something. With the flag the row appears only when there is work.
+ * The page itself stays at /admin/unmatched, and the count is still read, so a parked form
+ * still shows up here the moment there is one.
+ *
  * A count that cannot be read shows no number at all. Rendering 0 for a failed read is the
  * one wrong answer, because 0 is exactly what says nothing needs attention.
  */
@@ -31,7 +38,8 @@ export function QueueLink({
   title,
   countKey,
   labelSome,
-  labelNone
+  labelNone,
+  hideWhenNone = false
 }: {
   href: string
   /** The queue's name, always shown, so the row is findable when the count is zero. */
@@ -41,6 +49,8 @@ export function QueueLink({
   labelSome: (n: number) => string
   /** Shown when the queue is empty. */
   labelNone: string
+  /** Render nothing while the queue is empty. Default: one quiet line, see the header. */
+  hideWhenNone?: boolean
 }) {
   const [count, setCount] = useState<number | null | undefined>(undefined)
 
@@ -63,6 +73,8 @@ export function QueueLink({
   if (count === undefined) return null
 
   const waiting = typeof count === 'number' && count > 0
+
+  if (!waiting && hideWhenNone && typeof count === 'number') return null
 
   if (!waiting) {
     // Same box, same position, quieter. A bare 12px sentence in muted grey was not findable:

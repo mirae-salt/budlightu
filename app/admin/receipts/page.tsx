@@ -523,14 +523,15 @@ export default function ReceiptsQueue() {
     <>
       <TopBar crumbs={['Receipts', tab === 'queue' ? 'Review queue' : 'History']} />
 
-      {/* Moved here from the sidebar. An unmatched receipt is a receipt, and this is where
-          someone would look for it. See _components/QueueLink.tsx. */}
+      {/* Onboarding forms whose email did not match the roster. Not receipts, whatever the old
+          name said. Shown only when one is waiting; see QueueLink hideWhenNone. */}
       <QueueLink
         href="/admin/unmatched"
-        title="Unmatched receipts"
+        title="Onboarding forms"
         countKey="unmatched"
-        labelSome={n => `${n} could not be matched to a BAM`}
+        labelSome={n => `${n} ${n === 1 ? 'was' : 'were'} submitted with an email that is not on the roster`}
         labelNone="none right now"
+        hideWhenNone
       />
 
       <div className="surface" style={{ marginBottom: 16 }}>
