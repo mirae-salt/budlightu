@@ -145,7 +145,16 @@ export const OVERSPEND_OUTLIER_MULTIPLE = 2
 export const TOTAL_MISMATCH_TOLERANCE_CAD = 1.0
 
 /**
- * The same tolerance, widened to 1% of the total on a large receipt.
+ * 1.5%, from two receipts the model got a little wrong in the same way. Maxi's $168.22 was
+ * 0.8% off and Roi d'la biere's $178.24 was 1.07% off, both because the model multiplied by
+ * a rounded Quebec rate (14%) where the receipts charged 14.975%, and both had a printed
+ * total that our figure matched to the cent. A second beer brand tagged by mistake moves the
+ * model's figure by far more: a $12 six-pack on a $178 receipt is 6.7%.
+ */
+const MISMATCH_TOLERANCE_FRACTION = 0.015
+
+/**
+ * The same tolerance, widened to a share of the total on a large receipt.
  *
  * The model rounds the tax rate. Asked for the Bud Light total on Maxi's $168.22 receipt
  * it multiplied by 1.14 where the receipt charged 14.975%, and came out $1.35 short once
@@ -155,7 +164,7 @@ export const TOTAL_MISMATCH_TOLERANCE_CAD = 1.0
  * a second product, which is the mistake this check exists to catch.
  */
 function mismatchTolerance(total: number): number {
-  return Math.max(TOTAL_MISMATCH_TOLERANCE_CAD, round2(total * 0.01))
+  return Math.max(TOTAL_MISMATCH_TOLERANCE_CAD, round2(total * MISMATCH_TOLERANCE_FRACTION))
 }
 
 /** How closely the sum of line totals must land on subtotal / grand_total to pick a basis. */

@@ -105,6 +105,29 @@ describe('isDepositLine: Quebec environmental fee and the bare BOUT', () => {
     'Environnement'             // no fee word
   ])('does not read "%s" as a deposit', d => expect(isDepositLine(d)).toBe(false))
 
+  const roi = {
+    store: "Roi d'la bière", subtotal: 156.35, tax: 21.89, grand_total: 178.24, bud_light_total_incl_tax: 163.85,
+    overall_confidence: 0.95,
+    lines: [
+      bl('12/CAN BL D LIGHT LIME', 23.99, 0.95), other("Frais l'environnement", 0.48, 0.9), other('Dépôt de bouteille', 1.2, 0.9),
+      bl('2x30/CAN BUD LIGHT', 79.89, 0.95), other("Frais l'environnement", 1.2, 0.9), other('Dépôt de bouteille', 6, 0.9),
+      bl('30/CAN BL D. LIGHT', 39.99, 0.95), other("Frais l'environnement", 0.6, 0.9), other('Dépôt de bouteille', 3, 0.9)
+    ]
+  }
+
+  it("Roi d'la biere clears: the model's figure is 1.07% short, from a rounded Quebec rate", () => {
+    const out = classify(roi)
+    expect(out.budLightTotalInclTax).toBe(178.24)
+    expect(out.status).toBe('auto_pass')
+  })
+
+  it("but a second brand of beer on the same receipt still goes to a person", () => {
+    // A $12 six-pack the model did not count as Bud Light: 6.7% of the total.
+    const out = classify({ ...roi, bud_light_total_incl_tax: 163.85 - 12 })
+    expect(out.status).toBe('review')
+    expect(out.reason).toMatch(/^total_mismatch/)
+  })
+
   it("Roi d'la biere: the recompute lands on the printed $178.24", () => {
     const rc = recomputeBudLightTotal({
       store: "Roi d'la bière", subtotal: 156.35, tax: 21.89, grand_total: 178.24, bud_light_total_incl_tax: 163.85,

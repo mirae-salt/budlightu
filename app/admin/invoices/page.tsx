@@ -7,7 +7,7 @@ import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
 import { type InvoiceRow } from '../_lib/dummy'
-import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
+import { useCohortFilter, CohortFilterBar, splitPills } from '../_components/CohortFilter'
 import { useTableSort, SortTh, compareText } from '../_components/SortHeader'
 
 type PayloadLine = { qty: number; description: string; unitPrice: number; total: number }
@@ -373,9 +373,9 @@ export default function InvoiceBatch() {
    * September invoice and the one that mattered was buried in it. It is not remembered
    * between visits on purpose: a month chosen last week must not hide this one.
    *
-   * Hiding rows by default is how Lea Major's unsent September invoice could vanish, so
-   * whatever is NOT in the chosen month and has not gone out is counted in a line above the
-   * list (`elsewhere`) and one click away. That line is what makes the default safe.
+   * Hiding rows by default is how Lea Major's unsent September invoice could vanish, so an
+   * earlier month that still has something unsent shows an amber count on its own button
+   * (`unsentByMonth`). That count is what makes the default safe.
    */
   const [monthFilter, setMonthFilter] = useState<string>('current')
   const thisMonth = new Date().toISOString().slice(0, 7)
@@ -383,15 +383,20 @@ export default function InvoiceBatch() {
   const monthOptions = Array.from(new Set([...inCohort.map(i => i.period.slice(0, 7)), thisMonth])).sort().reverse()
   const invoices = monthFilter === 'all' ? inCohort : inCohort.filter(inv => inv.period.slice(0, 7) === shownMonth)
   /**
-   * Real (live-cohort) invoices from an EARLIER month than this one that nobody has sent,
-   * outside the month being viewed. The current month's drafts are not listed: they wait
-   * for the 17th by design, and a warning that is always on stops being read.
+   * Real (live-cohort) invoices from an EARLIER month than this one that nobody has sent, by
+   * month. Shown as a badge on that month's button, so a default that hides old months still
+   * says when one of them has something unsent. The current month is not counted: its drafts
+   * wait for the 17th by design, and a warning that is always on stops being read.
    */
-  const elsewhere = monthFilter === 'all' ? [] : Object.entries(
-    inCohort
-      .filter(i => i.sendMode === 'live' && (i.status === 'draft' || i.status === 'approved') && i.period.slice(0, 7) < thisMonth && i.period.slice(0, 7) !== shownMonth)
-      .reduce<Record<string, number>>((acc, i) => { const m = i.period.slice(0, 7); acc[m] = (acc[m] ?? 0) + 1; return acc }, {})
-  ).sort(([a], [b]) => b.localeCompare(a))
+  const unsentByMonth = inCohort
+    .filter(i => i.sendMode === 'live' && (i.status === 'draft' || i.status === 'approved') && i.period.slice(0, 7) < thisMonth)
+    .reduce<Record<string, number>>((acc, i) => { const m = i.period.slice(0, 7); acc[m] = (acc[m] ?? 0) + 1; return acc }, {})
+  const monthChoices = monthOptions.map(m => ({
+    id: m,
+    name: m === thisMonth ? 'This month' : new Date(`${m}-01T00:00:00Z`).toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+  }))
+  const activeMonthId = monthFilter === 'all' ? 'all' : shownMonth
+  const { pills: monthPills, folded: monthFolded } = splitPills(monthChoices, activeMonthId, 3)
 
   // Display order only. `invoices` (unsorted) is what selection, totals and the
   // draft/approved splits below are computed from, so re-sorting the table never
@@ -1062,59 +1067,52 @@ export default function InvoiceBatch() {
           cohortOptions={cohortOptions}
           showTestToggle={false}
           trailing={(
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
-              <label htmlFor="invoice-month" style={{ fontSize: 13, fontWeight: 700, color: 'var(--bl-navy)', margin: 0 }}>Month</label>
-              <select
-                id="invoice-month"
-                value={monthFilter === 'current' ? thisMonth : monthFilter === 'all' ? 'all' : shownMonth}
-                onChange={e => {
-                  // Picking this month goes back to following the calendar, so the default
-                  // keeps tracking the month rather than freezing on the one clicked.
-                  setMonthFilter(e.target.value === thisMonth ? 'current' : e.target.value)
-                  setSelected(new Set())
-                }}
-                // Larger and outlined so it reads as a filter, and amber when it is NOT the
-                // current month: a list that quietly shows an old month looks like a
-                // list with missing invoices. width: auto, because the global select rule
-                // stretches it across the page.
-                style={{
-                  fontSize: 14, fontWeight: 600, padding: '7px 12px', width: 'auto', minWidth: 210,
-                  border: '2px solid var(--bl-navy)', borderRadius: 6, cursor: 'pointer',
-                  background: monthFilter === 'current' ? '#fff' : 'rgba(245,158,11,0.18)'
-                }}
+            // Same buttons as the cohort row, on the same line, so the two filters read as one
+            // toolbar. A month with something unsent carries an amber count.
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingLeft: 16, borderLeft: '1px solid var(--border, #d9dbe3)' }}>
+              <span className="muted" style={{ fontSize: 12 }}>Month</span>
+              {monthPills.map(c => {
+                const active = activeMonthId === c.id
+                const unsent = unsentByMonth[c.id] ?? 0
+                return (
+                  <button
+                    key={c.id}
+                    className={active ? 'btn-navy' : 'btn-ghost'}
+                    style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    title={unsent > 0 ? `${unsent} invoice${unsent > 1 ? 's' : ''} not sent` : undefined}
+                    onClick={() => { setMonthFilter(c.id === thisMonth ? 'current' : c.id); setSelected(new Set()) }}
+                  >
+                    {c.name}
+                    {unsent > 0 && (
+                      <span style={{ background: '#F59E0B', color: '#fff', borderRadius: 10, fontSize: 11, fontWeight: 700, lineHeight: '16px', minWidth: 16, padding: '0 5px' }}>
+                        {unsent}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+              <button
+                className={monthFilter === 'all' ? 'btn-navy' : 'btn-ghost'}
+                style={{ fontSize: 12, padding: '5px 14px' }}
+                onClick={() => { setMonthFilter('all'); setSelected(new Set()) }}
               >
-                {monthOptions.map(m => (
-                  <option key={m} value={m}>{periodLabel(`${m}-01`)}{m === thisMonth ? ' (this month)' : ''}</option>
-                ))}
-                <option value="all">All months</option>
-              </select>
+                All
+              </button>
+              {monthFolded.length > 0 && (
+                <select
+                  value=""
+                  onChange={e => { if (e.target.value) { setMonthFilter(e.target.value); setSelected(new Set()) } }}
+                  style={{ fontSize: 12, padding: '5px 8px', width: 'auto', maxWidth: 160 }}
+                >
+                  <option value="">{monthFolded.length} earlier…</option>
+                  {monthFolded.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}{unsentByMonth[c.id] ? ` (${unsentByMonth[c.id]} not sent)` : ''}</option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         />
-
-        {elsewhere.length > 0 && (
-          <div
-            role="status"
-            style={{
-              margin: '0 0 12px', padding: '8px 12px', borderRadius: 6, fontSize: 13,
-              background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.4)',
-              display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center'
-            }}
-          >
-            {elsewhere.map(([m, n]) => (
-              <span key={m}>
-                {periodLabel(`${m}-01`)}: {n} invoice{n > 1 ? 's' : ''} not sent.{' '}
-                <button
-                  className="btn-ghost"
-                  style={{ fontSize: 12, padding: '2px 8px' }}
-                  onClick={() => { setMonthFilter(m); setSelected(new Set()) }}
-                >
-                  View
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
 
         {unconfirming && (
           <div className="card" style={{ marginBottom: 16 }}>
