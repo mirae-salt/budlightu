@@ -133,6 +133,7 @@ export function CohortFilterBar({
   cohortOptions,
   showTestToggle = true,
   showNoCohort = false,
+  trailing,
 }: {
   cohortFilter: string
   hideTest: boolean
@@ -141,6 +142,8 @@ export function CohortFilterBar({
   /** The invoices screen has no per-BAM test flag, so it hides this checkbox. */
   showTestToggle?: boolean
   showNoCohort?: boolean
+  /** Another control for the same row (the invoices screen puts its month picker here). */
+  trailing?: React.ReactNode
 }) {
   const choices: CohortOption[] = [
     { id: 'all', name: 'All' },
@@ -182,6 +185,8 @@ export function CohortFilterBar({
           Hide test accounts
         </label>
       )}
+
+      {trailing}
     </div>
   )
 }

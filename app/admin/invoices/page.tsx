@@ -1061,27 +1061,29 @@ export default function InvoiceBatch() {
           setFilters={setFilters}
           cohortOptions={cohortOptions}
           showTestToggle={false}
+          trailing={(
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+              <label htmlFor="invoice-month" className="muted" style={{ fontSize: 12, margin: 0 }}>Month</label>
+              <select
+                id="invoice-month"
+                value={monthFilter === 'current' ? thisMonth : monthFilter === 'all' ? 'all' : shownMonth}
+                onChange={e => {
+                  // Picking this month goes back to following the calendar, so the default
+                  // keeps tracking the month rather than freezing on the one clicked.
+                  setMonthFilter(e.target.value === thisMonth ? 'current' : e.target.value)
+                  setSelected(new Set())
+                }}
+                // width: auto, because the global select rule stretches it across the page.
+                style={{ fontSize: 12, padding: '5px 8px', width: 'auto', minWidth: 170 }}
+              >
+                {monthOptions.map(m => (
+                  <option key={m} value={m}>{periodLabel(`${m}-01`)}{m === thisMonth ? ' (this month)' : ''}</option>
+                ))}
+                <option value="all">All months</option>
+              </select>
+            </div>
+          )}
         />
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 12px' }}>
-          <label htmlFor="invoice-month" className="muted" style={{ fontSize: 12 }}>Month</label>
-          <select
-            id="invoice-month"
-            value={monthFilter === 'current' ? thisMonth : monthFilter === 'all' ? 'all' : shownMonth}
-            onChange={e => {
-              // Picking this month goes back to following the calendar, so the default
-              // keeps tracking the month rather than freezing on the one clicked.
-              setMonthFilter(e.target.value === thisMonth ? 'current' : e.target.value)
-              setSelected(new Set())
-            }}
-            style={{ fontSize: 13, padding: '4px 8px' }}
-          >
-            {monthOptions.map(m => (
-              <option key={m} value={m}>{periodLabel(`${m}-01`)}{m === thisMonth ? ' (this month)' : ''}</option>
-            ))}
-            <option value="all">All months</option>
-          </select>
-        </div>
 
         {elsewhere.length > 0 && (
           <div
