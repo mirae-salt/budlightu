@@ -97,3 +97,50 @@ describe('summarizeReason', () => {
     expect(summarizeReason('')).toBe('')
   })
 })
+
+describe('the auto-approved sentence', () => {
+  it('reads an old stored row as a plain statement about the receipt', () => {
+    const [p] = parseReason('Meets all auto-pass thresholds (recomputed $62.14 from line items)')
+    expect(p).toMatchObject({ code: 'auto_approved', label: 'Auto-approved' })
+    expect(p.detail).toBe('The Bud Light items on this receipt add up to $62.14')
+    expect(p.detail).not.toMatch(/recomputed|threshold/i)
+  })
+
+  it('reads a thousand-dollar total', () => {
+    expect(parseReason('meets all auto-pass thresholds (recomputed $1,127.77 from line items)')[0].detail).toContain('$1,127.77')
+  })
+
+  it('reads the wording new rows are written with', () => {
+    const [p] = parseReason('auto_approved: the Bud Light items on this receipt add up to $127.77')
+    expect(p).toMatchObject({ label: 'Auto-approved' })
+    expect(p.detail).toBe('The Bud Light items on this receipt add up to $127.77')
+  })
+
+  it('summarises to one short label', () => {
+    expect(summarizeReason('Meets all auto-pass thresholds (recomputed $56.99 from line items)')).toBe('Auto-approved')
+  })
+
+  it('leaves other free text alone', () => {
+    expect(parseReason('Meets Bud Light reimbursement criteria')[0].detail).toBe('Meets Bud Light reimbursement criteria')
+  })
+})
+
+describe('the amount note an admin approval leaves', () => {
+  it('says nothing when the amount did not move', () => {
+    const [p] = parseReason('Meets Bud Light reimbursement criteria [amount corrected by admin: $179.85 -> $179.85, recomputed from corrected Bud Light lines] [Bud Light lines corrected: +Deposit (DEP)]')
+    expect(p.detail).not.toMatch(/amount corrected|recomputed/)
+    expect(p.detail).toContain('Meets Bud Light reimbursement criteria')
+    expect(p.detail).toContain('Bud Light lines corrected: +Deposit (DEP)')
+  })
+
+  it('says it plainly when the amount did move', () => {
+    const [p] = parseReason('Meets Bud Light reimbursement criteria [amount corrected by admin: $13.00 -> $14.53]')
+    expect(p.detail).toBe('Meets Bud Light reimbursement criteria (amount changed from $13.00 to $14.53)')
+  })
+
+  it('handles an amount that had no value before', () => {
+    const [p] = parseReason('Meets Bud Light reimbursement criteria [amount corrected by admin: none -> $96.34]')
+    expect(p.detail).toContain('amount changed from nothing to $96.34')
+  })
+})
+

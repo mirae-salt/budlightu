@@ -62,6 +62,7 @@ const LABELS: Record<string, string> = {
   over_cap: 'Over the monthly cap',
   overspend: 'Spent over the cap',
   review_band: 'Close to the monthly cap',
+  auto_approved: 'Auto-approved',
   ocr_not_started: 'Could not read this file',
   ocr_failed: 'Could not read this file'
 }
@@ -98,6 +99,12 @@ const upperFirst = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : 
  */
 function cleanDetail(text: string): string {
   let s = text.replace(/\s+/g, ' ').trim()
+  // "[amount corrected by admin: $179.85 -> $179.85, recomputed from corrected Bud Light
+  // lines]" is written even when the amount did not move. Said only when it did.
+  s = s.replace(
+    /\s*\[amount corrected by admin: (?:\$([\d,]+\.\d{2})|none) -> \$([\d,]+\.\d{2})(?:, recomputed from corrected Bud Light lines)?\]/g,
+    (_m, from: string | undefined, to: string) => (from === to ? '' : ` (amount changed from ${from ? `$${from}` : 'nothing'} to $${to})`)
+  )
   for (const [pattern, replacement] of LEAKED_IDENTIFIERS) s = s.replace(pattern, replacement)
   return s
     .split(/\s+--\s+/)
@@ -169,6 +176,13 @@ export function parseReason(
     .map(s => s.trim())
     .filter(Boolean)
     .map(clause => {
+      // Rows written before 2026-10-01 say "meets all auto-pass thresholds (recomputed $62.14
+      // from line items)": the name of the check, which tells nobody anything. Same facts,
+      // in words. The stored text is left alone.
+      const legacy = clause.match(/^meets all auto-pass thresholds \(recomputed \$([\d,]+\.\d{2}) from line items\)\.?$/i)
+      if (legacy) {
+        return { code: 'auto_approved', label: LABELS.auto_approved, detail: `The Bud Light items on this receipt add up to $${legacy[1]}` }
+      }
       const m = clause.match(/^([a-z][a-z0-9_]*):\s*([\s\S]+)$/)
       if (!m) return { code: null, label: '', detail: cleanDetail(clause) }
       const code = m[1]

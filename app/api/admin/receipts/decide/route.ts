@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
     why
   })
 
-  const amountNote = correctedTotal !== null
+  const amountNote = correctedTotal !== null && correctedTotal !== previousTotal
     ? ` [amount corrected by admin: ${previousTotal === null ? 'none' : `$${previousTotal.toFixed(2)}`} -> $${correctedTotal.toFixed(2)}${plan.amountSource === 'corrected_lines' ? ', recomputed from corrected Bud Light lines' : ''}]`
     : ''
   const classificationNote = correction

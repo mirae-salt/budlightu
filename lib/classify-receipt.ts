@@ -897,5 +897,7 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
     return out('review', `review_band: spent $${total.toFixed(2)}, just under the $${cap.toFixed(2)} cap (anything from $${softFloor.toFixed(2)} is checked) -- a program manager decides`)
   }
 
-  return out('auto_pass', `meets all auto-pass thresholds (recomputed $${total.toFixed(2)} from line items)`)
+  // Written for a person to read on the receipts screen. The old wording, "meets all auto-pass
+  // thresholds (recomputed $X from line items)", described the check and not the receipt.
+  return out('auto_pass', `auto_approved: the Bud Light items on this receipt add up to $${total.toFixed(2)}`)
 }
