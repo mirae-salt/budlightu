@@ -651,6 +651,9 @@ export default function ReceiptsQueue() {
             so picking a cohort on one screen does not leave another showing TEST rows.
             The tab counts and the badges above are all computed from the filtered list. */}
         <CohortFilterBar
+          className="receipt-filterbar"
+          cohortLabel="Cohort"
+          mode="menu"
           cohortFilter={cohortFilter}
           hideTest={hideTest}
           setFilters={setFilters}

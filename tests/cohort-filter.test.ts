@@ -7,10 +7,26 @@
  * like a complete one, and on the invoices screen that list is money.
  */
 import { describe, it, expect } from 'vitest'
-import { splitPills, MAX_PILLS, type CohortOption } from '../app/admin/_components/CohortFilter'
+import { splitPills, pickCurrentCohort, MAX_PILLS, type CohortOption } from '../app/admin/_components/CohortFilter'
 
 const make = (...names: string[]): CohortOption[] => names.map(n => ({ id: n, name: n }))
 const ids = (cs: CohortOption[]) => cs.map(c => c.id)
+
+describe('current cohort default', () => {
+  const cohorts: CohortOption[] = [
+    { id: 'test', name: 'TEST', start_date: '2026-10-01', end_date: '2027-04-30', send_mode: 'dryrun' },
+    { id: 'real', name: 'Class of 2027', start_date: '2026-09-01', end_date: '2027-04-30', send_mode: 'live' },
+    { id: 'old', name: 'Class of 2026', start_date: '2025-09-01', end_date: '2026-04-30', send_mode: 'live' },
+  ]
+
+  it('uses the live cohort active today, even when a test cohort started later', () => {
+    expect(pickCurrentCohort(cohorts, '2026-10-01')?.id).toBe('real')
+  })
+
+  it('does not select an expired cohort', () => {
+    expect(pickCurrentCohort(cohorts, '2027-05-01')).toBeUndefined()
+  })
+})
 
 describe('splitPills', () => {
   it('folds nothing while everything fits', () => {

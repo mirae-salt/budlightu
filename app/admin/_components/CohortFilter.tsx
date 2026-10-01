@@ -13,16 +13,16 @@
  * "Class of 2027" in one place and seeing TEST invoices in the other is how
  * somebody approves a payment they did not mean to look at.
  *
- * Both filters default to showing everything. A filter that hides rows before
- * anyone asks for it is how a present BAM gets reported missing.
+ * The first visit starts on the current live cohort. "All cohorts" remains
+ * available for checking invoices outside that cohort.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-export type CohortOption = { id: string; name: string; start_date?: string | null }
+export type CohortOption = { id: string; name: string; start_date?: string | null; end_date?: string | null; send_mode?: string | null }
 
 export type Filters = { cohortFilter: string; hideTest: boolean }
 
-const KEY = 'blu.admin.filters'
+const KEY = 'blu.admin.filters.v2'
 const DEFAULTS: Filters = { cohortFilter: 'all', hideTest: false }
 
 function readFilters(): Filters {
@@ -46,15 +46,22 @@ export function useCohortFilter() {
     setFiltersState(readFilters())
     fetch('/api/admin/data?table=cohorts')
       .then(res => res.json())
-      .then(({ data }) => setCohortOptions(
-        Array.isArray(data)
+      .then(({ data }) => {
+        const options: CohortOption[] = Array.isArray(data)
           ? (data as CohortOption[])
-              .map(c => ({ id: c.id, name: c.name, start_date: c.start_date ?? null }))
+              .map(c => ({ id: c.id, name: c.name, start_date: c.start_date ?? null, end_date: c.end_date ?? null, send_mode: c.send_mode ?? null }))
               // Newest first, so the cohort somebody is actually working in is
               // the one that survives the overflow cut below.
               .sort((a, b) => String(b.start_date ?? '').localeCompare(String(a.start_date ?? '')) || a.name.localeCompare(b.name))
           : []
-      ))
+        setCohortOptions(options)
+        let hasSavedChoice = false
+        try { hasSavedChoice = localStorage.getItem(KEY) !== null } catch { /* storage may be disabled */ }
+        if (!hasSavedChoice) {
+          const current = pickCurrentCohort(options, new Date().toISOString().slice(0, 10))
+          if (current) setFiltersState({ cohortFilter: current.id, hideTest: false })
+        }
+      })
       .catch(() => setCohortOptions([]))
   }, [])
 
@@ -76,6 +83,12 @@ export function useCohortFilter() {
   }
 
   return { ...filters, setFilters, cohortOptions, matches }
+}
+
+/** Prefer a live cohort spanning today; TEST/dry-run cohorts never win that tie. */
+export function pickCurrentCohort(options: CohortOption[], today: string): CohortOption | undefined {
+  const active = options.filter(c => c.start_date && c.end_date && c.start_date <= today && today <= c.end_date)
+  return active.find(c => c.send_mode === 'live') ?? active[0]
 }
 
 /** Most rows fit on one line, so most of the time this is buttons. */
@@ -133,6 +146,9 @@ export function CohortFilterBar({
   cohortOptions,
   showTestToggle = true,
   showNoCohort = false,
+  mode = 'pills',
+  className,
+  cohortLabel,
   trailing,
 }: {
   cohortFilter: string
@@ -142,9 +158,32 @@ export function CohortFilterBar({
   /** The invoices screen has no per-BAM test flag, so it hides this checkbox. */
   showTestToggle?: boolean
   showNoCohort?: boolean
+  /** The compact menu keeps the invoice toolbar the same size as cohorts grow. */
+  mode?: 'pills' | 'wrap' | 'select' | 'menu'
+  /** Optional visual grouping for pages with multiple filters. */
+  className?: string
+  cohortLabel?: string
   /** Another control for the same row (the invoices screen puts its month picker here). */
   trailing?: React.ReactNode
 }) {
+  const choiceRef = useRef<HTMLButtonElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  useEffect(() => {
+    if (!pickerOpen) return
+    searchRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPickerOpen(false)
+        choiceRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [pickerOpen])
   const choices: CohortOption[] = [
     { id: 'all', name: 'All' },
     ...cohortOptions,
@@ -152,11 +191,63 @@ export function CohortFilterBar({
   ]
 
   const { pills, folded } = splitPills(choices, cohortFilter)
+  const selectedName = choices.find(c => c.id === cohortFilter)?.name ?? 'Selected cohort unavailable'
+  const searchableChoices = choices.filter(c => c.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '2px 0 14px' }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        {pills.map(c => (
+    <div
+      className={className}
+      style={{ display: 'flex', alignItems: 'center', gap: className ? 12 : 16, flexWrap: 'wrap', padding: className ? '14px 0 16px' : '2px 0 14px' }}
+    >
+      <div className="filterbar-group" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {cohortLabel && <span className="filterbar-label">{cohortLabel}</span>}
+        {mode === 'menu' ? (
+          <div className="cohort-picker" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setPickerOpen(false) }}>
+            <button
+              ref={choiceRef}
+              type="button"
+              className="invoice-cohort-choice"
+              aria-haspopup="listbox"
+              aria-expanded={pickerOpen}
+              aria-label={`Cohort: ${selectedName}. Change cohort`}
+              onClick={() => { setQuery(''); setPickerOpen(open => !open) }}
+            >
+              <span>{cohortFilter === 'all' ? 'All cohorts' : selectedName}</span>
+              <span aria-hidden="true">⌄</span>
+            </button>
+            {pickerOpen && <div className="cohort-picker-menu">
+                {choices.length > 5 && <input ref={searchRef} type="search" className="input" aria-label="Search cohorts" placeholder="Search cohorts…" value={query} onChange={e => setQuery(e.target.value)} />}
+                <div className="cohort-picker-list" role="listbox" aria-label="Cohorts">
+                  {searchableChoices.length === 0 ? (
+                    <p>{query.trim() ? 'No matching cohorts' : 'No cohorts available'}</p>
+                  ) : searchableChoices.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={cohortFilter === c.id ? 'is-selected' : ''}
+                      role="option"
+                      aria-selected={cohortFilter === c.id}
+                      onClick={() => { setFilters({ cohortFilter: c.id }); setPickerOpen(false); choiceRef.current?.focus() }}
+                    >
+                      <span>{c.id === 'all' ? 'All cohorts' : c.name}</span>
+                      {cohortFilter === c.id && <span aria-hidden="true">✓</span>}
+                    </button>
+                  ))}
+                </div>
+            </div>}
+          </div>
+        ) : mode === 'select' ? (
+          <select
+            aria-label={cohortLabel ?? 'Cohort'}
+            value={cohortFilter}
+            onChange={e => setFilters({ cohortFilter: e.target.value })}
+            style={{ width: 'auto', minWidth: 170, maxWidth: 'min(280px, 55vw)' }}
+          >
+            {choices.map(c => (
+              <option key={c.id} value={c.id}>{c.id === 'all' ? 'All cohorts' : c.name}</option>
+            ))}
+          </select>
+        ) : (mode === 'wrap' ? choices : pills).map(c => (
           <button
             key={c.id}
             className={cohortFilter === c.id ? 'btn-navy' : 'btn-ghost'}
@@ -167,7 +258,7 @@ export function CohortFilterBar({
           </button>
         ))}
 
-        {folded.length > 0 && (
+        {mode === 'pills' && folded.length > 0 && (
           <select
             value=""
             onChange={e => { if (e.target.value) setFilters({ cohortFilter: e.target.value }) }}

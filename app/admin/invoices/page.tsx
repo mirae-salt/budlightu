@@ -7,7 +7,7 @@ import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { reasonProblem } from '@/lib/reason'
 import { type InvoiceRow } from '../_lib/dummy'
-import { useCohortFilter, CohortFilterBar, splitPills } from '../_components/CohortFilter'
+import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
 import { useTableSort, SortTh, compareText } from '../_components/SortHeader'
 
 type PayloadLine = { qty: number; description: string; unitPrice: number; total: number }
@@ -380,7 +380,6 @@ export default function InvoiceBatch() {
   const [monthFilter, setMonthFilter] = useState<string>('current')
   const thisMonth = new Date().toISOString().slice(0, 7)
   const shownMonth = monthFilter === 'current' ? thisMonth : monthFilter.slice(0, 7)
-  const monthOptions = Array.from(new Set([...inCohort.map(i => i.period.slice(0, 7)), thisMonth])).sort().reverse()
   const invoices = monthFilter === 'all' ? inCohort : inCohort.filter(inv => inv.period.slice(0, 7) === shownMonth)
   /**
    * Real (live-cohort) invoices from an EARLIER month than this one that nobody has sent, by
@@ -391,12 +390,20 @@ export default function InvoiceBatch() {
   const unsentByMonth = inCohort
     .filter(i => i.sendMode === 'live' && (i.status === 'draft' || i.status === 'approved') && i.period.slice(0, 7) < thisMonth)
     .reduce<Record<string, number>>((acc, i) => { const m = i.period.slice(0, 7); acc[m] = (acc[m] ?? 0) + 1; return acc }, {})
-  const monthChoices = monthOptions.map(m => ({
-    id: m,
-    name: m === thisMonth ? 'This month' : new Date(`${m}-01T00:00:00Z`).toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
-  }))
+  const unsentMonths = Object.keys(unsentByMonth).sort((a, b) => b.localeCompare(a))
+  const unsentTotal = Object.values(unsentByMonth).reduce((sum, count) => sum + count, 0)
   const activeMonthId = monthFilter === 'all' ? 'all' : shownMonth
-  const { pills: monthPills, folded: monthFolded } = splitPills(monthChoices, activeMonthId, 3)
+  const activeMonthLabel = activeMonthId === 'all'
+    ? 'All months'
+    : new Date(`${activeMonthId}-01T00:00:00Z`).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+  function moveMonth(offset: number) {
+    const base = monthFilter === 'all' ? thisMonth : shownMonth
+    const [year, month] = base.split('-').map(Number)
+    const next = new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 7)
+    setMonthFilter(next === thisMonth ? 'current' : next)
+    setSelected(new Set())
+  }
 
   // Display order only. `invoices` (unsorted) is what selection, totals and the
   // draft/approved splits below are computed from, so re-sorting the table never
@@ -982,39 +989,61 @@ export default function InvoiceBatch() {
       )}
 
       <div className="surface">
-        <div style={{
-          padding: '8px 14px', marginBottom: 16, borderRadius: 6, fontSize: 12, color: 'var(--midgray)',
-          background: day < deadlineDay ? 'rgba(0,163,224,0.06)' : day <= generateDay ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.06)',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          {day < deadlineDay
-            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Receipt deadline {deadlineDay}th ({daysLeft}d left) · <strong>Auto-generate on {generateDay}th</strong></>
-            : day <= generateDay
-            ? <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Deadline passed · <strong>Auto-generate today</strong></>
-            : <><strong style={{ color: 'var(--bl-navy)' }}>{currentMonth}</strong> Invoices generated · Review and approve</>}
+        <div className="invoice-cycle" aria-label={`Invoice cycle for ${currentMonth}`}>
+          <div className="invoice-cycle-month">
+            <span>Invoice cycle</span>
+            <strong>{currentMonth}</strong>
+          </div>
+          <div className={`invoice-cycle-milestone ${day < deadlineDay ? 'is-upcoming' : 'is-passed'}`}>
+            <span className="invoice-cycle-index">01</span>
+            <div className="invoice-cycle-detail">
+              <span>Receipt deadline</span>
+              <strong>{deadlineDay}<small>th</small></strong>
+              <span className="invoice-cycle-state">
+                {day < deadlineDay ? `${daysLeft} days left` : 'Deadline passed'}
+              </span>
+            </div>
+          </div>
+          <div className={`invoice-cycle-milestone ${day > generateDay ? 'is-ready' : ''}`}>
+            <span className="invoice-cycle-index">02</span>
+            <div className="invoice-cycle-detail">
+              <span>Invoice generation</span>
+              <strong>{generateDay}<small>th</small></strong>
+              <span className="invoice-cycle-state">
+                {day < generateDay ? 'Auto-generate' : day === generateDay ? 'Today' : 'Review drafts'}
+              </span>
+            </div>
+          </div>
         </div>
 
-        <div className="surface-header">
-          <div className="surface-title">
-            Batch approval
-          </div>
-          {/* wrap, not nowrap: the count, an optional badge and three buttons in one row is
-              already tight on a laptop, and on a phone this row alone was wider than the
-              screen with nothing to contain it -- a second, independent source of the same
-              whole-page horizontal scroll the table below caused. */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="muted" style={{ fontSize: 12 }}>{invoices.length} invoices · <strong>${total.toFixed(2)}</strong></span>
+        <div className="invoice-toolbar-heading">
+          <div className="invoice-toolbar-summary">
+            <div className="surface-title">Batch approval</div>
+            <div className="invoice-toolbar-stats">
+              <span><strong>{invoices.length}</strong> invoices</span>
+              <span className="invoice-stats-divider" aria-hidden="true" />
+              <span><strong>${total.toFixed(2)}</strong> total</span>
+            </div>
             {approvedUnsent.length > 0 && (
-              <span className="badge badge-yellow" style={{ fontSize: 10 }}>
+              <span className="badge badge-yellow invoice-unsent-badge">
                 {approvedUnsent.length} approved, not sent to AP
               </span>
             )}
-            <button className="btn-ghost" onClick={downloadCsv} disabled={invoices.length === 0}>
-              CSV
-            </button>
+          </div>
+          <div className="invoice-export-actions" role="group" aria-label="Export invoices">
+            <button className="btn-ghost" onClick={downloadCsv} disabled={invoices.length === 0}>CSV</button>
             <button className="btn-ghost" onClick={downloadZip} disabled={invoices.length === 0 || zipLoading}>
-              {zipLoading ? 'Zipping…' : 'Download ZIP'}
+              {zipLoading ? 'Preparing ZIP…' : 'ZIP'}
             </button>
+          </div>
+        </div>
+
+        {selectedDrafts.length > 0 && (
+          <div className="invoice-batch-actions">
+            <span className="invoice-selection-count">
+              <strong>{selectedDrafts.length}</strong> draft{selectedDrafts.length === 1 ? '' : 's'} selected
+            </span>
+            <div className="invoice-batch-buttons">
             {/*
               TWO ACTIONS, NUMBERED, AND ONLY ONE OF THEM SPENDS MONEY.
               ---------------------------------------------------------
@@ -1031,17 +1060,18 @@ export default function InvoiceBatch() {
               disabled={releasableSelected.length === 0 || releasing}
               title="Step 1. Publishes these to the BAMs and starts their 24 hours to raise anything wrong. Nothing leaves Salt."
             >
-              {releasing ? 'Releasing…' : `1 · Release to BAMs (${releasableSelected.length})`}
+              {releasing ? 'Releasing…' : `Step 1 · Release (${releasableSelected.length})`}
             </button>
             <button
               onClick={() => setBatchConfirming(true)}
               disabled={sendableSelected.length === 0}
               title="Step 2. Emails accounts payable. This cannot be undone."
             >
-              2 · Send to accounts payable ({sendableSelected.length})
+              2 · Send to AP ({sendableSelected.length})
             </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/*
           Why the two counts differ. Without this the second button just looks broken:
@@ -1061,54 +1091,39 @@ export default function InvoiceBatch() {
         {/* Sits above the batch controls, not below the table: the count and total in
             the header line describe the filtered view, and Approve acts on it. */}
         <CohortFilterBar
+          className="invoice-filterbar"
+          cohortLabel="Cohort"
+          mode="menu"
           cohortFilter={cohortFilter}
           hideTest={hideTest}
-          setFilters={setFilters}
+          setFilters={next => { setFilters(next); setSelected(new Set()) }}
           cohortOptions={cohortOptions}
           showTestToggle={false}
           trailing={(
-            // Same buttons as the cohort row, on the same line, so the two filters read as one
-            // toolbar. A month with something unsent carries an amber count.
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingLeft: 16, borderLeft: '1px solid var(--border, #d9dbe3)' }}>
-              <span className="muted" style={{ fontSize: 12 }}>Month</span>
-              {monthPills.map(c => {
-                const active = activeMonthId === c.id
-                const unsent = unsentByMonth[c.id] ?? 0
-                return (
-                  <button
-                    key={c.id}
-                    className={active ? 'btn-navy' : 'btn-ghost'}
-                    style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                    title={unsent > 0 ? `${unsent} invoice${unsent > 1 ? 's' : ''} not sent` : undefined}
-                    onClick={() => { setMonthFilter(c.id === thisMonth ? 'current' : c.id); setSelected(new Set()) }}
-                  >
-                    {c.name}
-                    {unsent > 0 && (
-                      <span style={{ background: '#F59E0B', color: '#fff', borderRadius: 10, fontSize: 11, fontWeight: 700, lineHeight: '16px', minWidth: 16, padding: '0 5px' }}>
-                        {unsent}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
+            <div className="filterbar-group invoice-month-group" role="group" aria-label="Invoice month">
+              <span className="filterbar-label">Month</span>
+              <button className="invoice-month-arrow" aria-label="Previous month" title="Previous month" onClick={() => moveMonth(-1)}>‹</button>
+              <span className="invoice-month-current" aria-live="polite">{activeMonthLabel}</span>
+              <button className="invoice-month-arrow" aria-label="Next month" title="Next month" onClick={() => moveMonth(1)}>›</button>
+              {activeMonthId !== thisMonth && (
+                <button className="invoice-month-quick" onClick={() => { setMonthFilter('current'); setSelected(new Set()) }}>
+                  This month
+                </button>
+              )}
               <button
-                className={monthFilter === 'all' ? 'btn-navy' : 'btn-ghost'}
-                style={{ fontSize: 12, padding: '5px 14px' }}
-                onClick={() => { setMonthFilter('all'); setSelected(new Set()) }}
+                className={`invoice-month-quick ${monthFilter === 'all' ? 'is-active' : ''}`}
+                aria-pressed={monthFilter === 'all'}
+                onClick={() => { setMonthFilter(monthFilter === 'all' ? 'current' : 'all'); setSelected(new Set()) }}
               >
-                All
+                All months
               </button>
-              {monthFolded.length > 0 && (
-                <select
-                  value=""
-                  onChange={e => { if (e.target.value) { setMonthFilter(e.target.value); setSelected(new Set()) } }}
-                  style={{ fontSize: 12, padding: '5px 8px', width: 'auto', maxWidth: 160 }}
+              {unsentTotal > 0 && (
+                <button
+                  className="invoice-overdue-shortcut"
+                  onClick={() => { setMonthFilter(unsentMonths[0]); setSelected(new Set()) }}
                 >
-                  <option value="">{monthFolded.length} earlier…</option>
-                  {monthFolded.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}{unsentByMonth[c.id] ? ` (${unsentByMonth[c.id]} not sent)` : ''}</option>
-                  ))}
-                </select>
+                  Review {unsentTotal} unsent
+                </button>
               )}
             </div>
           )}
