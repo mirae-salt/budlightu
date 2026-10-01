@@ -407,11 +407,8 @@ export default function UploadPage() {
             <span style={{ fontSize: 13 }}>
               <strong style={{ fontWeight: 600 }}>This is a special or limited release</strong>
               <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>
-                Tick this if you were asked to buy a pack that came out after the 15th, or
-                anything else that does not fit the normal monthly window. You can send it
-                up to three months after you bought it. It counts against this month&rsquo;s
-                $150, and your program manager checks it by hand instead of it being
-                approved automatically.
+                Bought after the 15th or outside the usual window? Tick this. Up to 3 months
+                back, counts toward this month&rsquo;s $150, and your program manager reviews it.
               </span>
             </span>
           </label>
@@ -563,7 +560,7 @@ export default function UploadPage() {
               { icon: '🍺', title: 'Bud Light products only', desc: 'Anything else on the receipt is ignored.' },
               { icon: '✨', title: 'Mixed receipt? Highlight BL items', desc: 'Circle them before you upload.' },
               { icon: '📸', title: 'Clear, readable photos', desc: 'Store, date, items and total must be readable.' },
-              { icon: '💰', title: 'Purchase $150 worth per month', desc: 'Tax included. Under $140 may be flagged.' },
+              { icon: '💰', title: 'Purchase $150 worth per month', desc: 'Tax included. Get as close to $150 as you can.' },
               { icon: '📅', title: 'Submit by the 15th', desc: 'After that the month closes and the portal will not take it.' },
             ].map((item, i) => (
               <li key={i} style={{
