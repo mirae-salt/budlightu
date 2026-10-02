@@ -550,7 +550,6 @@ export default function MyInvoices() {
         <div className="crumbs"><span className="now">My invoices</span></div>
       </div>
 
-      <p className="eyebrow">MY PORTAL</p>
       <h1>My invoices</h1>
 
       {emailMsg && (

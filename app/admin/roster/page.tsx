@@ -561,13 +561,13 @@ export default function Roster() {
               <span className="badge" style={{ background: 'var(--amber)', color: '#fff' }}>TEST · {testCount}</span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="roster-header-actions">
             <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileSelect} style={{ display: 'none' }} />
             <button className="btn-ghost" onClick={() => fileRef.current?.click()}>
-              Import CSV / Excel
+              Import roster
             </button>
             <button onClick={() => { setAdding(a => !a); setEditingId(null) }}>
-              {adding ? 'Cancel' : '+ Add BAM'}
+              {adding ? 'Cancel' : 'Add BAM'}
             </button>
           </div>
         </div>
@@ -787,6 +787,9 @@ export default function Roster() {
         )}
 
         <CohortFilterBar
+          className="roster-filterbar"
+          cohortLabel="Cohort"
+          mode="menu"
           cohortFilter={cohortFilter}
           hideTest={hideTest}
           setFilters={setFilters}

@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import { isReimbursementLine } from '@/lib/receipt-badge'
+import { INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 import { sendEligibleAt, windowStartedAt } from '@/lib/business-days'
 import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
@@ -882,13 +883,6 @@ export default function InvoiceBatch() {
     setApPreview(null)
   }
 
-  const now = new Date()
-  const currentMonth = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
-  const day = now.getDate()
-  const deadlineDay = 15
-  const generateDay = 16
-  const daysLeft = deadlineDay - day
-
   return (
     <>
       <TopBar crumbs={['Invoices', 'Batch approval']} />
@@ -989,33 +983,6 @@ export default function InvoiceBatch() {
       )}
 
       <div className="surface">
-        <div className="invoice-cycle" aria-label={`Invoice cycle for ${currentMonth}`}>
-          <div className="invoice-cycle-month">
-            <span>Invoice cycle</span>
-            <strong>{currentMonth}</strong>
-          </div>
-          <div className={`invoice-cycle-milestone ${day < deadlineDay ? 'is-upcoming' : 'is-passed'}`}>
-            <span className="invoice-cycle-index">01</span>
-            <div className="invoice-cycle-detail">
-              <span>Receipt deadline</span>
-              <strong>{deadlineDay}<small>th</small></strong>
-              <span className="invoice-cycle-state">
-                {day < deadlineDay ? `${daysLeft} days left` : 'Deadline passed'}
-              </span>
-            </div>
-          </div>
-          <div className={`invoice-cycle-milestone ${day > generateDay ? 'is-ready' : ''}`}>
-            <span className="invoice-cycle-index">02</span>
-            <div className="invoice-cycle-detail">
-              <span>Invoice generation</span>
-              <strong>{generateDay}<small>th</small></strong>
-              <span className="invoice-cycle-state">
-                {day < generateDay ? 'Auto-generate' : day === generateDay ? 'Today' : 'Review drafts'}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <div className="invoice-toolbar-heading">
           <div className="invoice-toolbar-summary">
             <div className="surface-title">Batch approval</div>
@@ -1686,7 +1653,7 @@ export default function InvoiceBatch() {
               <tr>
                 <td colSpan={7} className="wrap">
                   <div className="empty-state" style={{ padding: '28px 16px', textAlign: 'center', fontSize: 13, color: 'var(--midgray)' }}>
-                    No invoices yet. <strong>Auto-generated on the 16th</strong> after receipt review.
+                    No invoices yet. <strong>Auto-generated on the {INVOICE_GENERATE_DAY}th</strong> after receipt review.
                   </div>
                 </td>
               </tr>

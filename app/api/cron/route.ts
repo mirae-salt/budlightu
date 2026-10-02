@@ -3,12 +3,12 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * `scheduler-audit` (15th) and `scheduler-generate` (16th) were written, tested and
+ * `scheduler-audit` and `scheduler-generate` were written, tested and
  * correct, and **nothing invoked either one**. No pg_cron, no vercel.json, no
  * import, no `Deno.serve` — they were plain TypeScript modules nobody called. The
  * only way an invoice got created was as a side effect of approving a receipt,
  * which means a BAM who submitted no receipt was never invoiced and never paid
- * their salary. The 15th/16th cadence described in the docs and printed on
+ * their salary. The monthly cadence described in the docs and printed on
  * /admin/invoices could not fire.
  *
  * Vercel Cron calls this once a day and the route decides what is due today, because
@@ -27,6 +27,7 @@ import { handler as runGenerate } from '../../../supabase/functions/scheduler-ge
 import { runSeedInvoices as runSeed } from '../../../lib/run-seed-invoices'
 import { requireAdmin } from '../../../lib/admin-auth'
 import { envString } from '../../../lib/sanitize'
+import { RECEIPT_AUDIT_DAY, INVOICE_GENERATE_DAY } from '../../../lib/cycle-schedule'
 
 /**
  * Day of month each job is due.
@@ -46,8 +47,8 @@ import { envString } from '../../../lib/sanitize'
  * else-if chain, so audit would run and generate would never fire.
  */
 const SEED_DAY = 1
-const AUDIT_DAY = 16
-const GENERATE_DAY = 17
+const AUDIT_DAY = RECEIPT_AUDIT_DAY
+const GENERATE_DAY = INVOICE_GENERATE_DAY
 
 export const maxDuration = 300
 

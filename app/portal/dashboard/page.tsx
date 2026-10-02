@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { browserClient } from '@/lib/supabase-browser'
 import { AttestationPrompt } from '../_components/AttestationPrompt'
+import { INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 
 const DEFAULT_CAP = 150
 
@@ -86,63 +87,45 @@ export default function Dashboard() {
         <div className="crumbs"><span className="now">Dashboard</span></div>
       </div>
 
-      <p className="eyebrow">MY PORTAL</p>
       <h1>Welcome back{state.firstName ? `, ${state.firstName}` : ''}</h1>
 
-      <div className="hero-card" style={{ marginTop: 20 }}>
-        <div className="eyebrow">THIS MONTH</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 16 }}>
-          <div>
+      <div className="surface dashboard-summary" style={{ marginTop: 20 }}>
+        <div>
+          <div className="dashboard-summary-label">Bud Light spend this month</div>
             {/*
               Cents, not a rounded dollar. This was toFixed(0), so $58.45 of spend read
               as "$58" here and $58.45 on the invoice, and 45 cents looked like it had
               gone missing. Money a student can check against a document should be
               printed the way the document prints it.
             */}
-            <div style={{ fontSize: 40, fontWeight: 800, color: 'var(--paper)', lineHeight: 1 }}>
+            <div className="dashboard-summary-value">
               {loading ? '—' : `$${state.spentCad.toFixed(2)}`}
             </div>
-            {/*
-              The rule, not a progress report. "of your $150 allowance used" left the
-              big number unlabelled: a student had to work out whether it was what they
-              had spent, what they were getting, or what was left. The one thing they
-              actually need to know is that the program pays back what they spend and
-              stops at the cap, so the line says that instead.
-            */}
-            <div className="muted" style={{ fontSize: 13 }}>
-              You get back what you spend, up to ${state.capCad.toFixed(0)} a month
-            </div>
-          </div>
-          <Link href="/portal/upload" className="btn" style={{ textDecoration: 'none' }}>Upload receipt</Link>
         </div>
+        <Link href="/portal/upload" className="btn" style={{ textDecoration: 'none' }}>Upload receipt</Link>
       </div>
 
-      <div className="grid-2" style={{ marginTop: 20 }}>
-        <div className="surface">
+      <div className="surface dashboard-status" style={{ marginTop: 16 }}>
+        <div className="dashboard-status-item">
           <div className="surface-header"><span className="surface-title">Invoice status</span></div>
           {loading ? (
             <p className="subtle">Loading…</p>
           ) : (
             <>
-              <span className={`badge badge-${invoiceLabel.badge}`}>{invoiceLabel.text}</span>
-              <p className="muted" style={{ margin: '10px 0 0', fontSize: 13 }}>
+              <div className="dashboard-status-value">{invoiceLabel.text}</div>
+              <p className="dashboard-status-note">
                 {state.invoiceStatus
-                  ? 'Your invoice for this month is ready.'
-                  : 'A draft invoice is prepared for you around the 16th, once receipts are reviewed.'}
+                  ? 'See My invoices for details'
+                  : `Drafts prepared from the ${INVOICE_GENERATE_DAY}th`}
               </p>
             </>
           )}
         </div>
 
-        <div className="surface">
+        <div className="dashboard-status-item">
           <div className="surface-header"><span className="surface-title">Receipts</span></div>
-          <p className="subtle" style={{ margin: 0 }}>
-            {loading
-              ? 'Loading…'
-              : state.receiptCount > 0
-                ? `${state.receiptCount} receipt${state.receiptCount > 1 ? 's' : ''} submitted this month.`
-                : 'No receipts submitted yet this month.'}
-          </p>
+          <div className="dashboard-status-value">{loading ? '—' : `${state.receiptCount} submitted`}</div>
+          <p className="dashboard-status-note">This month</p>
         </div>
       </div>
 

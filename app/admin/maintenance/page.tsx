@@ -97,8 +97,7 @@ export default function MaintenancePage() {
             Maintenance mode
           </h2>
           <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-            Shows BAMs a short notice instead of the portal. Use it while deploying or
-            fixing data so nobody submits into a half-working app.
+            Show a notice above the BAM portal, or replace the portal view while work is underway.
           </p>
         </div>
 

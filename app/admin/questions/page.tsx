@@ -243,41 +243,22 @@ export default function QuestionsPage() {
     <>
       <TopBar crumbs={['Support', 'Questions']} />
       <div className="surface">
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-navy)', marginBottom: 4 }}>
-            Support questions
-          </h2>
-          <p className="muted" style={{ fontSize: 13 }}>
-            Everything BAMs have sent from the portal Support page. Replying here emails them and
-            records it.
-          </p>
-        </div>
-
-        {/* The frequency control used to be a block of radio buttons here. It moved to
-            /admin/settings, where it sits next to the recipient list and the maintenance
-            switch, because "who gets emailed about what" was spread across three pages and
-            an environment variable. What stays here is the CURRENT answer, so this page
-            still tells you whether you are being emailed without making you go look. */}
-        <div style={{
-          marginBottom: 20, padding: '12px 14px', borderRadius: 10,
-          border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(0,163,224,0.04)',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          gap: 12, flexWrap: 'wrap'
-        }}>
-          <div style={{ fontSize: 13, color: 'var(--bl-navy)' }}>
-            {notifyDegraded
-              ? 'Your email setting could not be read just now.'
-              : notify?.mode === 'each'
-                ? 'You are emailed about every question as it arrives.'
-                : notify?.mode === 'daily'
-                  ? 'You get one summary a day listing new questions.'
-                  : notify?.mode === 'off'
-                    ? 'You are not emailed about these. This page is the only place they appear.'
-                    : 'Checking how often you are emailed...'}
+        <div className="questions-heading">
+          <h1>Questions</h1>
+          <div className="questions-notify-setting">
+            <span>
+              {notifyDegraded
+                ? 'Email setting unavailable'
+                : notify?.mode === 'each'
+                  ? 'Email: every question'
+                  : notify?.mode === 'daily'
+                    ? 'Email: daily summary'
+                    : notify?.mode === 'off'
+                      ? 'Email: off'
+                      : 'Checking email setting…'}
+            </span>
+            <Link href="/admin/settings">Settings</Link>
           </div>
-          <Link href="/admin/settings" style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-            Change in Settings
-          </Link>
         </div>
 
         {/* Always rendered when there is anything to search. This was gated on

@@ -59,9 +59,9 @@ html, body {
 }
 
 /* ── Typography ─────────────────────────── */
-h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px; color: var(--bl-navy); text-transform: uppercase; }
-h2 { font-size: 16px; font-weight: 700; margin: 20px 0 12px; letter-spacing: 0.02em; color: var(--bl-navy); text-transform: uppercase; }
-h3 { font-size: 14px; font-weight: 700; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.01em; }
+h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px; color: var(--bl-navy); }
+h2 { font-size: 16px; font-weight: 700; margin: 20px 0 12px; letter-spacing: -0.01em; color: var(--bl-navy); }
+h3 { font-size: 14px; font-weight: 700; margin: 12px 0 6px; letter-spacing: -0.01em; }
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -89,8 +89,8 @@ button, .btn {
   justify-content: center;
   gap: 6px;
   transition: background 0.15s;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
 }
 button:hover, .btn:hover { background: var(--bl-blue-dark); }
 /*
@@ -599,7 +599,135 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
      Wrapping onto a second line is never worse than silently overflowing the screen. */
   flex-wrap: wrap;
 }
-.surface-title { font-weight: 700; font-size: 13px; color: var(--bl-navy); text-transform: uppercase; letter-spacing: 0.06em; }
+.surface-title { font-weight: 700; font-size: 15px; color: var(--bl-navy); letter-spacing: -0.015em; }
+
+/* Keep task pages calm: reserve all-caps labels for navigation and table headers. */
+.portal-main h1, .portal-main h2, .portal-main h3,
+.portal-main .surface-title, .admin-overview .surface-title {
+  text-transform: none;
+  letter-spacing: -0.015em;
+}
+.portal-main button, .portal-main .btn, .admin-overview button {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.portal-main .surface-title, .admin-overview .surface-title { font-size: 15px; }
+.dashboard-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  border-left: 4px solid var(--bl-blue);
+}
+.dashboard-summary-label { color: var(--slate); font-size: 13px; font-weight: 600; }
+.dashboard-summary-value {
+  color: var(--bl-navy);
+  font-size: 36px;
+  font-weight: 750;
+  line-height: 1.2;
+  margin: 4px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-summary .btn { flex-shrink: 0; text-decoration: none; }
+.dashboard-status { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.dashboard-status-item { min-width: 0; padding: 0 16px; }
+.dashboard-status-item:first-child { padding-left: 0; border-right: 1px solid var(--stone); }
+.dashboard-status-item:last-child { padding-right: 0; }
+.dashboard-status-item .surface-header { margin-bottom: 10px; }
+.dashboard-status-value { color: var(--bl-navy); font-size: 17px; font-weight: 700; }
+.dashboard-status-note { margin: 4px 0 0; color: var(--midgray); font-size: 12px; }
+@media (max-width: 640px) {
+  .dashboard-status { grid-template-columns: 1fr; }
+  .dashboard-status-item { padding: 0; }
+  .dashboard-status-item:first-child { border-right: 0; border-bottom: 1px solid var(--stone); padding-bottom: 16px; margin-bottom: 16px; }
+}
+
+.upload-page .upload-intro { margin: 4px 0 0; }
+.upload-page .drop-zone { padding: 22px 18px; }
+.upload-page .drop-zone:focus-visible { outline: 3px solid var(--bl-blue); outline-offset: 3px; }
+.upload-photo-tip {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--slate);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.upload-policy-line { margin: 0; color: var(--slate); font-size: 12px; line-height: 1.5; }
+.upload-special-release {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 2px;
+  margin: 0;
+  cursor: pointer;
+}
+.upload-submit { padding: 10px 18px; font-size: 13px; }
+.upload-guidance {
+  border-top: 1px solid var(--stone);
+  margin: 20px 0 0;
+  padding: 12px 2px 0;
+  color: var(--slate);
+  font-size: 13px;
+}
+.upload-guidance summary { cursor: pointer; font-weight: 600; color: var(--bl-navy); }
+.upload-guidance-content { max-width: 610px; line-height: 1.6; }
+.upload-guidance-content p { margin: 10px 0 0; }
+.upload-guidance-content ol { margin: 10px 0 0; padding-left: 20px; }
+.upload-guidance-content li + li { margin-top: 5px; }
+.account-notification-details { margin: 20px 0 0; padding: 12px 2px; border-top: 1px solid var(--stone); color: var(--slate); }
+.account-notification-details summary { cursor: pointer; color: var(--bl-navy); font-weight: 600; }
+.overview-period { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: baseline; margin: 0 0 16px; color: var(--midgray); font-size: 12px; }
+.overview-period strong { color: var(--bl-navy); font-size: 16px; }
+.overview-period span + span::before { content: '·'; margin-right: 18px; }
+.admin-overview .grid-2 { margin-bottom: 16px; }
+.overview-worklist-secondary { margin-left: auto; }
+.support-thread { padding: 16px 18px; border: 1px solid var(--stone); border-radius: 10px; background: var(--paper); }
+.support-thread.is-waiting { border-color: #E7C681; }
+.support-thread-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.support-message { padding: 11px 0; }
+.support-message + .support-message { border-top: 1px solid var(--stone); }
+.support-message-meta { display: flex; gap: 8px; align-items: baseline; color: var(--midgray); font-size: 11px; }
+.support-message-meta strong { color: var(--bl-navy); font-size: 12px; }
+.support-message-body { margin-top: 4px; color: var(--ink); font-size: 14px; white-space: pre-wrap; line-height: 1.55; }
+.roster-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.roster-header-actions button { padding: 8px 12px; font-size: 12px; }
+.roster-filterbar { border-top: 1px solid var(--stone); margin-top: 16px; }
+.banking-filterbar { border-top: 1px solid var(--stone); margin-top: 12px; }
+.questions-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.questions-heading h1 { margin: 0; font-size: 22px; }
+.questions-notify-setting { display: flex; gap: 12px; align-items: center; color: var(--midgray); font-size: 12px; }
+.questions-notify-setting a { font-weight: 600; }
+
+.overview-worklist {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border: 1px solid var(--stone);
+  border-radius: var(--r-md);
+  background: var(--paper);
+}
+.overview-worklist-heading { display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
+.overview-worklist-heading strong { font-size: 15px; color: var(--bl-navy); }
+.overview-worklist-links { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.overview-worklist-links button {
+  background: var(--bl-silver);
+  color: var(--bl-navy);
+  border: 1px solid var(--stone);
+  border-radius: var(--r-md);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.overview-worklist-links button:hover { background: var(--bl-sky); border-color: var(--bl-blue); }
+.overview-worklist-links strong { margin-left: 6px; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .overview-worklist { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .overview-period { gap: 4px 12px; }
+  .overview-period span + span::before { display: none; }
+}
 
 /* Invoice batch controls: keep exports, selection actions and view filters in
    separate visual groups so the table has one calm, predictable lead-in. */
@@ -701,6 +829,11 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .receipt-filterbar .filterbar-group { gap: 9px !important; }
 .receipt-filterbar > label { margin: 0; white-space: nowrap; }
+.receipt-override { padding: 10px 16px; }
+.receipt-override .surface-header { min-height: 34px; margin-bottom: 0; }
+.receipt-override.is-open .surface-header { margin-bottom: 12px; }
+.receipt-override .surface-header .btn-ghost { padding: 7px 11px; font-size: 11px; }
+.receipt-override-form { padding: 0 0 6px; }
 .invoice-month-group { flex-wrap: wrap; }
 .invoice-month-arrow {
   display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0;
@@ -720,30 +853,6 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 .invoice-overdue-shortcut { background: #FFF5DF; color: #8A5300; }
 .invoice-overdue-shortcut:hover { background: #FCE9BD; }
 
-.invoice-cycle {
-  display: grid;
-  grid-template-columns: minmax(150px, .8fr) minmax(200px, 1fr) minmax(200px, 1fr);
-  align-items: stretch;
-  gap: 0;
-  margin: 0 0 18px;
-  padding: 12px 16px;
-  background: #F7FAFD;
-  border: 1px solid #E6EDF4;
-  border-radius: 9px;
-}
-.invoice-cycle-month, .invoice-cycle-milestone { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.invoice-cycle-month { display: grid; align-content: center; gap: 3px; }
-.invoice-cycle-month > span, .invoice-cycle-detail > span { color: var(--midgray); font-size: 10px; font-weight: 600; }
-.invoice-cycle-month > strong { color: var(--bl-navy); font-size: 15px; }
-.invoice-cycle-milestone { padding: 2px 14px; border-left: 1px solid #DFE6EE; }
-.invoice-cycle-index { display: grid; flex: 0 0 27px; height: 27px; place-items: center; border-radius: 50%; background: #E8EEF5; color: #596678; font-size: 10px; font-weight: 700; }
-.invoice-cycle-detail { display: grid; gap: 1px; }
-.invoice-cycle-detail > strong { color: var(--bl-navy); font-size: 16px; line-height: 1.1; }
-.invoice-cycle-detail small { margin-left: 1px; font-size: 10px; }
-.invoice-cycle-state { color: var(--slate); font-size: 10px; white-space: nowrap; }
-.invoice-cycle-milestone.is-passed .invoice-cycle-index { background: #FDEBCB; color: #885100; }
-.invoice-cycle-milestone.is-ready .invoice-cycle-index { background: #DBF1E8; color: #176442; }
-
 @media (max-width: 760px) {
   .invoice-toolbar-heading { align-items: flex-start; flex-direction: column; }
   .invoice-toolbar-summary { gap: 10px 14px; }
@@ -751,9 +860,6 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   .invoice-batch-buttons { justify-content: flex-start; }
   .invoice-filterbar { align-items: stretch !important; }
   .invoice-filterbar .filterbar-group { align-items: center !important; }
-  .invoice-cycle { grid-template-columns: 1fr; gap: 10px; }
-  .invoice-cycle-month { padding-bottom: 8px; }
-  .invoice-cycle-milestone { min-height: 48px; padding: 8px 0 0; border-left: 0; border-top: 1px solid #DFE6EE; }
 }
 
 .invoice-filterbar .btn-navy:hover { background: #060A14; }

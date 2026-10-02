@@ -55,18 +55,18 @@ export const QUESTION_NOTIFY_OPTIONS: Array<{
 }> = [
   {
     mode: 'each',
-    label: 'Every question, right away',
-    detail: 'One email per question. Best while volumes are low.'
+    label: 'Each question',
+    detail: 'One email when each question arrives.'
   },
   {
     mode: 'daily',
     label: 'Once a day',
-    detail: 'One summary each morning listing everything that came in. Nothing is lost, it just waits.'
+    detail: 'One morning summary of new questions.'
   },
   {
     mode: 'off',
     label: 'No emails',
-    detail: 'Questions only appear on this page. Nothing will prompt you to look.'
+    detail: 'No email alert. Check the Questions page for new messages.'
   }
 ]
 

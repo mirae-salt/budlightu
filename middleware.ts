@@ -197,7 +197,9 @@ export async function middleware(req: NextRequest) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
     if (portalAuth || adminAuth) {
-      return NextResponse.redirect(new URL('/portal/login', req.url))
+      const loginUrl = new URL('/portal/login', req.url)
+      if (path === '/portal/support') loginUrl.searchParams.set('next', '/portal/support')
+      return NextResponse.redirect(loginUrl)
     }
   }
 

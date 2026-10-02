@@ -59,10 +59,16 @@ const publicGroups: NavGroup[] = [
     title: 'Portal',
     items: [
       { href: '/portal/login', label: 'Sign in', icon: <IcoGrid /> },
+    ]
+  },
+  {
+    title: 'Help',
+    items: [
       { href: '/portal/faq',   label: 'FAQ',     icon: <IcoHelp /> },
       // Readable before signing in: the onboarding form links here, and that form is
       // filled in before the student has a session.
       { href: '/portal/terms', label: 'Program terms', icon: <IcoBook /> },
+      { href: '/portal/support', label: 'Support', icon: <IcoMsg /> },
     ]
   }
 ]
@@ -124,7 +130,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     return () => { cancelled = true }
   }, [path, isLogin])
 
-  const isPreAuth = isLogin || (!loggedIn && path === '/portal/faq')
+  // FAQ and terms can be read before sign-in, but they still need navigation.
+  // The public sidebar offers Sign in, FAQ and Program terms; signed-in BAMs
+  // keep the full portal sidebar. Only the sign-in page stands alone.
+  const isPreAuth = isLogin
 
   // The rule lives in lib/maintenance.ts, pinned by tests: /portal/login and /admin
   // are never blocked, and an admin is never blocked. Those three are what keep the
@@ -162,7 +171,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       </div>
     )
   }
-  const groups = isPreAuth ? publicGroups : authGroups
+  const publicPage = !loggedIn && (path === '/portal/faq' || path === '/portal/terms')
+  const groups = publicPage ? publicGroups : authGroups
 
   async function logout() {
     const sb = browserClient()
@@ -176,7 +186,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <>
           <div className={`sidebar-backdrop${sidebarOpen ? ' open' : ''}`} onClick={close} />
           <aside className={`sidebar portal-sidebar${sidebarOpen ? ' open' : ''}`}>
-            <Link href="/portal/program" className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px', textDecoration: 'none' }} onClick={(e) => { if (path === '/portal/program') { e.preventDefault(); window.location.reload() } close() }}>
+            <Link href={publicPage ? '/portal/faq' : '/portal/program'} className="sidebar-brand" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '10px 10px 16px', textDecoration: 'none' }} onClick={(e) => { if (path === '/portal/program') { e.preventDefault(); window.location.reload() } close() }}>
               <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ width: '50%', maxWidth: 120, objectFit: 'contain' }} />
               <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2, color: 'rgba(255,255,255,0.4)' }}>
                 BAM Portal
@@ -200,7 +210,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </div>
             ))}
 
-            <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+            {!publicPage && <div style={{ marginTop: 'auto', paddingTop: 16 }}>
               {isAdmin && (
                 <div style={{ padding: '0 10px', marginBottom: 12 }}>
                   <Link href="/admin" onClick={close} style={{
@@ -251,7 +261,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   <IcoLogout />
                 </button>
               </div>
-            </div>
+            </div>}
           </aside>
         </>
       )}
@@ -267,7 +277,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             </button>
-            <Link href="/portal/program" className="admin-mobile-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <Link href={publicPage ? '/portal/faq' : '/portal/program'} className="admin-mobile-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
               <img src="/brand/BudLightU-logo.png" alt="Bud Light U" style={{ height: 28 }} />
               <span>Portal</span>
             </Link>
@@ -278,4 +288,3 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     </div>
   )
 }
-

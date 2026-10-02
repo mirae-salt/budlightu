@@ -1,5 +1,5 @@
 /**
- * Edge Function: scheduler-generate (cron: 16th of month at 08:00)
+ * Edge Function: scheduler-generate (invoked by /api/cron on the 17th)
  *
  * For every active cohort:
  *   1. Advisory-lock the run

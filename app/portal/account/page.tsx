@@ -153,9 +153,7 @@ export default function AccountPage() {
       <div style={{ maxWidth: 680 }}>
         <h1>Banking details</h1>
         <p className="subtle">
-          This is where your reimbursements and pay are sent. You cannot edit it here on purpose:
-          if someone ever got into your account, they could point your pay at themselves.
-          Ask for a correction and your program manager applies it.
+          Check where your pay is sent. To make a change, request a correction below.
         </p>
 
         {/*
@@ -164,12 +162,7 @@ export default function AccountPage() {
           number invisible once already (see /portal/verify-account).
         */}
         <div className="hero-card" style={{ marginTop: 20 }}>
-          <div style={{
-            fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em',
-            marginBottom: 10, color: 'rgba(255,255,255,0.85)'
-          }}>
-            On file now
-          </div>
+          <div style={{ fontSize: 12, marginBottom: 10, color: 'rgba(255,255,255,0.85)' }}>On file</div>
           <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 10 }}>
             {loading ? 'Loading...' : (bankOnFile ?? 'Bank not set')}
           </div>
@@ -227,9 +220,7 @@ export default function AccountPage() {
             {!showForm ? (
               <>
                 <p style={{ fontSize: 13.5, lineHeight: 1.7, margin: '4px 0 14px' }}>
-                  If you mistyped a digit during onboarding, or you changed banks, request a correction.
-                  Nothing changes until your program manager applies it, and you will be asked to confirm
-                  the new last 4 digits afterwards.
+                  Your manager checks the new details. You then confirm the last 4 digits.
                 </p>
                 <button onClick={() => setShowForm(true)}>Request a correction</button>
               </>

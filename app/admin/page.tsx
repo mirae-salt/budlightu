@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from './_components/TopBar'
 import { KpiCell } from './_components/StatCard'
 import { LineChartPlaceholder } from './_components/LineChartPlaceholder'
+import { RECEIPT_DEADLINE_DAY, INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 // No dummy imports - all data from DB
 
 type BamSpending = {
@@ -32,59 +33,13 @@ function currentPeriod(): string {
 function PeriodBanner() {
   const now = new Date()
   const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  const year = now.getFullYear()
-  const month = now.getMonth()
   const day = now.getDate()
-
-  const deadlineDay = 15
-  const generateDay = 16
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-
-  const deadlinePassed = day > deadlineDay
-  const daysLeft = deadlineDay - day
-
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-      padding: '14px 20px', borderRadius: 10,
-      background: deadlinePassed
-        ? 'linear-gradient(135deg, rgba(5,150,105,0.06), rgba(5,150,105,0.02))'
-        : 'linear-gradient(135deg, rgba(0,136,206,0.08), rgba(0,136,206,0.02))',
-      border: `1px solid ${deadlinePassed ? 'rgba(5,150,105,0.15)' : 'rgba(0,136,206,0.15)'}`,
-      marginBottom: 20
-    }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--bl-navy)' }}>
-        {monthLabel}
-      </div>
-      <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          padding: '3px 10px', borderRadius: 6, fontWeight: 600,
-          background: deadlinePassed ? 'rgba(5,150,105,0.1)' : daysLeft <= 3 ? 'rgba(239,68,68,0.1)' : 'rgba(0,136,206,0.08)',
-          color: deadlinePassed ? '#059669' : daysLeft <= 3 ? '#DC2626' : 'var(--bl-blue, #0088CE)',
-        }}>
-          {deadlinePassed
-            ? <>&#10003; Receipt deadline passed</>
-            : <>Receipt deadline {deadlineDay}th &middot; {daysLeft}d left</>}
-        </span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          padding: '3px 10px', borderRadius: 6, fontWeight: 500,
-          background: 'rgba(0,0,0,0.04)', color: 'var(--slate, #64748b)',
-        }}>
-          Auto-generate invoices on {generateDay}th
-        </span>
-      </div>
-      <div style={{
-        marginLeft: 'auto', fontSize: 11, color: 'var(--midgray)',
-        fontVariantNumeric: 'tabular-nums'
-      }}>
-        Day {day} of {daysInMonth}
-      </div>
-    </div>
+    <p className="overview-period">
+      <strong>{monthLabel}</strong>
+      <span>Receipts {day > RECEIPT_DEADLINE_DAY ? 'closed' : `due ${RECEIPT_DEADLINE_DAY}th`}</span>
+      <span>Draft invoices {INVOICE_GENERATE_DAY}th</span>
+    </p>
   )
 }
 
@@ -151,7 +106,7 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView, state,
     return (
       <div className="surface">
         <div className="surface-header">
-          <span className="surface-title">BAM spending</span>
+          <span className="surface-title">BAM spending across all months</span>
         </div>
         {state === 'error'
           ? <LoadErrorBanner what="BAM spending data" detail={error} onRetry={() => window.location.reload()} />
@@ -168,7 +123,7 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView, state,
     <div className="surface">
       <div className="surface-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className="surface-title">BAM spending</span>
+          <span className="surface-title">BAM spending across all months</span>
           {flaggedCount > 0 && <span className="badge badge-red">{flaggedCount} flagged</span>}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -192,21 +147,21 @@ function BamSpendingSection({ bamSpending, spendingView, setSpendingView, state,
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
         <div style={{ background: 'var(--stone-lt, #f5f5f0)', borderRadius: 8, padding: '12px 16px' }}>
-          <div style={{ fontSize: 12, color: 'var(--midgray)', marginBottom: 4 }}>Total budget</div>
+          <div style={{ fontSize: 12, color: 'var(--midgray)', marginBottom: 4 }}>Budget, all recorded months</div>
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-navy)', fontVariantNumeric: 'tabular-nums' }}>
             ${totals.cap.toLocaleString()}
           </div>
           <div style={{ fontSize: 11, color: 'var(--midgray)' }}>${CAP_PER_MONTH}/mo × {enriched.length} BAMs</div>
         </div>
         <div style={{ background: 'var(--stone-lt, #f5f5f0)', borderRadius: 8, padding: '12px 16px' }}>
-          <div style={{ fontSize: 12, color: 'var(--midgray)', marginBottom: 4 }}>Total spent</div>
+          <div style={{ fontSize: 12, color: 'var(--midgray)', marginBottom: 4 }}>Spent, all recorded months</div>
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-blue, #0088CE)', fontVariantNumeric: 'tabular-nums' }}>
             ${Math.round(totals.spent).toLocaleString()}
           </div>
           <div style={{ fontSize: 11, color: 'var(--midgray)' }}>{totals.cap > 0 ? Math.round((totals.spent / totals.cap) * 100) : 0}% of budget</div>
         </div>
         <div style={{ background: 'var(--stone-lt, #f5f5f0)', borderRadius: 8, padding: '12px 16px' }}>
-          <div style={{ fontSize: 12, color: 'var(--midgray)', marginBottom: 4 }}>Remaining</div>
+          <div style={{ fontSize: 12, color: 'var(--midgray)', marginBottom: 4 }}>Remaining, all recorded months</div>
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--bl-navy)', fontVariantNumeric: 'tabular-nums' }}>
             ${Math.round(totals.remaining).toLocaleString()}
           </div>
@@ -433,7 +388,7 @@ function BarChartPlaceholder({ data }: { data?: Record<string, number> }) {
 
 export default function AdminDashboard() {
   const [s, setS] = useState({
-    activeBams: 0, receiptsSubmitted: 0, missingReceipts: 0,
+    activeBams: 0, receiptsSubmitted: 0,
     reviewQueue: 0, budgetUsed: '$0 / $0', invoicesSent: 0, pendingOnboarding: 0,
     budgetPct: 0
   })
@@ -471,7 +426,6 @@ export default function AdminDashboard() {
         setS({
           activeBams: activeBams ?? 0,
           receiptsSubmitted: receiptsSubmitted ?? 0,
-          missingReceipts: activeBams > 0 ? Math.max(0, activeBams - receiptsSubmitted) : 0,
           reviewQueue: reviewQueue ?? 0,
           budgetUsed: `$${(budgetSpent ?? 0).toLocaleString()} / $${(budgetCap ?? 0).toLocaleString()}`,
           invoicesSent: invoicesSent ?? 0,
@@ -517,8 +471,7 @@ export default function AdminDashboard() {
     <>
       <TopBar crumbs={['Dashboard', 'Overview']} />
 
-      <PeriodBanner />
-
+      <div className="admin-overview">
       {statsState === 'error' && (
         <LoadErrorBanner
           what="program summary"
@@ -541,10 +494,31 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {statsState === 'ok' && (
+        <section className="overview-worklist" aria-label="Needs attention">
+          <div className="overview-worklist-heading">
+            <strong>Needs attention</strong>
+          </div>
+          <div className="overview-worklist-links">
+            {s.reviewQueue > 0 && <button type="button" onClick={() => router.push('/admin/receipts')}>
+              Review receipts <strong>{s.reviewQueue}</strong>
+            </button>}
+            {s.pendingOnboarding > 0 && <button type="button" onClick={() => router.push('/admin/roster')}>
+              Pending onboarding <strong>{s.pendingOnboarding}</strong>
+            </button>}
+            {s.reviewQueue === 0 && s.pendingOnboarding === 0 && <span className="muted">Nothing waiting right now</span>}
+            <button type="button" className="overview-worklist-secondary" onClick={() => router.push('/admin/invoices')}>
+              Open invoice batch <span aria-hidden="true">↗</span>
+            </button>
+          </div>
+        </section>
+      )}
+
+      <PeriodBanner />
+
       <div className="surface">
         <div className="surface-header">
-          <div className="surface-title">Program summary</div>
-          <button className="btn-navy" onClick={() => router.push('/admin/roster')}>View details ↗</button>
+          <div className="surface-title">This month at a glance</div>
         </div>
         {statsState === 'loading' && (
           <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Loading current figures...</div>
@@ -556,49 +530,17 @@ export default function AdminDashboard() {
         )}
         <div className="kpi-row" style={statsState === 'error' ? { opacity: 0.35 } : undefined}>
           <KpiCell label="Active BAMs"       value={String(s.activeBams)}        trend="neutral" onClick={() => router.push('/admin/roster')} />
-          <KpiCell label="Receipts submitted" value={`${s.receiptsSubmitted} / ${s.activeBams}`} delta={`${s.missingReceipts} missing`} trend={s.missingReceipts > 0 ? 'down' : 'up'} onClick={() => router.push('/admin/receipts')} />
-          <KpiCell label="Review queue"      value={String(s.reviewQueue)}       hint="Action needed" trend="neutral" onClick={() => router.push('/admin/receipts')} />
-          <KpiCell label="Budget used"       value={s.budgetUsed}                delta={`${s.budgetPct}%`} trend={s.budgetPct > 0 ? 'up' : 'neutral'} onClick={() => router.push('/admin/cohorts')} />
-          <KpiCell label="Invoices sent"     value={String(s.invoicesSent)}      hint="cycle: Sept 16" onClick={() => router.push('/admin/invoices')} />
-          <KpiCell label="Pending onboarding" value={String(s.pendingOnboarding)} hint="need bank info" trend={s.pendingOnboarding > 0 ? 'down' : 'up'} onClick={() => router.push('/admin/roster')} />
+          <KpiCell label="Receipts uploaded" value={String(s.receiptsSubmitted)} hint="This cycle" onClick={() => router.push('/admin/receipts')} />
+          <KpiCell label="Budget used this month" value={s.budgetUsed}           delta={`${s.budgetPct}%`} trend={s.budgetPct > 0 ? 'up' : 'neutral'} onClick={() => router.push('/admin/cohorts')} />
+          <KpiCell label="Invoices sent"     value={String(s.invoicesSent)}      hint="This cycle" onClick={() => router.push('/admin/invoices')} />
         </div>
-      </div>
-
-      <div className="surface">
-        <div className="surface-header">
-          <div className="chart-headline">Monthly reimbursement</div>
-          <button className="btn-ghost" style={{ padding: '7px 12px', fontSize: 12 }} onClick={() => window.location.reload()}>Refresh</button>
-        </div>
-
-        <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--bl-navy)', letterSpacing: '-0.02em', marginBottom: 4 }}>
-          {statsState === 'ok' ? `${s.budgetPct}%` : 'No data'}
-          {statsState === 'ok' && <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--midgray)' }}> of monthly cap</span>}
-        </div>
-
-        {statsState === 'ok' && budgetSource === 'receipts_capped' && (
-          <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
-            Estimated from approved receipts, capped at $150 per BAM per month. The reimbursement ledger has no
-            entries for this period yet, so this is not a payment figure.
-          </div>
-        )}
-        {statsState === 'ok' && budgetSource === 'ledger' && (
-          <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
-            From the reimbursement ledger (amounts actually payable).
-          </div>
-        )}
-
-        {Object.keys(reimbByMonth).length > 0
-          ? <LineChartPlaceholder data={reimbByMonth} />
-          : <div className="empty-state" style={{ padding: 32, fontSize: 13 }}>
-              No reimbursement history yet. This chart fills in once the first monthly ledger entries exist.
-            </div>}
       </div>
 
       <div className="grid-2">
         <div className="surface" style={{ marginBottom: 0 }}>
           <div className="surface-header">
             <div className="surface-title">Invoice volume</div>
-            <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} disabled title="Data placeholder">Monthly ▾</button>
+            <span className="muted" style={{ fontSize: 12 }}>All recorded months</span>
           </div>
           <div style={{ marginBottom: 12 }}>
             <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--bl-navy)' }}>
@@ -624,6 +566,28 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      <div className="surface">
+        <div className="surface-header">
+          <div className="chart-headline">Monthly reimbursement</div>
+          <button className="btn-ghost" style={{ padding: '7px 12px', fontSize: 12 }} onClick={() => window.location.reload()}>Refresh</button>
+        </div>
+        {statsState === 'ok' && budgetSource === 'receipts_capped' && (
+          <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
+            Estimate from approved receipts. The reimbursement ledger has no entries for this month yet.
+          </div>
+        )}
+        {statsState === 'ok' && budgetSource === 'ledger' && (
+          <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
+            Payable amounts from the reimbursement ledger.
+          </div>
+        )}
+        {Object.keys(reimbByMonth).length > 0
+          ? <LineChartPlaceholder data={reimbByMonth} />
+          : <div className="empty-state" style={{ padding: 32, fontSize: 13 }}>
+              No reimbursement history yet.
+            </div>}
+      </div>
+
       <BamSpendingSection
         bamSpending={bamSpending}
         spendingView={spendingView}
@@ -631,6 +595,7 @@ export default function AdminDashboard() {
         state={spendingState}
         error={spendingError}
       />
+      </div>
     </>
   )
 }

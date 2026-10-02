@@ -202,13 +202,14 @@ export default function BankingRequestsPage() {
         )}
 
         <p style={{ fontSize: 13, color: 'var(--midgray)', lineHeight: 1.7, marginTop: 0 }}>
-          A BAM cannot change their own banking. They ask, you apply. Read the requested account number
-          against the current one before you approve: if a student&rsquo;s account was taken over, this
-          queue is where the payment would be redirected. Applying resets their account confirmation, so
-          they have to sign in and confirm the new last 4 digits.
+          Compare the requested account number with the current one before approval. A fraudulent request
+          could redirect pay. After approval, the BAM confirms the new last 4 digits at sign-in.
         </p>
 
         <CohortFilterBar
+          className="banking-filterbar"
+          cohortLabel="Cohort"
+          mode="menu"
           cohortFilter={cohortFilter}
           hideTest={hideTest}
           setFilters={setFilters}
@@ -357,6 +358,9 @@ export default function BankingRequestsPage() {
           <div className="surface-title">Decided</div>
         </div>
         <CohortFilterBar
+          className="banking-filterbar"
+          cohortLabel="Cohort"
+          mode="menu"
           cohortFilter={cohortFilter}
           hideTest={hideTest}
           setFilters={setFilters}

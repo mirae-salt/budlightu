@@ -141,29 +141,20 @@ export function QuestionHistory({
         {rows.map(r => (
           <div
             key={r.id}
-            style={{
-              padding: '14px 16px', borderRadius: 10,
-              // Answered recedes, waiting stands out. Left identical there is no way to see at a
-              // glance whether anything is still outstanding.
-              border: r.answered_at ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(0,163,224,0.35)',
-              background: r.answered_at ? 'rgba(0,0,0,0.015)' : 'rgba(0,163,224,0.04)'
-            }}
+            className={`support-thread${r.answered_at ? ' is-answered' : ' is-waiting'}`}
           >
             {/* A status word, not just a colour. Colour alone is not a status anyone can read out
                 loud, and it is invisible to a colourblind student. */}
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', gap: 12,
-              alignItems: 'center', flexWrap: 'wrap', marginBottom: 8
-            }}>
+            <div className="support-thread-heading">
               <span style={{
                 display: 'inline-block', padding: '2px 9px', borderRadius: 999,
                 fontSize: 11, fontWeight: 700, letterSpacing: '0.02em',
-                background: r.answered_at ? 'rgba(34,197,94,0.12)' : 'rgba(0,163,224,0.14)',
-                color: r.answered_at ? '#166534' : '#0369a1'
+                background: r.answered_at ? '#E9F5EC' : '#FFF2D8',
+                color: r.answered_at ? '#176442' : '#8A5300'
               }}>
                 {r.answered_at ? 'Answered' : 'Waiting for a reply'}
               </span>
-              <span className="subtle" style={{ fontSize: 12 }}>Asked {when(r.submitted_at)}</span>
+              <span className="subtle" style={{ fontSize: 12 }}>{when(r.submitted_at)}</span>
             </div>
 
             {/*
@@ -185,24 +176,13 @@ export function QuestionHistory({
             ).map(m => (
               <div
                 key={m.id}
-                style={{
-                  marginTop: 10,
-                  ...(m.author === 'admin'
-                    ? {
-                        padding: '12px 14px', borderRadius: 8, background: '#fff',
-                        borderLeft: '3px solid var(--bl-blue, #0073cf)'
-                      }
-                    : {})
-                }}
+                className={`support-message${m.author === 'admin' ? ' is-team' : ''}`}
               >
-                <div className="subtle" style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
-                  {m.author === 'admin' ? 'Bud Light U' : 'You'}
-                  <span style={{ fontWeight: 400 }}> · {when(m.created_at)}</span>
+                <div className="support-message-meta">
+                  <strong>{m.author === 'admin' ? 'Program team' : 'You'}</strong>
+                  <span>{when(m.created_at)}</span>
                 </div>
-                <div style={{
-                  fontSize: 14, color: m.author === 'admin' ? '#374151' : '#1a1a2e',
-                  whiteSpace: 'pre-wrap', lineHeight: 1.65
-                }}>
+                <div className="support-message-body">
                   {m.body}
                 </div>
                 {m.attachment_key && (

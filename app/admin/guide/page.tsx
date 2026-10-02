@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import { TopBar } from '../_components/TopBar'
+import { RECEIPT_AUDIT_DAY, INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 
 export default function GuidePage() {
   return (
@@ -141,7 +142,7 @@ function SetupPanel() {
           <span className="step-title">Import your BAM list</span>
         </div>
         <p style={{ fontSize: 14, lineHeight: 1.7 }}>
-          Go to the <strong>Roster</strong> page and click <strong>Import CSV / Excel</strong>.
+          Go to the <strong>Roster</strong> page and click <strong>Import roster</strong>.
           Upload the list of accepted applicants. The file only needs two things: <strong>name</strong> and <strong>email</strong>.
         </p>
         <div style={{ margin: '12px 0', padding: '12px 16px', background: 'rgba(0,0,0,0.03)', borderRadius: 8 }}>
@@ -156,7 +157,7 @@ function SetupPanel() {
           <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> The system maps your column headers automatically. If it guesses wrong, you can fix the mapping before importing.
         </div>
         <div className="info-box info-note" style={{ marginTop: 8 }}>
-          <strong>Tip:</strong> You can also add BAMs one at a time with the <strong>+ Add BAM</strong> button.
+          <strong>Tip:</strong> You can also add BAMs one at a time with the <strong>Add BAM</strong> button.
         </div>
       </div>
 
@@ -301,10 +302,10 @@ function FlowPanel() {
       <div className="step-box">
         <div className="step-header">
           <span className="step-num">6</span>
-          <span className="step-title">Invoices auto-generate on the 16th</span>
+          <span className="step-title">Invoices auto-generate on the {INVOICE_GENERATE_DAY}th</span>
         </div>
         <p style={{ fontSize: 14, lineHeight: 1.7 }}>
-          On the <strong>16th of each month</strong>, invoices are automatically generated for every active BAM.
+          On the <strong>{INVOICE_GENERATE_DAY}th of each month</strong>, invoices are automatically generated for every active BAM.
           The system pulls each BAM&apos;s info from the roster (name, bank details, salary, reimbursement amount) and creates all invoices at once.
         </p>
         <div className="info-box info-auto">
@@ -702,12 +703,17 @@ function AdminActionsPanel() {
               <td><span className="pill pill-yellow">You</span></td>
             </tr>
             <tr>
-              <td style={{ fontWeight: 700 }}>16th</td>
+              <td style={{ fontWeight: 700 }}>{RECEIPT_AUDIT_DAY}th</td>
+              <td>Receipt audit runs. Review anything it flags before invoices are generated.</td>
+              <td><span className="pill pill-yellow">You</span></td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 700 }}>{INVOICE_GENERATE_DAY}th</td>
               <td><strong>Invoices auto-generate.</strong> Review the batch, then approve and send.</td>
               <td><span className="pill pill-yellow">You</span></td>
             </tr>
             <tr>
-              <td style={{ fontWeight: 700 }}>16th+</td>
+              <td style={{ fontWeight: 700 }}>{INVOICE_GENERATE_DAY}th+</td>
               <td>AP receives invoices, processes payment (net 15, direct deposit).</td>
               <td><span className="pill pill-gray">AP</span></td>
             </tr>

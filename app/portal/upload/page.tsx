@@ -4,6 +4,7 @@ import { browserClient } from '@/lib/supabase-browser'
 import { resolveBamId } from '@/lib/portal-bam'
 import { buildMonthOptions, type CohortWindow } from '@/lib/upload-months'
 import Link from 'next/link'
+import { INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 
 /*
  * 4, not 10, because the platform refuses the request above 4.5 MB before any of our code
@@ -261,9 +262,8 @@ export default function UploadPage() {
         <div className="crumbs"><span className="now">Upload receipts</span></div>
       </div>
 
-      <div style={{ maxWidth: 680 }}>
-        <h1>Upload this month&rsquo;s Bud Light receipts</h1>
-        <p className="subtle">Multiple receipts OK. JPG, PNG, WebP, or PDF. Under {MAX_LABEL} each, so upload straight from your phone if you can.</p>
+      <div className="upload-page" style={{ maxWidth: 680 }}>
+        <h1>Upload receipts</h1>
 
         <div className="surface stack" style={{ marginTop: 20 }}>
           <div>
@@ -272,9 +272,7 @@ export default function UploadPage() {
               padding: '10px 14px', background: 'var(--bl-fog)', borderRadius: 8
             }}>
               <div>
-                <span className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Submitting for
-                </span>
+                <span className="muted" style={{ fontSize: 11 }}>Receipt month</span>
                 <div style={{ fontWeight: 700, fontSize: 15, marginTop: 1 }}>
                   {selectedOption?.label}
                   {cannotSubmit
@@ -286,7 +284,7 @@ export default function UploadPage() {
                     window is the 16th to the 15th. */}
                 {monthOptions.find(o => o.value === selectedPeriod)?.windowLabel && (
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                    covers purchases {monthOptions.find(o => o.value === selectedPeriod)?.windowLabel}
+                    Purchases {monthOptions.find(o => o.value === selectedPeriod)?.windowLabel} · Due on the 15th
                   </div>
                 )}
               </div>
@@ -337,8 +335,7 @@ export default function UploadPage() {
                 </p>
               ) : (
                 <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, margin: '8px 0 0' }}>
-                  Receipts are due by the 15th, so this is the only month you can submit for.{' '}
-                  <Link href="/portal/support">Ask about another month</Link>
+                  <Link href="/portal/support">Need another month?</Link>
                 </p>
               )
             )}
@@ -393,10 +390,7 @@ export default function UploadPage() {
             does: which rules apply to what you are about to send.
           */}
           <label
-            style={{
-              display: 'flex', alignItems: 'flex-start', gap: 10,
-              padding: '10px 14px', background: 'var(--bl-fog)', borderRadius: 8, cursor: 'pointer'
-            }}
+            className="upload-special-release"
           >
             <input
               type="checkbox"
@@ -405,20 +399,32 @@ export default function UploadPage() {
               style={{ marginTop: 2 }}
             />
             <span style={{ fontSize: 13 }}>
-              <strong style={{ fontWeight: 600 }}>This is a special or limited release</strong>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>
-                Bought after the 15th or outside the usual window? Tick this. Up to 3 months
-                back, counts toward this month&rsquo;s $150, and your program manager reviews it.
-              </span>
+              <strong style={{ fontWeight: 600 }}>Older purchase or special release</strong>
+              {isSpecialRelease && <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 2, lineHeight: 1.5 }}>
+                Up to 3 months old; manager review; counts toward this month&rsquo;s $150.
+              </span>}
             </span>
           </label>
 
+          <p className="upload-photo-tip">
+            Photo: show the store, date and total. Circle Bud Light items on mixed receipts.
+          </p>
+
           <div
             className={`drop-zone${dragging ? ' drop-zone--active' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-label="Choose receipt files"
             onDragOver={e => { e.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             onClick={() => inputRef.current?.click()}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                inputRef.current?.click()
+              }
+            }}
           >
             <input
               ref={inputRef}
@@ -441,6 +447,8 @@ export default function UploadPage() {
             </p>
           </div>
 
+          <p className="upload-policy-line">Bud Light items only · Get as close to $150 as you can, tax included</p>
+
           {files.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {files.map((f, i) => (
@@ -462,18 +470,11 @@ export default function UploadPage() {
             </div>
           )}
 
-          <button
-            onClick={submit}
-            disabled={busy || files.length === 0}
-            style={{
-              padding: '14px 24px', fontSize: 15, fontWeight: 700,
-              ...(files.length > 0 ? { background: 'var(--bl-blue)', transform: 'scale(1)' } : {})
-            }}
-          >
-            {busy ? 'Submitting…' : files.length > 0
-              ? `Submit ${files.length} receipt${files.length === 1 ? '' : 's'}`
-              : 'Select receipts to submit'}
-          </button>
+          {files.length > 0 && (
+            <button onClick={submit} disabled={busy} className="upload-submit">
+              {busy ? 'Submitting…' : `Submit ${files.length} receipt${files.length === 1 ? '' : 's'}`}
+            </button>
+          )}
         </div>
 
         {err && (
@@ -544,48 +545,16 @@ export default function UploadPage() {
         )}
         {loadingReceipts && pastReceipts.length === 0 && <p className="muted" style={{ marginTop: 16, fontSize: 13 }}>Loading your receipts...</p>}
 
-        <div className="surface" style={{ marginTop: 20 }}>
-          <div className="surface-header"><span className="surface-title">Receipt checklist</span></div>
-          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
-              /*
-               * "Label by month, name your file..." REMOVED 2026-08-14 per Robin, from the
-               * BL Campus x AI Final Connect meeting: a BAM uploading a photo straight from
-               * their camera roll on a phone cannot rename the file first, so an instruction
-               * that assumes they can is an instruction they cannot follow. The storage key
-               * was never derived from the filename anyway (it's {bam_id}/{period}/{sha256}),
-               * so nothing downstream depended on this and nothing changes except that the
-               * checklist stops asking for something students could not do.
-               */
-              { icon: '🍺', title: 'Bud Light products only', desc: 'Anything else on the receipt is ignored.' },
-              { icon: '✨', title: 'Mixed receipt? Highlight BL items', desc: 'Circle them before you upload.' },
-              { icon: '📸', title: 'Clear, readable photos', desc: 'Store, date, items and total must be readable.' },
-              { icon: '💰', title: 'Purchase $150 worth per month', desc: 'Tax included. Get as close to $150 as you can.' },
-              { icon: '📅', title: 'Submit by the 15th', desc: 'After that the month closes and the portal will not take it.' },
-            ].map((item, i) => (
-              <li key={i} style={{
-                display: 'flex', gap: 12, alignItems: 'flex-start',
-                padding: '10px 14px', background: 'var(--bl-fog)', borderRadius: 8
-              }}>
-                <span style={{ fontSize: 20, lineHeight: '24px', flexShrink: 0 }}>{item.icon}</span>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--bl-navy)' }}>{item.title}</div>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{item.desc}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Steps confirmed in 8/4 meeting with Robin/Nathan */}
-        <div className="surface" style={{ marginTop: 20 }}>
-          <div className="surface-header"><span className="surface-title">What happens next</span></div>
-          <ol className="stack subtle" style={{ margin: 0, paddingLeft: 20 }}>
-            <li>Our AI reads your receipt and pulls the Bud Light items.</li>
-            <li>Clear receipts are approved automatically. Anything unclear goes to your program manager.</li>
-            <li>On the 16th your invoice is prepared with your reimbursement and fee, and emailed to you.</li>
-          </ol>
-        </div>
+        <details className="upload-guidance">
+          <summary>After you upload</summary>
+          <div className="upload-guidance-content">
+            <ol>
+              <li>We count the Bud Light items. Other items on a mixed receipt are ignored.</li>
+              <li>Clear receipts are approved automatically. Your manager checks anything unclear.</li>
+              <li>Your draft invoice is prepared on the {INVOICE_GENERATE_DAY}th. You get a copy when it is sent for payment.</li>
+            </ol>
+          </div>
+        </details>
       </div>
     </>
   )

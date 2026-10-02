@@ -235,8 +235,7 @@ export default function SettingsPage() {
         Settings
       </h1>
       <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 28px', lineHeight: 1.6 }}>
-        Who gets emailed, and when. Changes take effect on the next question or invoice, with
-        no deploy needed.
+        Manage question alerts, receipt reminders, invoice recipients and portal notices.
       </p>
 
       {loadError && (
@@ -263,14 +262,13 @@ export default function SettingsPage() {
       <section style={sectionStyle}>
         <h2 style={h2Style}>Support questions</h2>
         <p style={pStyle}>
-          When a BAM asks a question from the portal. Every question is saved on the{' '}
-          <Link href="/admin/questions" style={linkStyle}>Questions page</Link> regardless of
-          what is set here.
+          Every message stays on the{' '}
+          <Link href="/admin/questions" style={linkStyle}>Questions page</Link>, even when email is off.
         </p>
 
         <h3 style={h3Style}>How often you are emailed</h3>
         <p style={{ ...pStyle, marginBottom: 12 }}>
-          Your setting only. Robin, Nathan and Mirae each choose their own.
+          This changes only your alerts. Other admins choose their own.
         </p>
 
         <div style={{ display: 'grid', gap: 8 }}>
@@ -336,27 +334,22 @@ export default function SettingsPage() {
           </div>
         )}
         <p style={{ fontSize: 12, color: '#9ca3af', margin: '8px 0 0', lineHeight: 1.6 }}>
-          Each person&apos;s frequency is theirs to change, so these are shown for reference
-          only. Admins are added and removed on the{' '}
+          Only each admin can change their own alerts. Manage access on the{' '}
           <Link href="/admin/team" style={linkStyle}>Team page</Link>.
         </p>
 
-        <p style={{ fontSize: 12, color: '#9ca3af', margin: '18px 0 0', lineHeight: 1.6 }}>
-          Right now a new question emails{' '}
-          {eachAdmins.length === 0
-            ? 'nobody. Questions only appear on the Questions page.'
-            : `${eachAdmins.length} ${eachAdmins.length === 1 ? 'person' : 'people'}.`}
-        </p>
+        {notify && !notify.adminsError && <p style={{ fontSize: 12, color: '#9ca3af', margin: '18px 0 0', lineHeight: 1.6 }}>
+          Immediate alerts: {eachAdmins.length} {eachAdmins.length === 1 ? 'admin' : 'admins'}.
+          {eachAdmins.length === 0 && ' Daily summaries may still be on.'}
+        </p>}
       </section>
 
       {/* ---------------- Reminders to BAMs ---------------- */}
       <section style={sectionStyle}>
         <h2 style={h2Style}>Reminders to BAMs</h2>
         <p style={pStyle}>
-          Sent on the {(reminders?.days ?? [10, 14]).join(' and the ')} of the month to any BAM
-          who has not submitted a single receipt yet that month. Anyone who has uploaded
-          something, however small, is left alone. BAMs can also turn these off for themselves
-          on their own account page.
+          On days {(reminders?.days ?? [10, 14]).join(' and ')} each month, remind BAMs with no receipts.
+          BAMs can turn reminders off in their account.
         </p>
 
         {reminders?.degraded && (
@@ -367,9 +360,9 @@ export default function SettingsPage() {
 
         <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
           {([
-            ['off', 'Off', 'Nothing is sent. This is where it is now.'],
-            ['draft', 'Record only, do not send', 'The system works out who would get one and records it, but no email leaves. Good for one cycle before turning it on.'],
-            ['live', 'Send them', 'BAMs are emailed on the days above.']
+            ['off', 'Off', 'No reminders are sent.'],
+            ['draft', 'Record only', 'Record who would get a reminder without emailing them.'],
+            ['live', 'Send reminders', 'Email eligible BAMs on the scheduled days.']
           ] as const).map(([mode, label, detail]) => (
             <label
               key={mode}
@@ -429,8 +422,7 @@ export default function SettingsPage() {
               dangerouslySetInnerHTML={{ __html: reminders.preview.html }}
             />
             <p style={{ fontSize: 12, color: '#9ca3af', margin: '8px 0 0', lineHeight: 1.6 }}>
-              Example figures. The real email uses each BAM&apos;s own numbers. To change the
-              wording, tell Mirae what it should say.
+              Example figures. Sent emails use each BAM&apos;s own numbers.
             </p>
           </div>
         )}
@@ -473,9 +465,7 @@ export default function SettingsPage() {
                   border: '1px solid #fde68a', borderRadius: 8, padding: 12,
                   margin: '12px 0 0', lineHeight: 1.6
                 }}>
-                  These are the addresses real invoices are sent to. A typo here sends
-                  someone&apos;s pay to the wrong inbox, and the send still reports success, so
-                  check the spelling before you save.
+                  Check these addresses before saving. A typo can send an invoice to the wrong inbox even when delivery reports success.
                 </p>
 
                 <button
@@ -495,8 +485,7 @@ export default function SettingsPage() {
                 </button>
                 {invoice.source === 'env' && (
                   <p style={{ fontSize: 12, color: '#9ca3af', margin: '8px 0 0' }}>
-                    Currently the deployed default. Saving here replaces it, and takes effect on
-                    the next send with no redeploy.
+                    Using the deployed default. A saved change takes effect on the next send.
                   </p>
                 )}
               </>
@@ -577,8 +566,7 @@ export default function SettingsPage() {
       <section style={{ ...sectionStyle, marginBottom: 0 }}>
         <h2 style={h2Style}>Portal</h2>
         <p style={pStyle}>
-          Put a notice at the top of the BAM portal, or close it while something is being
-          fixed. Takes effect within a minute, including on tabs that are already open.
+          Show a notice or temporarily close the BAM portal. Changes reach open tabs within a minute.
         </p>
         <Link
           href="/admin/maintenance"

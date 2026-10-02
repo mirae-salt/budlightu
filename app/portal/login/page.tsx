@@ -130,7 +130,10 @@ export default function LoginPage() {
       setBusy(false)
     }
 
-    window.location.href = '/portal/program'
+    // A public FAQ or terms reader who opened Support should land on the
+    // question form after sign-in. Only this exact internal path is accepted.
+    const requestedPage = new URLSearchParams(window.location.search).get('next')
+    window.location.href = requestedPage === '/portal/support' ? requestedPage : '/portal/program'
   }
 
   return (
@@ -223,6 +226,10 @@ export default function LoginPage() {
         .login-submit:hover:not(:disabled) { background: #141c2e; }
         .login-submit:active:not(:disabled) { transform: scale(0.985); }
         .login-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+        .login-help-details { margin-top: 16px; color: var(--slate); font-size: 12px; line-height: 1.55; }
+        .login-help-details summary { color: var(--bl-blue); font-weight: 600; cursor: pointer; }
+        .login-help-details p { margin: 8px 0 0; }
+        .login-help-details ul { margin: 6px 0; padding-left: 20px; }
 
         .login-divider {
           display: flex; align-items: center; gap: 12px;
@@ -331,7 +338,7 @@ export default function LoginPage() {
               <>
                 <h1>Sign in</h1>
                 <div className="login-subtitle">
-                  Use the email address you applied with. We will send you a 6 digit code.
+                  Enter the email you applied with. We&rsquo;ll send a 6-digit code.
                 </div>
 
                 <div className="login-email-field">
@@ -354,29 +361,15 @@ export default function LoginPage() {
                   {busy ? 'Sending...' : 'Send verification code'}
                 </button>
 
-                <div style={{
-                  marginTop: 12, padding: '14px 16px', borderRadius: 10,
-                  background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
-                  fontSize: 13, lineHeight: 1.6, color: '#92400e'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </svg>
-                    <strong style={{ color: '#b45309' }}>Using a work email?</strong>
-                  </div>
-                  <p style={{ margin: '0 0 8px' }}>
-                    Company spam filters often block our codes. Add these two senders
-                    to your safe list first:
-                  </p>
-                  <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
-                    <li><strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong></li>
-                    <li><strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong></li>
+                <details className="login-help-details">
+                  <summary>Code not arriving at your work email?</summary>
+                  <p>Check your junk folder or add these senders to your safe list:</p>
+                  <ul>
+                    <li>noreply@budlightu.com</li>
+                    <li>onboarding@budlightu.com</li>
                   </ul>
-                  <p style={{ margin: 0, fontSize: 12 }}>
-                    In Outlook: Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders
-                  </p>
-                </div>
+                  <p>Outlook: Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders</p>
+                </details>
               </>
             )}
 

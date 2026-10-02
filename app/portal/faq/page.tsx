@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 
 export default function FaqPage() {
   return (
@@ -11,49 +12,37 @@ export default function FaqPage() {
 
       <div style={{ maxWidth: 680 }}>
         <div className="surface" style={{ marginTop: 20 }}>
-          <h3 style={{ marginTop: 0 }}>How much do I get reimbursed each month?</h3>
+          <h3 style={{ marginTop: 0 }}>How much can I claim?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            Up to <strong>$150</strong> for Bud Light purchases (based on your submitted receipts). Your monthly fee is separate and is always paid.
+            Up to <strong>$150</strong> for Bud Light purchases each month, including tax. Your monthly fee is separate.
           </p>
         </div>
 
         <div className="surface">
           <h3 style={{ marginTop: 0 }}>What if I spend less than $150?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            You&rsquo;ll be reimbursed for whatever you spent that month. There is no rollover. Each month resets to $150.
-            If you consistently underspend, your program manager may reach out.
+            We reimburse your eligible spending. Unused allowance does not carry over.
           </p>
         </div>
 
         <div className="surface">
-          <h3 style={{ marginTop: 0 }}>What if I forget a month?</h3>
+          <h3 style={{ marginTop: 0 }}>When are receipts due?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            You won&rsquo;t receive a reimbursement for that month. There&rsquo;s no way to carry it over.
-            Your program manager will follow up if this happens often.
+            By the 15th. Each cycle covers purchases from the previous month&rsquo;s 16th through this month&rsquo;s 15th.
           </p>
         </div>
 
         <div className="surface">
           <h3 style={{ marginTop: 0 }}>What counts as a valid receipt?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            Any receipt showing Bud Light product purchase. Mixed receipts (with groceries or other items) are fine. We only count the Bud Light lines.
+            A receipt showing Bud Light purchases. Mixed receipts are fine; we only count the Bud Light items.
           </p>
         </div>
 
         <div className="surface">
           <h3 style={{ marginTop: 0 }}>When do I get paid?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            Invoices go out around the 16th of each month. Payment (via direct deposit) is <strong>net-15</strong> after Salt&rsquo;s AP team receives the invoice.
-          </p>
-        </div>
-
-        <div className="surface">
-          <h3 style={{ marginTop: 0 }}>How does payment work?</h3>
-          <p className="subtle" style={{ margin: 0 }}>
-            Here&rsquo;s the process: you upload your Bud Light receipts by the 15th &rarr;
-            we review them &rarr; a draft invoice is prepared on the 16th with your fee + reimbursement &rarr;
-            it gets sent to Salt&rsquo;s Accounts Payable team &rarr; you receive payment via <strong>direct deposit within 15 business days</strong>.
-            You&rsquo;ll be CC&rsquo;d on the AP email so you can see when your invoice was submitted.
+            We prepare draft invoices on the {INVOICE_GENERATE_DAY}th. After approval, AP receives yours. Payment terms are <strong>net 15</strong> from AP receipt.
           </p>
         </div>
 

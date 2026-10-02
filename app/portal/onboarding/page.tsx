@@ -7,6 +7,7 @@ import { BANK_SEED, otherBankNameProblem } from '@/lib/banks'
 import { PROVINCE_CODES } from '@/lib/invoice-payload'
 import { HST_COPY } from '@/lib/hst-declaration'
 import { WORK_AUTH_COPY, BANKING_ATTESTATION_COPY, AI_DISCLOSURE_COPY } from '@/lib/attestations'
+import { INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 
 /*
  * The five ticks the form will not submit without. They sit in three different
@@ -183,7 +184,7 @@ export default function OnboardingPage() {
               <strong style={{ color: 'var(--bl-navy)' }}>Upload your Bud Light receipts</strong> by the 15th each month to get reimbursed up to $150.
             </li>
             <li style={{ fontSize: 13, color: 'var(--midgray)' }}>
-              <strong style={{ color: 'var(--bl-navy)' }}>Your invoice generates automatically</strong> on the 16th. Payment is via direct deposit (net-15).
+              <strong style={{ color: 'var(--bl-navy)' }}>Your draft invoice is prepared automatically</strong> on the {INVOICE_GENERATE_DAY}th. Payment is via direct deposit (net-15) after it is sent to AP.
             </li>
           </ol>
         </div>

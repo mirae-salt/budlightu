@@ -286,7 +286,7 @@ export async function GET(req: Request) {
         admin.from('bams').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
         admin.from('receipts').select('id', { count: 'exact', head: true }).eq('period', period),
         admin.from('receipts').select('id', { count: 'exact', head: true }).in('status', ['review', 'ocr_failed']),
-        admin.from('invoices').select('id', { count: 'exact', head: true }).eq('status', 'sent')
+        admin.from('invoices').select('id', { count: 'exact', head: true }).eq('status', 'sent').eq('period', period)
       ])
 
       const countErr = [activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent]

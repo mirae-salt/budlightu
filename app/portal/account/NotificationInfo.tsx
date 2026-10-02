@@ -12,10 +12,10 @@
  */
 export function NotificationInfo() {
   return (
-    <div className="surface" style={{ marginTop: 24, padding: 20 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px' }}>Notifications</h2>
-      <p className="subtle" style={{ fontSize: 13, margin: '0 0 14px', lineHeight: 1.6 }}>
-        The bell in the sidebar shows what has happened to your receipts and invoices.
+    <details className="account-notification-details">
+      <summary>When will I get notifications?</summary>
+      <p className="subtle" style={{ fontSize: 13, margin: '12px 0', lineHeight: 1.6 }}>
+        Check the bell for receipt and invoice updates.
       </p>
 
       <ul style={{
@@ -37,10 +37,6 @@ export function NotificationInfo() {
         ))}
       </ul>
 
-      <p className="subtle" style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
-        These are not optional. Nothing about your reimbursement changes based on whether you
-        read them, and there is nothing to configure here.
-      </p>
-    </div>
+    </details>
   )
 }

@@ -534,15 +534,15 @@ export default function ReceiptsQueue() {
         hideWhenNone
       />
 
-      <div className="surface" style={{ marginBottom: 16 }}>
+      <div className={`surface receipt-override ${overrideOpen ? 'is-open' : ''}`}>
         <div className="surface-header">
           <div style={{ fontWeight: 600, fontSize: 14 }}>Upload for a student</div>
-          <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => setOverrideOpen(o => !o)}>
-            {overrideOpen ? 'Close' : 'A student missed the deadline'}
+          <button className="btn-ghost" aria-expanded={overrideOpen} onClick={() => setOverrideOpen(o => !o)}>
+            {overrideOpen ? 'Close' : 'Missed deadline'}
           </button>
         </div>
         {overrideOpen && (
-          <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 480 }}>
+          <div className="receipt-override-form" style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 480 }}>
             <p className="muted" style={{ fontSize: 12, margin: 0 }}>
               For a closed month only, and only with a reason -- it goes in the audit log.
               A future month, or a month outside that student&rsquo;s program, is still refused.

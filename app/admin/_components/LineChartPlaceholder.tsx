@@ -24,7 +24,7 @@ export function LineChartPlaceholder({ data }: { data?: Record<string, number> }
     : ['100%', '75%', '50%', '25%', '0%']
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: 240 }}>
+    <div style={{ position: 'relative', width: '100%', height: 176 }}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
         <defs>
           <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
