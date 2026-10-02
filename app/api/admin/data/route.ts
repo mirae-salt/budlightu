@@ -283,7 +283,9 @@ export async function GET(req: Request) {
       const period = url.searchParams.get('period') ?? new Date().toISOString().slice(0, 7) + '-01'
       const [activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent] = await Promise.all([
         admin.from('bams').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-        admin.from('bams').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        // Test accounts sit in 'pending' for as long as somebody is rehearsing, and nobody has to
+        // chase them to finish onboarding.
+        admin.from('bams').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('is_test', false),
         admin.from('receipts').select('id', { count: 'exact', head: true }).eq('period', period),
         admin.from('receipts').select('id', { count: 'exact', head: true }).in('status', ['review', 'ocr_failed']),
         admin.from('invoices').select('id', { count: 'exact', head: true }).eq('status', 'sent').eq('period', period)

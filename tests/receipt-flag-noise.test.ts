@@ -168,3 +168,42 @@ describe('isTaxLine: the receipt\'s own tax listed as an item', () => {
     expect(recomputeBudLightTotal(ticked as never).total).toBe(54.37)
   })
 })
+
+describe('a discount the model took off and the till did not', () => {
+  // Metro, 2026-10-01. Rabais -1.00 sits among the lines, the subtotal (47.99) is the beer plus the
+  // 3.00 deposit with no rabais in it, tax is 6.74 on the 44.99, and the total is 54.73. The model
+  // took the dollar off before tax and left the deposit out: (44.99 - 1.00) x 1.14981 = 50.58.
+  const metro = {
+    store: 'Metro (Marche Innovation Inc.)', subtotal: 47.99, tax: 6.74, grand_total: 54.73,
+    bud_light_total_incl_tax: 50.58, overall_confidence: 1,
+    lines: [bl('BUDLIG.BIERE CAN', 44.99), other('Rabais 1.00', -1), other('Consigne', 3)]
+  }
+
+  it('is explained by the deposit plus the discount with its tax, and clears', () => {
+    const rc = recomputeBudLightTotal(metro as never)
+    expect(rc.total).toBe(54.73)
+    expect(rc.matchesPrintedTotal).toBe(true)
+    expect(rc.mismatch).toBe(false)
+    expect(rc.notes.join(' ')).toMatch(/\$1\.00 discount/)
+    expect(classify(metro).status).toBe('auto_pass')
+  })
+
+  it('still flags a model figure the deposit and discount do not account for', () => {
+    expect(recomputeBudLightTotal({ ...metro, bud_light_total_incl_tax: 44 } as never).mismatch).toBe(true)
+  })
+
+  it('still flags the opposite shape: a model figure HIGHER than the printed total', () => {
+    // Levesque: the printed total already has the discount in it and the model ignored it.
+    expect(recomputeBudLightTotal({ ...metro, bud_light_total_incl_tax: 58 } as never).mismatch).toBe(true)
+  })
+
+  it('leaves a gap the deposit alone already closes untouched', () => {
+    // Couche-Tard: a promo pair that nets to two cents, plus a deposit.
+    const ct = {
+      subtotal: 79.96, tax: 11.98, grand_total: 96.74, bud_light_total_incl_tax: 91.94,
+      lines: [bl('BUD LIGHT', 79.98), other('CONSIGNE', 4.8), other('CARTE-RABAIS 15$', 15), other('MXM BIERES', -15.02)]
+    }
+    expect(recomputeBudLightTotal(ct as never).mismatch).toBe(false)
+  })
+})
+

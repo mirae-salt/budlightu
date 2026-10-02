@@ -398,6 +398,8 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
   let blProductCount = 0
   let otherProductCount = 0
   let discountCount = 0
+  /** Dollars of discount lines (negative totals), before tax. */
+  let discountTaken = 0
 
   for (const l of lines) {
     const t = parseMoney(l?.total)
@@ -428,6 +430,7 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
       // Neither a product nor a deposit. Counting it as another product is what made a
       // beer-only receipt look mixed.
       discountCount++
+      if (t < 0) discountTaken = round2(discountTaken - t)
     } else if (isBl) {
       blProductCount++
     } else {
@@ -662,9 +665,35 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
 
   const explainingDeposit = blDeposit > 0 ? blDeposit : impliedDeposit
 
-  const depositExplainsGap =
-    modelTotal !== null && explainingDeposit > 0 &&
-    Math.abs(round2(modelTotal + explainingDeposit) - total) <= mismatchTolerance(total)
+  /*
+   * A discount the model took off and the till did not.
+   *
+   * Metro prints "Rabais -1.00" among the lines, then a subtotal of 47.99 (the beer 44.99 plus
+   * the 3.00 deposit, no rabais in it), 6.74 of tax on the 44.99, and a total of 54.73. The
+   * model takes the dollar off before tax and leaves the deposit out, which gives
+   * (44.99 - 1.00) x 1.14981 = 50.58, short of the printed total by exactly the deposit plus
+   * the discount with its tax. Our figure is the printed total, so nothing is underpaid; the
+   * disagreement is the model applying a line the till charged around.
+   *
+   * Only in this direction (model lower) and only when our figure IS the printed total. The
+   * opposite shape is Thomas Levesque's Metro receipt, where the printed total already has
+   * the RABAIS in it and the model's figure is higher: that stays flagged, unchanged.
+   */
+  const productTaxBase = subtotal !== null ? round2(subtotal - allDeposits) : 0
+  const effectiveRate = tax !== null && productTaxBase > 0 ? tax / productTaxBase : null
+  const explainingDiscount =
+    discountTaken > 0 && effectiveRate !== null &&
+    grandTotal !== null && Math.abs(total - grandTotal) <= 0.01
+      ? round2(discountTaken * (1 + effectiveRate))
+      : 0
+
+  // Either explanation is enough, and the deposit alone is tried first: adding the discount to
+  // a gap the deposit already closes would push it back out (COUCHE-TARD's promo lines).
+  const closesWith = (extra: number) =>
+    modelTotal !== null && Math.abs(round2(modelTotal + extra) - total) <= mismatchTolerance(total)
+  const depositAloneCloses = explainingDeposit > 0 && closesWith(explainingDeposit)
+  const discountToo = !depositAloneCloses && explainingDiscount > 0 && closesWith(explainingDeposit + explainingDiscount)
+  const depositExplainsGap = depositAloneCloses || discountToo
 
   const mismatch =
     modelTotal === null ||
@@ -672,9 +701,15 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
 
   if (depositExplainsGap && (mismatchDelta as number) > mismatchTolerance(total)) {
     notes.push(
-      `the model reported $${(modelTotal as number).toFixed(2)}, which is this total less the ` +
-      `$${explainingDeposit.toFixed(2)} deposit it leaves out` +
-      `${impliedDeposit > 0 ? ' (charged in the summary, with no line of its own)' : ''}` +
+      `the model reported $${(modelTotal as number).toFixed(2)}, which is this total less ` +
+      [
+        explainingDeposit > 0
+          ? `the $${explainingDeposit.toFixed(2)} deposit it leaves out${impliedDeposit > 0 ? ' (charged in the summary, with no line of its own)' : ''}`
+          : '',
+        discountToo
+          ? `the $${discountTaken.toFixed(2)} discount (with its tax, $${explainingDiscount.toFixed(2)}) it took off and the till did not`
+          : ''
+      ].filter(Boolean).join(' and ') +
       `, so the two agree`
     )
   }
