@@ -227,7 +227,7 @@ export default function LoginPage() {
         .login-submit:active:not(:disabled) { transform: scale(0.985); }
         .login-submit:disabled { opacity: 0.45; cursor: not-allowed; }
         .login-help-details { margin-top: 16px; color: var(--slate); font-size: 12px; line-height: 1.55; }
-        .login-help-details summary { color: var(--bl-blue); font-weight: 600; cursor: pointer; }
+        .login-help-details summary { color: var(--bl-blue-ink); font-weight: 600; cursor: pointer; }
         .login-help-details p { margin: 8px 0 0; }
         .login-help-details ul { margin: 6px 0; padding-left: 20px; }
 

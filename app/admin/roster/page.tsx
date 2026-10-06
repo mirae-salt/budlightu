@@ -1042,7 +1042,7 @@ export default function Roster() {
                                   <button className="btn-ghost" onClick={() => setBankingFor(null)}>Close</button>
                                   <a
                                     href="/admin/banking-requests"
-                                    style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue)' }}
+                                    style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue-ink)' }}
                                   >
                                     Banking requests
                                   </a>
@@ -1058,7 +1058,7 @@ export default function Roster() {
                               <button
                                 className="btn-ghost"
                                 disabled={inviting}
-                                style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue)' }}
+                                style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--bl-blue-ink)' }}
                                 onClick={async () => {
                                   setInviting(true)
                                   try {

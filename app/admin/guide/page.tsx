@@ -62,7 +62,7 @@ function TabNav() {
         }
         .guide-tab:hover { color: var(--bl-navy); background: rgba(0,0,0,0.03); border-radius: 6px 6px 0 0; }
         .guide-tab.active { color: #fff; background: var(--bl-blue); border-bottom-color: var(--bl-blue); border-radius: 6px 6px 0 0; }
-        .guide-tab.active:hover { color: #fff; background: var(--bl-blue); }
+        .guide-tab.active:hover { color: #fff; background: var(--bl-blue-ink); }
         .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
         .pill-green { background: rgba(34,197,94,0.12); color: #16a34a; }
         .pill-yellow { background: rgba(245,158,11,0.12); color: #d97706; }
@@ -154,7 +154,7 @@ function SetupPanel() {
           </div>
         </div>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> The system maps your column headers automatically. If it guesses wrong, you can fix the mapping before importing.
+          <strong style={{ color: 'var(--bl-blue-ink)' }}>Automatic:</strong> The system maps your column headers automatically. If it guesses wrong, you can fix the mapping before importing.
         </div>
         <div className="info-box info-note" style={{ marginTop: 8 }}>
           <strong>Tip:</strong> You can also add BAMs one at a time with the <strong>Add BAM</strong> button.
@@ -171,7 +171,7 @@ function SetupPanel() {
           They&apos;ll enter their personal info and banking details through an onboarding form.
         </p>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Invite emails are sent immediately after import.
+          <strong style={{ color: 'var(--bl-blue-ink)' }}>Automatic:</strong> Invite emails are sent immediately after import.
           Each link is unique and can only be used once.
         </div>
         <div className="info-box info-you" style={{ marginTop: 8 }}>
@@ -238,7 +238,7 @@ function FlowPanel() {
           They can upload multiple receipts. Phone photos, screenshots, and scanned images all work.
         </p>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> The system saves the file and checks if the same image was already submitted before (prevents duplicates).
+          <strong style={{ color: 'var(--bl-blue-ink)' }}>Automatic:</strong> The system saves the file and checks if the same image was already submitted before (prevents duplicates).
         </div>
       </div>
 
@@ -252,7 +252,7 @@ function FlowPanel() {
           It pulls out the store name, date, item names, prices, tax, and the Bud Light total.
         </p>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Trained on 400+ real receipts from 40+ Canadian stores. It knows how different stores print &quot;Bud Light&quot; (see the <em>What counts as BL</em> tab).
+          <strong style={{ color: 'var(--bl-blue-ink)' }}>Automatic:</strong> Trained on 400+ real receipts from 40+ Canadian stores. It knows how different stores print &quot;Bud Light&quot; (see the <em>What counts as BL</em> tab).
         </div>
       </div>
 
@@ -309,7 +309,7 @@ function FlowPanel() {
           The system pulls each BAM&apos;s info from the roster (name, bank details, salary, reimbursement amount) and creates all invoices at once.
         </p>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Invoice numbers, bank codes, amounts, and PDFs are all generated without any action needed.
+          <strong style={{ color: 'var(--bl-blue-ink)' }}>Automatic:</strong> Invoice numbers, bank codes, amounts, and PDFs are all generated without any action needed.
         </div>
         <div className="info-box info-note" style={{ marginTop: 8 }}>
           <strong>Manual preview:</strong> You can click <strong>PDF</strong> on any invoice to preview or download it at any time. This is just a preview and does not send anything.
@@ -388,7 +388,7 @@ function BamUxPanel() {
           </div>
         </div>
         <div className="info-box info-auto">
-          <strong style={{ color: 'var(--bl-blue)' }}>Automatic:</strong> Once they submit, their status changes from &quot;pending&quot; to &quot;active&quot; in your roster.
+          <strong style={{ color: 'var(--bl-blue-ink)' }}>Automatic:</strong> Once they submit, their status changes from &quot;pending&quot; to &quot;active&quot; in your roster.
           You can see who hasn&apos;t completed onboarding on the Dashboard.
         </div>
       </div>
@@ -775,7 +775,7 @@ function ToggleScreenshot({ src, alt }: { src: string; alt: string }) {
         onClick={() => setOpen(!open)}
         style={{
           background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-          fontSize: 12, fontWeight: 600, color: 'var(--bl-blue)', display: 'flex', alignItems: 'center', gap: 4
+          fontSize: 12, fontWeight: 600, color: 'var(--bl-blue-ink)', display: 'flex', alignItems: 'center', gap: 4
         }}
       >
         <span style={{ display: 'inline-block', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>&#9654;</span>

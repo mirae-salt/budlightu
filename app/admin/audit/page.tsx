@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TopBar } from '../_components/TopBar'
 import { type AuditRow } from '../_lib/dummy'
+import { entityLabel, actionLabel, roleLabel } from '@/lib/audit-wording'
 
 type RoleFilter = 'all' | AuditRow['role']
 
@@ -73,8 +74,8 @@ export default function AuditLog() {
                             : <span className="badge badge-green">BAM</span>
 
   function exportCsv() {
-    const header = ['Time', 'Actor', 'Role', 'Entity', 'Action', 'Target']
-    const rows = filtered.map(e => [e.ts, e.actor, e.role, e.entity, e.action, e.target])
+    const header = ['Time', 'Actor', 'Role', 'Entity', 'Action', 'What happened', 'Target']
+    const rows = filtered.map(e => [e.ts, e.actor, e.role, e.entity, e.action, actionLabel(e.entity, e.action), e.target])
     const csv = [header, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n')
@@ -102,14 +103,14 @@ export default function AuditLog() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <select value={roleFilter} onChange={e => setRoleFilter(e.target.value as RoleFilter)} style={{ width: 'auto' }}>
               <option value="all">All roles</option>
-              <option value="super_admin">super_admin</option>
-              <option value="program_admin">program_admin</option>
-              <option value="system">system</option>
-              <option value="bam">bam</option>
+              <option value="super_admin">{roleLabel('super_admin')}</option>
+              <option value="program_admin">{roleLabel('program_admin')}</option>
+              <option value="system">{roleLabel('system')}</option>
+              <option value="bam">{roleLabel('bam')}</option>
             </select>
             <select value={entityFilter} onChange={e => setEntityFilter(e.target.value)} style={{ width: 'auto' }}>
-              <option value="all">All entities</option>
-              {entities.map(en => <option key={en} value={en}>{en}</option>)}
+              <option value="all">All record types</option>
+              {entities.map(en => <option key={en} value={en}>{entityLabel(en)}</option>)}
             </select>
             <button className="btn-ghost" onClick={exportCsv}>Export CSV</button>
           </div>
@@ -125,7 +126,7 @@ export default function AuditLog() {
         <table className="admin-table one-line">
           <thead>
             <tr>
-              <th style={{ minWidth: 160 }}>Time</th><th>Actor</th><th>Role</th><th>Entity</th><th>Action</th><th>Target</th>
+              <th style={{ minWidth: 160 }}>Time</th><th>Actor</th><th>Role</th><th>Record</th><th>What happened</th><th>Target</th>
             </tr>
           </thead>
           <tbody>
@@ -137,8 +138,8 @@ export default function AuditLog() {
                 </td>
                 <td style={{ fontWeight: 600 }}>{e.actor}</td>
                 <td>{roleBadge(e.role)}</td>
-                <td style={{ fontFamily: 'monospace', fontSize: 12.5 }}>{e.entity}</td>
-                <td style={{ fontWeight: 500 }}>{e.action}</td>
+                <td title={e.entity}>{entityLabel(e.entity)}</td>
+                <td style={{ fontWeight: 500 }} title={`${e.entity} | ${e.action}`}>{actionLabel(e.entity, e.action)}</td>
                 <td className="muted wrap" style={{ fontSize: 12.5, maxWidth: 280 }}>
                   <TargetCell value={e.target} />
                 </td>
@@ -175,7 +176,7 @@ function TargetCell({ value }: { value: string }) {
         style={{
           marginLeft: 4, padding: '1px 6px', fontSize: 10, fontWeight: 600,
           background: 'rgba(0,0,0,0.04)', border: '1px solid var(--border)',
-          borderRadius: 4, cursor: 'pointer', color: 'var(--bl-blue)',
+          borderRadius: 4, cursor: 'pointer', color: 'var(--bl-blue-ink)',
           whiteSpace: 'nowrap'
         }}
       >

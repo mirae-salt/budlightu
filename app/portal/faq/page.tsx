@@ -87,7 +87,7 @@ export default function FaqPage() {
               {['#BudLightPartner', '#BudLightU', '@budlightca'].map(tag => (
                 <span key={tag} style={{
                   padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                  background: 'var(--bl-blue)', color: '#fff'
+                  background: 'var(--bl-blue-ink)', color: '#fff'
                 }}>{tag}</span>
               ))}
             </div>
@@ -100,7 +100,7 @@ export default function FaqPage() {
         <div className="surface">
           <h3 style={{ marginTop: 0 }}>Something else?</h3>
           <p className="subtle" style={{ margin: 0 }}>
-            <Link href="/portal/support" style={{ color: 'var(--bl-blue)' }}>Ask your program manager a question →</Link>
+            <Link href="/portal/support" style={{ color: 'var(--bl-blue-ink)' }}>Ask your program manager a question →</Link>
           </p>
         </div>
       </div>

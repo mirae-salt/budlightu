@@ -618,7 +618,7 @@ export default function MyInvoices() {
                   <Fragment key={inv.id}>
                     <tr>
                       <td style={{ fontWeight: 600, color: 'var(--bl-navy)' }}>{periodLabel(inv.period)}</td>
-                      <td style={{ fontFamily: 'monospace', color: 'var(--bl-blue)' }}>{inv.invoice_number ?? '—'}</td>
+                      <td style={{ fontFamily: 'monospace', color: 'var(--bl-blue-ink)' }}>{inv.invoice_number ?? '—'}</td>
                       <td>
                         <span className={`badge badge-${statusBadge(inv)}`}>{statusText(inv)}</span>
                         {/* The word does the work a colour cannot: a student scanning the
@@ -661,7 +661,7 @@ export default function MyInvoices() {
                     )}
                   </span>
                 </div>
-                <div style={{ fontFamily: 'monospace', color: 'var(--bl-blue)', fontSize: 13, marginTop: 4 }}>
+                <div style={{ fontFamily: 'monospace', color: 'var(--bl-blue-ink)', fontSize: 13, marginTop: 4 }}>
                   {inv.invoice_number ?? '—'}
                 </div>
                 {invoiceActions(inv, true) && (

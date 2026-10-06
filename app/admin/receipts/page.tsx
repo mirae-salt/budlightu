@@ -863,7 +863,7 @@ export default function ReceiptsQueue() {
                                           {l.desc}
                                           {l.ambiguous && <span style={{ color: 'var(--amber)', marginLeft: 4, fontSize: 10 }}>?</span>}
                                           {moved && (
-                                            <span style={{ color: 'var(--bl-blue)', marginLeft: 6, fontSize: 10, fontWeight: 600 }}>
+                                            <span style={{ color: 'var(--bl-blue-ink)', marginLeft: 6, fontSize: 10, fontWeight: 600 }}>
                                               {on ? 'added by you' : 'removed by you'}
                                             </span>
                                           )}
@@ -1042,7 +1042,7 @@ export default function ReceiptsQueue() {
                               )}
                               <button
                                 className="btn-ghost"
-                                style={{ marginTop: 10, fontSize: 12, color: 'var(--bl-blue)', borderColor: 'var(--bl-blue)' }}
+                                style={{ marginTop: 10, fontSize: 12, color: 'var(--bl-blue-ink)', borderColor: 'var(--bl-blue)' }}
                                 onClick={() => revertToReview(r)}
                               >
                                 Revert to review queue
@@ -1123,7 +1123,7 @@ export default function ReceiptsQueue() {
                                   </>
                                 )}
                                 {touched && correction && (
-                                  <div style={{ color: 'var(--bl-blue)' }}>
+                                  <div style={{ color: 'var(--bl-blue-ink)' }}>
                                     Bud Light lines corrected: {correction.added.length} added,{' '}
                                     {correction.removed.length} removed. Saved on the record.
                                   </div>

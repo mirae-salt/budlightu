@@ -328,7 +328,7 @@ export default function QuestionsPage() {
         )}
 
         {focusId && visible.some(r => r.id === focusId) && (
-          <p style={{ fontSize: 12, color: 'var(--bl-blue)', marginTop: -8, marginBottom: 12 }}>
+          <p style={{ fontSize: 12, color: 'var(--bl-blue-ink)', marginTop: -8, marginBottom: 12 }}>
             Showing the question from your notification.{' '}
             <button
               onClick={() => setFocusId(null)}

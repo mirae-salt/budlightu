@@ -210,7 +210,7 @@ function MonthlyTags() {
         {config.tags.map(tag => (
           <span key={tag} style={{
             padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-            background: 'var(--bl-blue)', color: '#fff'
+            background: 'var(--bl-blue-ink)', color: '#fff'
           }}>{tag}</span>
         ))}
         {config.extras.map(tag => (

@@ -292,17 +292,17 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
           <div className="surface">
             <h2 style={{ marginTop: 0 }}>You</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field"><label>Legal first name</label><input value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} style={fieldErrors.first_name ? errStyle : {}} />{fieldErrors.first_name && <span className="field-err">{fieldErrors.first_name}</span>}</div>
-              <div className="field"><label>Legal last name</label><input value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} style={fieldErrors.last_name ? errStyle : {}} />{fieldErrors.last_name && <span className="field-err">{fieldErrors.last_name}</span>}</div>
+              <div className="field"><label htmlFor="ob-first_name">Legal first name</label><input id="ob-first_name" autoComplete="given-name" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} style={fieldErrors.first_name ? errStyle : {}} />{fieldErrors.first_name && <span className="field-err">{fieldErrors.first_name}</span>}</div>
+              <div className="field"><label htmlFor="ob-last_name">Legal last name</label><input id="ob-last_name" autoComplete="family-name" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} style={fieldErrors.last_name ? errStyle : {}} />{fieldErrors.last_name && <span className="field-err">{fieldErrors.last_name}</span>}</div>
             </div>
-            <div className="field"><label>Phone</label><input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="647-555-0100" style={fieldErrors.phone ? errStyle : {}} />{fieldErrors.phone && <span className="field-err">{fieldErrors.phone}</span>}</div>
-            <div className="field"><label>Street</label><input value={form.street} onChange={e => setForm({...form, street: e.target.value})} style={fieldErrors.street ? errStyle : {}} />{fieldErrors.street && <span className="field-err">{fieldErrors.street}</span>}</div>
+            <div className="field"><label htmlFor="ob-phone">Phone</label><input id="ob-phone" autoComplete="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} placeholder="647-555-0100" style={fieldErrors.phone ? errStyle : {}} />{fieldErrors.phone && <span className="field-err">{fieldErrors.phone}</span>}</div>
+            <div className="field"><label htmlFor="ob-street">Street</label><input id="ob-street" autoComplete="address-line1" value={form.street} onChange={e => setForm({...form, street: e.target.value})} style={fieldErrors.street ? errStyle : {}} />{fieldErrors.street && <span className="field-err">{fieldErrors.street}</span>}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-              <div className="field"><label>City</label><input value={form.city} onChange={e => setForm({...form, city: e.target.value})} style={fieldErrors.city ? errStyle : {}} />{fieldErrors.city && <span className="field-err">{fieldErrors.city}</span>}</div>
-              <div className="field"><label>Province</label><select value={form.prov} onChange={e => setForm({...form, prov: e.target.value})} style={fieldErrors.prov ? errStyle : {}}><option value="">Select...</option>{PROVINCE_CODES.map(p => <option key={p} value={p}>{p}</option>)}</select>{fieldErrors.prov && <span className="field-err">{fieldErrors.prov}</span>}</div>
-              <div className="field"><label>Postal</label><input value={form.postal} onChange={e => setForm({...form, postal: e.target.value})} placeholder="M5V 3L9" style={fieldErrors.postal ? errStyle : {}} />{fieldErrors.postal && <span className="field-err">{fieldErrors.postal}</span>}</div>
+              <div className="field"><label htmlFor="ob-city">City</label><input id="ob-city" autoComplete="address-level2" value={form.city} onChange={e => setForm({...form, city: e.target.value})} style={fieldErrors.city ? errStyle : {}} />{fieldErrors.city && <span className="field-err">{fieldErrors.city}</span>}</div>
+              <div className="field"><label htmlFor="ob-prov">Province</label><select id="ob-prov" autoComplete="address-level1" value={form.prov} onChange={e => setForm({...form, prov: e.target.value})} style={fieldErrors.prov ? errStyle : {}}><option value="">Select...</option>{PROVINCE_CODES.map(p => <option key={p} value={p}>{p}</option>)}</select>{fieldErrors.prov && <span className="field-err">{fieldErrors.prov}</span>}</div>
+              <div className="field"><label htmlFor="ob-postal">Postal</label><input id="ob-postal" autoComplete="postal-code" value={form.postal} onChange={e => setForm({...form, postal: e.target.value})} placeholder="M5V 3L9" style={fieldErrors.postal ? errStyle : {}} />{fieldErrors.postal && <span className="field-err">{fieldErrors.postal}</span>}</div>
             </div>
-            <div className="field"><label>School / campus</label><input value={form.school_id} onChange={e => setForm({...form, school_id: e.target.value})} style={fieldErrors.school_id ? errStyle : {}} />{fieldErrors.school_id && <span className="field-err">{fieldErrors.school_id}</span>}</div>
+            <div className="field"><label htmlFor="ob-school_id">School / campus</label><input id="ob-school_id" autoComplete="off" value={form.school_id} onChange={e => setForm({...form, school_id: e.target.value})} style={fieldErrors.school_id ? errStyle : {}} />{fieldErrors.school_id && <span className="field-err">{fieldErrors.school_id}</span>}</div>
           </div>
 
           <div className="surface">
@@ -323,8 +323,8 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
             </span>
           </label>
             <div className="field">
-              <label>Bank</label>
-              <select value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} style={fieldErrors.bank_name ? errStyle : {}}>
+              <label htmlFor="ob-bank_name">Bank</label>
+              <select id="ob-bank_name" value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} style={fieldErrors.bank_name ? errStyle : {}}>
                 <option value="">Select…</option>
                 {BANK_SEED.map(b => <option key={b.normalized} value={b.displayName}>{b.displayName}</option>)}
                 <option value="Other">Other (type your bank name)</option>
@@ -333,8 +333,8 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
             </div>
             {form.bank_name === 'Other' && (
               <div className="field">
-                <label>Your bank name</label>
-                <input
+                <label htmlFor="ob-bank_name_other">Your bank name</label>
+                <input id="ob-bank_name_other" autoComplete="off"
                   value={form.bank_name_other}
                   onChange={e => setForm({ ...form, bank_name_other: e.target.value })}
                   placeholder="e.g. Kawartha Credit Union"
@@ -350,9 +350,9 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 12 }}>
-              <div className="field"><label>Institution # (3 digits)</label><input inputMode="numeric" maxLength={3} value={form.institution_no} onChange={e => setForm({...form, institution_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.institution_no ? errStyle : {}} />{fieldErrors.institution_no && <span className="field-err">{fieldErrors.institution_no}</span>}</div>
-              <div className="field"><label>Transit # (5 digits)</label><input inputMode="numeric" maxLength={5} value={form.transit_no} onChange={e => setForm({...form, transit_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.transit_no ? errStyle : {}} />{fieldErrors.transit_no && <span className="field-err">{fieldErrors.transit_no}</span>}</div>
-              <div className="field"><label>Account #</label><input inputMode="numeric" value={form.account_no} onChange={e => setForm({...form, account_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.account_no ? errStyle : {}} />{fieldErrors.account_no && <span className="field-err">{fieldErrors.account_no}</span>}</div>
+              <div className="field"><label htmlFor="ob-institution_no">Institution # (3 digits)</label><input id="ob-institution_no" autoComplete="off" inputMode="numeric" maxLength={3} value={form.institution_no} onChange={e => setForm({...form, institution_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.institution_no ? errStyle : {}} />{fieldErrors.institution_no && <span className="field-err">{fieldErrors.institution_no}</span>}</div>
+              <div className="field"><label htmlFor="ob-transit_no">Transit # (5 digits)</label><input id="ob-transit_no" autoComplete="off" inputMode="numeric" maxLength={5} value={form.transit_no} onChange={e => setForm({...form, transit_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.transit_no ? errStyle : {}} />{fieldErrors.transit_no && <span className="field-err">{fieldErrors.transit_no}</span>}</div>
+              <div className="field"><label htmlFor="ob-account_no">Account #</label><input id="ob-account_no" autoComplete="off" inputMode="numeric" value={form.account_no} onChange={e => setForm({...form, account_no: e.target.value.replace(/\D/g,'')})} style={fieldErrors.account_no ? errStyle : {}} />{fieldErrors.account_no && <span className="field-err">{fieldErrors.account_no}</span>}</div>
             </div>
           </div>
 
@@ -402,8 +402,8 @@ export default function OnboardingPage({ params }: { params: Promise<{ token: st
               {form.hst_status === 'registered' && (
                 <div style={{ marginTop: 10, marginLeft: 24 }}>
                   <div className="field">
-                    <label>{HST_COPY.numberLabel}</label>
-                    <input
+                    <label htmlFor="ob-hst_number">{HST_COPY.numberLabel}</label>
+                    <input id="ob-hst_number" autoComplete="off"
                       value={form.hst_number}
                       onChange={e => setForm({ ...form, hst_number: e.target.value })}
                       placeholder={HST_COPY.numberPlaceholder}

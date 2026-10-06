@@ -302,7 +302,7 @@ export default function UploadPage() {
                   type="button"
                   style={{
                     fontSize: 12, padding: '6px 14px',
-                    background: 'var(--bl-blue)', color: '#fff',
+                    background: 'var(--bl-blue-ink)', color: '#fff',
                     border: 'none', borderRadius: 6, cursor: 'pointer',
                     fontWeight: 600
                   }}
@@ -440,7 +440,7 @@ export default function UploadPage() {
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <p style={{ margin: '8px 0 0', fontWeight: 600, color: 'var(--bl-navy)' }}>
-              Drop receipts here or <span style={{ color: 'var(--bl-blue)', textDecoration: 'underline' }}>browse</span>
+              Drop receipts here or <span style={{ color: 'var(--bl-blue-ink)', textDecoration: 'underline' }}>browse</span>
             </p>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
               JPG, PNG, WebP, or PDF. Up to {MAX_LABEL} each
@@ -485,7 +485,7 @@ export default function UploadPage() {
                 the dead end one step along, so the link is rendered here. */}
             {err.includes('Support page') && (
               <p style={{ margin: '6px 0 0', fontSize: 13 }}>
-                <Link href="/portal/support" style={{ color: 'var(--bl-blue)', fontWeight: 600 }}>
+                <Link href="/portal/support" style={{ color: 'var(--bl-blue-ink)', fontWeight: 600 }}>
                   Ask about this on the Support page
                 </Link>
               </p>

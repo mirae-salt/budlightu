@@ -1298,31 +1298,20 @@ export default function InvoiceBatch() {
                     {inv.status === 'void' ? (
                       <span className="muted" style={{ fontSize: 11 }}>Voided</span>
                     ) : (
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
-                        <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: 11 }} onClick={() => previewPdf(inv)} title="Preview & download PDF">
+                      <div className="row-actions">
+                        {/*
+                          Two buttons stay on the row: the ones used every time. The rest are under
+                          More. Four to six 22px buttons, 4px apart, were below the 24px target size
+                          and the Void ✕ sat beside Edit (WCAG 2.5.8). NN/g's table guidance: inline
+                          is fine for one or two actions, and past that rows get crowded or hide
+                          things, so the rare ones go in a menu that says it has something in it.
+                        */}
+                        <button className="btn-ghost row-action" onClick={() => previewPdf(inv)} title="Preview & download PDF">
                           {previewNumber === inv.number ? 'Close' : 'PDF'}
                         </button>
                         {(inv.status === 'draft' || inv.status === 'approved') && (
                           <button
-                            className="btn-ghost"
-                            style={{
-                              padding: '3px 8px',
-                              fontSize: 11,
-                              ...(inv.rosterDrift.length > 0 ? { color: 'var(--bl-red, #b91c1c)', fontWeight: 600 } : {})
-                            }}
-                            disabled={!useDb || syncingId === inv.id}
-                            onClick={() => syncRoster(inv)}
-                            title={inv.rosterDrift.length > 0
-                              ? `Pull the current name, address and banking off the roster. This invoice still shows the old ${inv.rosterDrift.join(', ')}.`
-                              : 'Pull the current name, address and banking off the roster. Nothing here looks out of date, so this should report no change.'}
-                          >
-                            {syncingId === inv.id ? 'Syncing…' : 'Sync'}
-                          </button>
-                        )}
-                        {(inv.status === 'draft' || inv.status === 'approved') && (
-                          <button
-                            className="btn-ghost"
-                            style={{ padding: '3px 8px', fontSize: 11 }}
+                            className="btn-ghost row-action"
                             onClick={() => startEditLines(inv)}
                             disabled={!useDb || inv.lines.length === 0}
                             title={!useDb
@@ -1334,54 +1323,88 @@ export default function InvoiceBatch() {
                             {editingId === inv.id ? 'Close edit' : 'Edit'}
                           </button>
                         )}
-                        {/* TEST AP IS ONLY ON REHEARSING COHORTS.
-                            It sat on every draft row, which in September is 55 of them, and
-                            the whole AP path has been exercised four times in five weeks --
-                            invoice_sends holds four rows across two invoices. A rehearsal is
-                            something you do once for a cohort, not once per invoice, and a
-                            button that sends mail does not belong beside the ones Robin
-                            presses daily.
-
-                            The gate is send_mode rather than the cohort's name, because what
-                            makes a test send sensible is that mail does not actually leave.
-
-                            RETRY AP IS NOT THE SAME BUTTON and is left alone: on an approved
-                            invoice it is the only way to finish a send that got as far as
-                            'approved' and no further. It shows on approved rows only, which
-                            is a handful. */}
-                        {(inv.status === 'approved' || (inv.status === 'draft' && inv.sendMode !== 'live')) && (
+                        {/* Retry AP finishes a send that stopped at 'approved', on a handful of rows. It stays
+                            where it can be seen. */}
+                        {inv.status === 'approved' && (
                           <button
-                            className="btn-ghost"
-                            style={{ padding: '3px 8px', fontSize: 11 }}
+                            className="btn-ghost row-action"
                             onClick={() => openApPreview(inv)}
-                            title={inv.status === 'approved'
-                              ? 'Approved but not marked sent. Retry the AP send.'
-                              : 'Test send only, and only because this cohort is rehearsing. Run batch approval before this invoice can go to AP.'}
+                            title="Approved but not marked sent. Retry the AP send."
                           >
-                            {inv.status === 'approved' ? 'Retry AP' : 'Test AP'}
+                            Retry AP
                           </button>
                         )}
-                        {/* Only where there is something to undo. A student who pressed
-                            confirm by accident has no way back on their own side, and this
-                            was a hand-edit of the database until now. */}
-                        {inv.accepted_at && inv.status === 'draft' && (
-                          <button
-                            className="btn-ghost"
-                            style={{ padding: '3px 8px', fontSize: 11 }}
-                            onClick={() => { setUnconfirming(inv.id); setUnconfirmReason('') }}
-                            title={`The BAM confirmed this at ${new Date(inv.accepted_at).toLocaleString()}. Undo it and the invoice waits out its window again.`}
-                          >
-                            Undo confirm
-                          </button>
-                        )}
-                        <button
-                          className="btn-ghost"
-                          style={{ padding: '2px 6px', fontSize: 11, color: 'var(--midgray)', opacity: 0.5 }}
-                          onClick={() => startVoid(inv.number)}
-                          title="Void invoice"
+                        <details
+                          className="row-menu"
+                          onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) e.currentTarget.removeAttribute('open') }}
+                          onToggle={e => {
+                            /* The table scrolls sideways, which clips anything positioned inside it: the last
+                               row's menu was cut off and its Void could not be reached. So the list is placed
+                               against the window instead, below the button, or above it when there is no room. */
+                            const d = e.currentTarget
+                            if (!d.open) return
+                            const sum = d.querySelector('summary') as HTMLElement
+                            const list = d.querySelector('.row-menu-list') as HTMLElement
+                            const r = sum.getBoundingClientRect()
+                            const h = list.offsetHeight
+                            const below = window.innerHeight - r.bottom
+                            list.style.top = `${below < h + 12 ? Math.max(8, r.top - h - 4) : r.bottom + 4}px`
+                            list.style.left = `${Math.max(8, r.right - list.offsetWidth)}px`
+                            const close = () => { d.removeAttribute('open'); window.removeEventListener('scroll', close, true) }
+                            window.addEventListener('scroll', close, true)
+                          }}
                         >
-                          ✕
-                        </button>
+                          <summary className="btn-ghost row-action" aria-label={`More actions for ${inv.number}`}>
+                            More
+                            {inv.rosterDrift.length > 0 && (
+                              <span className="row-menu-dot" title={`Roster details changed since this invoice was made: ${inv.rosterDrift.join(', ')}`} />
+                            )}
+                          </summary>
+                          <div className="row-menu-list">
+                            {(inv.status === 'draft' || inv.status === 'approved') && (
+                              <button
+                                className="row-menu-item"
+                                disabled={!useDb || syncingId === inv.id}
+                                onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); syncRoster(inv) }}
+                                title={inv.rosterDrift.length > 0
+                                  ? `Pull the current name, address and banking off the roster. This invoice still shows the old ${inv.rosterDrift.join(', ')}.`
+                                  : 'Pull the current name, address and banking off the roster. Nothing here looks out of date, so this should report no change.'}
+                              >
+                                {syncingId === inv.id ? 'Syncing…' : inv.rosterDrift.length > 0 ? `Sync from roster (${inv.rosterDrift.length} out of date)` : 'Sync from roster'}
+                              </button>
+                            )}
+                            {/* TEST AP IS ONLY ON REHEARSING COHORTS. A rehearsal is something you do once for a
+                                cohort, not once per invoice, and a button that sends mail does not belong
+                                beside the ones pressed daily. The gate is send_mode, not the cohort's name,
+                                because what makes a test send sensible is that mail does not leave. */}
+                            {inv.status === 'draft' && inv.sendMode !== 'live' && (
+                              <button
+                                className="row-menu-item"
+                                onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); openApPreview(inv) }}
+                                title="Test send only, and only because this cohort is rehearsing. Run batch approval before this invoice can go to AP."
+                              >
+                                Test AP send
+                              </button>
+                            )}
+                            {/* Only where there is something to undo. */}
+                            {inv.accepted_at && inv.status === 'draft' && (
+                              <button
+                                className="row-menu-item"
+                                onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); setUnconfirming(inv.id); setUnconfirmReason('') }}
+                                title={`The BAM confirmed this at ${new Date(inv.accepted_at).toLocaleString()}. Undo it and the invoice waits out its window again.`}
+                              >
+                                Undo the student&apos;s confirmation
+                              </button>
+                            )}
+                            <button
+                              className="row-menu-item row-menu-danger"
+                              onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); startVoid(inv.number) }}
+                              title="Void invoice. Asks for a reason first."
+                            >
+                              Void invoice…
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     )}
                   </td>
@@ -1766,7 +1789,7 @@ export default function InvoiceBatch() {
                     title={testSendAddress
                       ? `Sends this exact email to ${testSendAddress} instead of AP`
                       : 'Sign in to use a test send'}
-                    style={{ color: 'var(--bl-blue)', borderColor: 'var(--bl-blue)', whiteSpace: 'nowrap' }}
+                    style={{ color: 'var(--bl-blue-ink)', borderColor: 'var(--bl-blue)', whiteSpace: 'nowrap' }}
                   >
                     Test send to me
                   </button>
@@ -1776,7 +1799,7 @@ export default function InvoiceBatch() {
                     title={inv.status !== 'approved'
                       ? 'Only an approved invoice can go to AP. Run batch approval first.'
                       : undefined}
-                    style={{ background: 'var(--bl-blue)', whiteSpace: 'nowrap' }}
+                    style={{ background: 'var(--bl-blue-ink)', whiteSpace: 'nowrap' }}
                   >
                     {apPreview.sending ? 'Sending…' : 'Send to AP'}
                   </button>

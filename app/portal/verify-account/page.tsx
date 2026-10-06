@@ -46,7 +46,21 @@ export default function VerifyAccountPage() {
     setTimeout(() => { window.location.href = '/portal/dashboard' }, 1500)
   }
 
-  if (err) return <main className="container"><h1>Something went wrong</h1><p className="subtle">{err}</p></main>
+  if (err) {
+    // Says what happened, then what to do. "Not logged in." alone left a student on a page with no way out.
+    const signedOut = err === 'Not logged in.'
+    return (
+      <main className="container" style={{ maxWidth: 520 }}>
+        <h1>{signedOut ? 'Please sign in again' : 'We could not open this page'}</h1>
+        <p className="subtle">
+          {signedOut
+            ? 'Your sign-in has ended or this link was opened in a different browser. Sign in again to confirm your account.'
+            : `${err} Sign in again, and if it keeps happening, contact your program manager.`}
+        </p>
+        <p><a href="/portal/login" className="btn">Sign in</a></p>
+      </main>
+    )
+  }
   if (phase === 'loading') return <main className="container"><p className="muted">Loading…</p></main>
   if (phase === 'done')    return <main className="container"><h1>Verified ✓</h1><p className="subtle">Redirecting…</p></main>
 

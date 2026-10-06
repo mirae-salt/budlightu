@@ -10,6 +10,10 @@
   /* Bud Light — matched to BLU logo sky blue */
   --bl-blue:      #3AADD9;     /* sky blue (BLU logo) */
   --bl-blue-dark: #2B90B8;     /* deeper sky for hover */
+  /* Brand blue as TEXT, or as a fill behind white text. #3AADD9 on white is 2.57:1; these are 4.90:1 and 7.1:1
+     (WCAG 1.4.3 asks 4.5:1). The logo, large fills and borders keep --bl-blue. */
+  --bl-blue-ink:  #297998;
+  --bl-blue-ink-dark: #1F6079;
   --bl-navy:      #0A0F1E;     /* near-black navy (headings, sidebar) */
   --bl-sky:       #E8F5FC;     /* light sky tint */
   --bl-silver:    #F2F4F7;     /* light page background */
@@ -65,7 +69,7 @@ h3 { font-size: 14px; font-weight: 700; margin: 12px 0 6px; letter-spacing: -0.0
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--bl-blue);
+  color: var(--bl-blue-ink);
   font-weight: 700;
   font-size: 11px;
   margin-bottom: 4px;
@@ -82,7 +86,7 @@ button, .btn {
   border-radius: var(--r-sm);
   border: none;
   cursor: pointer;
-  background: var(--bl-blue);
+  background: var(--bl-blue-ink);
   color: var(--paper);
   display: inline-flex;
   align-items: center;
@@ -92,7 +96,7 @@ button, .btn {
   text-transform: none;
   letter-spacing: normal;
 }
-button:hover, .btn:hover { background: var(--bl-blue-dark); }
+button:hover, .btn:hover { background: var(--bl-blue-ink-dark); }
 /*
  * ^ That rule is a bug generator, and these three are the fix for the buttons it caught.
  *
@@ -124,8 +128,8 @@ input[type="checkbox"], input[type="radio"] {
   width: auto; padding: 0;
 }
 input:focus, select:focus, textarea:focus {
-  outline: none; border-color: var(--bl-blue);
-  box-shadow: 0 0 0 3px rgba(58,173,217,0.15);
+  outline: none; border-color: var(--bl-blue-ink);
+  box-shadow: 0 0 0 3px rgba(41,121,152,0.35);
 }
 label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; color: var(--charcoal); }
 .field { margin-bottom: 14px; }
@@ -149,7 +153,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .stack > * + * { margin-top: 12px; }
 .hero-card {
-  background: var(--bl-blue);
+  background: var(--bl-blue-ink);
   border-radius: var(--r-lg);
   padding: 22px 24px;
   border: none;
@@ -157,7 +161,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .hero-card .eyebrow { color: rgba(255,255,255,0.6); }
 .hero-card .muted { color: rgba(255,255,255,0.6); }
-.hero-card .btn, .hero-card button { background: #fff; color: var(--bl-blue); }
+.hero-card .btn, .hero-card button { background: #fff; color: var(--bl-blue-ink); }
 .hero-card .btn:hover, .hero-card button:hover { background: rgba(255,255,255,0.85); }
 .card {
   background: var(--paper);
@@ -170,11 +174,11 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   font-size: 11px; font-weight: 600; white-space: nowrap;
   letter-spacing: 0.02em;
 }
-.badge-blue   { background: rgba(58,173,217,0.12);  color: var(--bl-blue); }
+.badge-blue   { background: rgba(58,173,217,0.12);  color: var(--bl-blue-ink); }
 .badge-navy   { background: var(--bl-navy);     color: var(--paper); }
 .badge-yellow { background: var(--yellow-tint); color: #8B4A00; }
 .badge-red    { background: var(--red-tint);    color: #A31212; }
-.badge-green  { background: var(--green-tint);  color: var(--green); }
+.badge-green  { background: var(--green-tint);  color: #166534; } /* --green (#22C55E) is 2.28:1 as text */
 /* alias so pre-existing .badge-teal usages still render */
 .badge-teal   { background: var(--bl-sky);      color: var(--bl-navy); }
 
@@ -474,7 +478,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   color: var(--paper);
 }
 .nav-item.active {
-  background: var(--bl-blue);
+  background: var(--bl-blue-ink);
   color: var(--paper);
   font-weight: 700;
   box-shadow: 0 2px 8px rgba(58,173,217,0.3);
@@ -575,7 +579,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .user-avatar {
   width: 30px; height: 30px; border-radius: 50%;
-  background: var(--bl-blue); color: var(--paper);
+  background: var(--bl-blue-ink); color: var(--paper);
   display: grid; place-items: center;
   font-weight: 700; font-size: 12px;
 }
@@ -645,7 +649,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 
 .upload-page .upload-intro { margin: 4px 0 0; }
 .upload-page .drop-zone { padding: 22px 18px; }
-.upload-page .drop-zone:focus-visible { outline: 3px solid var(--bl-blue); outline-offset: 3px; }
+.upload-page .drop-zone:focus-visible { outline: 3px solid var(--bl-blue-ink); outline-offset: 3px; }
 .upload-photo-tip {
   margin: 0;
   padding: 0 2px;
@@ -995,3 +999,26 @@ table.admin-table.one-line td.wrap { white-space: normal; }
   border: 1.5px dashed var(--stone);
   border-radius: var(--r-md);
 }
+
+/* Invoice row actions: two buttons on the row, the rest under More. Targets are 28px or taller with 8px
+   between them (WCAG 2.5.8 asks 24px). */
+.row-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.row-action { min-height: 28px; padding: 5px 12px !important; font-size: 12px !important; line-height: 1.2; }
+.row-menu { display: inline-block; }
+.row-menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.row-menu > summary::-webkit-details-marker { display: none; }
+.row-menu > summary::after { content: '▾'; font-size: 10px; }
+.row-menu-dot { width: 8px; height: 8px; border-radius: 50%; background: #D97706; }
+.row-menu-list {
+  position: fixed; z-index: 60; min-width: 230px; /* top/left are set when it opens, see the invoices page */
+  background: var(--paper, #fff); border: 1.5px solid var(--stone, #d9dbe3); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(10,15,30,0.14); padding: 4px; display: flex; flex-direction: column;
+}
+.row-menu-item {
+  background: transparent !important; color: var(--bl-navy) !important; border: 0; text-align: left; justify-content: flex-start;
+  min-height: 36px; padding: 8px 12px; font-size: 13px; font-weight: 500; border-radius: 6px; text-transform: none; letter-spacing: normal;
+}
+.row-menu-item:hover:not(:disabled) { background: var(--bl-silver) !important; }
+.row-menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.row-menu-danger { color: #A31212 !important; border-top: 1px solid var(--stone, #d9dbe3); border-radius: 0 0 6px 6px; margin-top: 4px; }
+
