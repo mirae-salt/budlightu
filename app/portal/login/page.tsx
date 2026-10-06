@@ -158,8 +158,8 @@ export default function LoginPage() {
         .login-hero::before {
           content: ''; position: absolute; inset: 0;
           background:
-            radial-gradient(ellipse 80% 60% at 30% 80%, rgba(58,173,217,0.15), transparent),
-            radial-gradient(ellipse 60% 50% at 70% 20%, rgba(58,173,217,0.08), transparent);
+            radial-gradient(ellipse 80% 60% at 30% 80%, rgba(0,180,224,0.15), transparent),
+            radial-gradient(ellipse 60% 50% at 70% 20%, rgba(0,180,224,0.08), transparent);
           pointer-events: none;
         }
         .hero-logo { width: 200px; margin-bottom: 40px; position: relative; z-index: 1; }
@@ -212,7 +212,7 @@ export default function LoginPage() {
         }
         .login-email-field input:focus {
           border-color: var(--bl-blue); outline: none;
-          box-shadow: 0 0 0 3px rgba(58,173,217,0.12);
+          box-shadow: 0 0 0 3px rgba(0,180,224,0.12);
           background: #fff;
         }
 
@@ -247,8 +247,8 @@ export default function LoginPage() {
           font-size: 13px; line-height: 1.5;
         }
         .login-info-card.blue {
-          background: rgba(58,173,217,0.06);
-          border: 1px solid rgba(58,173,217,0.1);
+          background: rgba(0,180,224,0.06);
+          border: 1px solid rgba(0,180,224,0.1);
           color: var(--bl-navy);
         }
         .login-info-card.muted {
@@ -275,13 +275,13 @@ export default function LoginPage() {
         }
         .otp-input:focus {
           border-color: var(--bl-blue); outline: none;
-          box-shadow: 0 0 0 3px rgba(58,173,217,0.12);
+          box-shadow: 0 0 0 3px rgba(0,180,224,0.12);
           background: #fff;
         }
         .otp-sent {
           text-align: center; font-size: 14px; color: var(--bl-navy);
           padding: 12px 16px; border-radius: 10px;
-          background: rgba(58,173,217,0.06);
+          background: rgba(0,180,224,0.06);
         }
         .login-actions {
           display: flex; justify-content: space-between;
@@ -412,7 +412,7 @@ export default function LoginPage() {
 
                 <div style={{
                   marginTop: 16, padding: '12px 14px', borderRadius: 10,
-                  background: 'rgba(58,173,217,0.06)', border: '1px solid rgba(58,173,217,0.12)',
+                  background: 'rgba(0,180,224,0.06)', border: '1px solid rgba(0,180,224,0.12)',
                   fontSize: 13, lineHeight: 1.6, color: 'var(--bl-navy)'
                 }}>
                   <strong>Not seeing the code?</strong> Check your spam or junk folder.

@@ -230,7 +230,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   <>
                     <div style={{
                       width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                      background: 'rgba(0,163,224,0.25)', color: '#3AADD9',
+                      background: 'rgba(0,163,224,0.25)', color: '#00B4E0',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 12, fontWeight: 700
                     }}>{profile.initial}</div>

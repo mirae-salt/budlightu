@@ -279,7 +279,7 @@ export default function AccountPage() {
 
                 <div style={{
                   padding: '12px 14px', borderRadius: 10,
-                  background: 'rgba(58,173,217,0.08)', border: '1px solid rgba(58,173,217,0.3)',
+                  background: 'rgba(0,180,224,0.08)', border: '1px solid rgba(0,180,224,0.3)',
                   fontSize: 13, lineHeight: 1.6
                 }}>
                   <strong>What happens next.</strong> Your program manager applies this by hand. After it is

@@ -371,7 +371,7 @@ function BarChartPlaceholder({ data }: { data?: Record<string, number> }) {
             style={{
               flex: 1,
               height: `${(v / max) * 100}%`,
-              background: i === bars.length - 1 ? 'var(--bl-blue)' : 'rgba(58,173,217,0.18)',
+              background: i === bars.length - 1 ? 'var(--bl-blue)' : 'rgba(0,180,224,0.18)',
               borderRadius: '6px 6px 0 0',
               minHeight: 4
             }}

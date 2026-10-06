@@ -67,7 +67,7 @@ function TabNav() {
         .pill-green { background: rgba(34,197,94,0.12); color: #16a34a; }
         .pill-yellow { background: rgba(245,158,11,0.12); color: #d97706; }
         .pill-red { background: rgba(239,68,68,0.1); color: #dc2626; }
-        .pill-blue { background: rgba(58,173,217,0.1); color: #0284c7; }
+        .pill-blue { background: rgba(0,180,224,0.1); color: #0284c7; }
         .pill-gray { background: rgba(128,128,128,0.1); color: #6b7280; }
         .pattern-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         @media (max-width: 600px) { .pattern-grid { grid-template-columns: 1fr; } }
@@ -81,7 +81,7 @@ function TabNav() {
           display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
         .step-title { font-size: 16px; font-weight: 700; color: var(--bl-navy); }
         .info-box { font-size: 13px; line-height: 1.6; padding: 8px 12px; border-radius: 6px; margin-top: 8px; }
-        .info-auto { background: rgba(58,173,217,0.08); }
+        .info-auto { background: rgba(0,180,224,0.08); }
         .info-you { background: rgba(239,68,68,0.06); }
         .info-note { background: rgba(128,128,128,0.06); }
       `}</style>
