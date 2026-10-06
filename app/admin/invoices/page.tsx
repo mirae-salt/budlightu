@@ -1799,7 +1799,7 @@ export default function InvoiceBatch() {
                     title={inv.status !== 'approved'
                       ? 'Only an approved invoice can go to AP. Run batch approval first.'
                       : undefined}
-                    style={{ background: 'var(--bl-blue-ink)', whiteSpace: 'nowrap' }}
+                    style={{ background: 'var(--bl-blue)', color: 'var(--bl-navy)', whiteSpace: 'nowrap' }}
                   >
                     {apPreview.sending ? 'Sending…' : 'Send to AP'}
                   </button>

@@ -87,8 +87,8 @@ button, .btn {
   border-radius: var(--r-sm);
   border: none;
   cursor: pointer;
-  background: var(--bl-blue-ink);
-  color: var(--paper);
+  background: var(--bl-blue);
+  color: var(--bl-navy);   /* navy on the logo's sky blue is 7.8:1; white on it is 2.44:1 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -97,7 +97,7 @@ button, .btn {
   text-transform: none;
   letter-spacing: normal;
 }
-button:hover, .btn:hover { background: var(--bl-blue-ink-dark); }
+button:hover, .btn:hover { background: var(--bl-blue-dark); }
 /*
  * ^ That rule is a bug generator, and these three are the fix for the buttons it caught.
  *
@@ -479,8 +479,8 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   color: var(--paper);
 }
 .nav-item.active {
-  background: var(--bl-blue-ink);
-  color: var(--paper);
+  background: var(--bl-blue);
+  color: var(--bl-navy);
   font-weight: 700;
   box-shadow: 0 2px 8px rgba(0,180,224,0.3);
 }
@@ -580,7 +580,7 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .user-avatar {
   width: 30px; height: 30px; border-radius: 50%;
-  background: var(--bl-blue-ink); color: var(--paper);
+  background: var(--bl-blue); color: var(--bl-navy);
   display: grid; place-items: center;
   font-weight: 700; font-size: 12px;
 }

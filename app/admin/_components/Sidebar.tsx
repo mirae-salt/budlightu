@@ -132,7 +132,7 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: '10px 12px 4px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
             width: 28, height: 28, borderRadius: '50%',
-            background: 'var(--bl-blue-ink)', color: '#fff',
+            background: 'var(--bl-blue)', color: 'var(--bl-navy)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 11, fontWeight: 700, flexShrink: 0
           }}>{profile.initial}</div>

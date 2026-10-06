@@ -87,7 +87,7 @@ export default function FaqPage() {
               {['#BudLightPartner', '#BudLightU', '@budlightca'].map(tag => (
                 <span key={tag} style={{
                   padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                  background: 'var(--bl-blue-ink)', color: '#fff'
+                  background: 'var(--bl-blue)', color: 'var(--bl-navy)'
                 }}>{tag}</span>
               ))}
             </div>

@@ -302,7 +302,7 @@ export default function UploadPage() {
                   type="button"
                   style={{
                     fontSize: 12, padding: '6px 14px',
-                    background: 'var(--bl-blue-ink)', color: '#fff',
+                    background: 'var(--bl-blue)', color: 'var(--bl-navy)',
                     border: 'none', borderRadius: 6, cursor: 'pointer',
                     fontWeight: 600
                   }}

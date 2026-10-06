@@ -62,7 +62,7 @@ function TabNav() {
         }
         .guide-tab:hover { color: var(--bl-navy); background: rgba(0,0,0,0.03); border-radius: 6px 6px 0 0; }
         .guide-tab.active { color: #fff; background: var(--bl-blue); border-bottom-color: var(--bl-blue); border-radius: 6px 6px 0 0; }
-        .guide-tab.active:hover { color: #fff; background: var(--bl-blue-ink); }
+        .guide-tab.active:hover { color: var(--bl-navy); background: var(--bl-blue); }
         .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
         .pill-green { background: rgba(34,197,94,0.12); color: #16a34a; }
         .pill-yellow { background: rgba(245,158,11,0.12); color: #d97706; }
