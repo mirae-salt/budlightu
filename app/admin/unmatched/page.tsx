@@ -224,7 +224,7 @@ export default function Unmatched() {
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button
-                            style={{ background: 'var(--red)' }}
+                            style={{ background: 'var(--red)', color: '#fff' }}
                             disabled={busy || rejectReason.trim().length < 4}
                             onClick={() => confirmReject(u)}
                           >

@@ -1060,7 +1060,7 @@ export default function ReceiptsQueue() {
                                 Approve
                               </button>
                               <button
-                                style={{ background: 'var(--red)' }}
+                                style={{ background: 'var(--red)', color: '#fff' }}
                                 onClick={() => decide('reject')}
                               >
                                 Reject
@@ -1162,7 +1162,7 @@ export default function ReceiptsQueue() {
                                 <input value={reason} onChange={e => setReason(e.target.value)} />
                               </div>
                               <div style={{ display: 'flex', gap: 8 }}>
-                                <button style={{ background: 'var(--red)' }} onClick={() => confirmDecision(i, 'reject')}>Confirm reject</button>
+                                <button style={{ background: 'var(--red)', color: '#fff' }} onClick={() => confirmDecision(i, 'reject')}>Confirm reject</button>
                                 <button className="btn-ghost" onClick={() => setConfirming(null)}>Cancel</button>
                               </div>
                             </div>

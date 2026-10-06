@@ -338,7 +338,7 @@ export default function BankingRequestsPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
-                    style={{ background: 'var(--red)' }}
+                    style={{ background: 'var(--red)', color: '#fff' }}
                     disabled={busy || note.trim().length < 5}
                     onClick={() => decide(row, 'rejected')}
                   >

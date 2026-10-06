@@ -114,7 +114,7 @@ button:hover, .btn:hover { background: var(--bl-blue-dark); }
 button:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-ghost { background: transparent; color: var(--bl-navy); border: 1.5px solid var(--stone); text-transform: none; letter-spacing: normal; }
 .btn-ghost:hover { background: var(--bl-silver); border-color: var(--bl-blue); }
-.btn-navy  { background: var(--bl-navy); }
+.btn-navy  { background: var(--bl-navy); color: var(--paper); } /* the base button's text is navy now, so a navy fill has to say white */
 .btn-navy:hover  { background: #060A14; }
 
 /* ── Form ───────────────────────────────── */
