@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { TopBar } from './_components/TopBar'
 import { KpiCell } from './_components/StatCard'
+import { presetCohortFilter } from './_components/CohortFilter'
 import { LineChartPlaceholder } from './_components/LineChartPlaceholder'
 import { RECEIPT_DEADLINE_DAY, INVOICE_GENERATE_DAY } from '@/lib/cycle-schedule'
 // No dummy imports - all data from DB
@@ -401,6 +402,7 @@ export default function AdminDashboard() {
   const [statsError, setStatsError] = useState<string | null>(null)
   const [spendingState, setSpendingState] = useState<LoadState>('loading')
   const [spendingError, setSpendingError] = useState<string | null>(null)
+  const [reviewCohortId, setReviewCohortId] = useState<string | null>(null)
   const [budgetSource, setBudgetSource] = useState<'ledger' | 'receipts_capped' | null>(null)
   const [dataWarnings, setDataWarnings] = useState<string[]>([])
   const router = useRouter()
@@ -419,7 +421,7 @@ export default function AdminDashboard() {
         return json.data
       })
       .then(data => {
-        const { activeBams, pendingBams, receiptsSubmitted, reviewQueue, invoicesSent,
+        const { activeBams, pendingBams, receiptsSubmitted, reviewQueue, reviewCohortId: rqCohort, invoicesSent,
           invoicesByMonth: ibm, reimbByMonth: rbm, receiptBreakdown: rb,
           budgetCap, budgetSpent, budgetPct, budgetSource: src } = data
 
@@ -432,6 +434,7 @@ export default function AdminDashboard() {
           pendingOnboarding: pendingBams ?? 0,
           budgetPct: budgetPct ?? 0
         })
+        setReviewCohortId(rqCohort ?? null)
         if (rb) setReceiptBreakdown(rb)
         if (ibm) setInvoicesByMonth(ibm)
         if (rbm) setReimbByMonth(rbm)
@@ -500,7 +503,7 @@ export default function AdminDashboard() {
             <strong>Needs attention</strong>
           </div>
           <div className="overview-worklist-links">
-            {s.reviewQueue > 0 && <button type="button" onClick={() => router.push('/admin/receipts')}>
+            {s.reviewQueue > 0 && <button type="button" onClick={() => { if (reviewCohortId) presetCohortFilter(reviewCohortId); router.push('/admin/receipts') }}>
               Review receipts <strong>{s.reviewQueue}</strong>
             </button>}
             {s.pendingOnboarding > 0 && <button type="button" onClick={() => router.push('/admin/roster')}>

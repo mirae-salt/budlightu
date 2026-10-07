@@ -289,7 +289,8 @@ export async function GET(req: Request) {
         // chase them to finish onboarding.
         admin.from('bams').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('is_test', false),
         admin.from('receipts').select('id', { count: 'exact', head: true }).eq('period', period),
-        admin.from('receipts').select('id', { count: 'exact', head: true }).in('status', ['review', 'ocr_failed']),
+        // Test accounts' receipts are rehearsal, not work waiting for Robin.
+        admin.from('receipts').select('id, cohort_id, bams!inner(is_test)', { count: 'exact' }).in('status', ['review', 'ocr_failed']).eq('bams.is_test', false),
         admin.from('invoices').select('id', { count: 'exact', head: true }).eq('status', 'sent').eq('period', period)
       ])
 
@@ -403,6 +404,11 @@ export async function GET(req: Request) {
           pendingBams: pendingBams.count ?? 0,
           receiptsSubmitted: receiptsSubmitted.count ?? 0,
           reviewQueue: reviewQueue.count ?? 0,
+          // The one cohort the queue sits in, so the chip can open the receipts page on it.
+          reviewCohortId: (() => {
+            const ids = new Set(((reviewQueue.data ?? []) as { cohort_id: string | null }[]).map(r => r.cohort_id))
+            return ids.size === 1 ? [...ids][0] : null
+          })(),
           invoicesSent: invoicesSent.count ?? 0,
           receiptBreakdown,
           budgetCap,

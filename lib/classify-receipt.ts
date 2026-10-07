@@ -93,6 +93,13 @@ export type RecomputedTotal = {
    */
   matchesPrintedTotal: boolean
   /**
+   * true when the whole receipt adds up on its own terms: its lines sum to its subtotal
+   * and subtotal plus tax is its total. Then a split of the lines into Bud Light and the
+   * rest cannot be hiding a misread figure, even when our Bud Light total is not the
+   * printed total because other products are on it (Costco Waterloo, NSLC Halifax).
+   */
+  receiptReconciles: boolean
+  /**
    * true when the receipt DOES report subtotal/tax/grand_total but the line
    * totals reconcile to neither → the receipt contradicts itself → force REVIEW.
    * (When those fields are simply absent there is nothing to reconcile against,
@@ -231,7 +238,8 @@ function reconcileTolerance(reference: number): number {
  *
  * ONTARIO NOTE: LCBO deposits are also untaxed, so this is not a Quebec special case.
  */
-const DEPOSIT_PATTERN = /\b(consigne|d[ée]p[oô]ts?|deposits?)\b/i
+// A digit may follow the word: "CONTAINER DEPOSIT12PKA" ran the pack size into it.
+const DEPOSIT_PATTERN = /\b(consigne|d[ée]p[oô]ts?|deposits?)(?![a-zà-ÿ])/i
 
 /**
  * The same thing abbreviated. LCBO prints "DEP 1.20 ea." and BC liquor stores print
@@ -381,6 +389,7 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
 
   let blSum = 0
   let allSum = 0
+  let taxLineSum = 0
   let unparsableLines = 0
   let budLightLineCount = 0
   let nonBudLightLineCount = 0
@@ -413,7 +422,7 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
     allSum = round2(allSum + t)
     // The receipt's own tax is in the sum it reconciles against, but it is not a product
     // and not Bud Light's to gross up again, whatever the model ticked.
-    if (isTaxLine(l?.desc)) continue
+    if (isTaxLine(l?.desc)) { taxLineSum = round2(taxLineSum + t); continue }
     if (isBl) {
       blSum = round2(blSum + t)
       budLightLineCount++
@@ -666,9 +675,17 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
     modelTotal !== null && explainingDeposit > 0 &&
     Math.abs(round2(modelTotal + explainingDeposit) - total) <= mismatchTolerance(total)
 
+  // The model reported MORE than the whole receipt cost (LCBO 30x355: it added HST the price
+  // already carried, 64.35 on a 59.95 receipt) and our figure is the printed total. A figure
+  // above the grand total cannot be right, so it is not a reason to look. A model figure
+  // BELOW ours still counts: that can be a product ticked as Bud Light by mistake.
+  const printedTotalSettlesIt =
+    grandTotal !== null && grandTotal > 0 && Math.abs(total - grandTotal) <= 0.01 &&
+    modelTotal !== null && modelTotal > round2(grandTotal + 0.01)
+
   const mismatch =
     modelTotal === null ||
-    (!depositExplainsGap && (mismatchDelta as number) > mismatchTolerance(total))
+    (!depositExplainsGap && !printedTotalSettlesIt && (mismatchDelta as number) > mismatchTolerance(total))
 
   if (depositExplainsGap && (mismatchDelta as number) > mismatchTolerance(total)) {
     notes.push(
@@ -699,6 +716,10 @@ export function recomputeBudLightTotal(ocr: OcrResult | null | undefined): Recom
     exceedsGrandTotal,
     matchesPrintedTotal:
       grandTotal !== null && grandTotal > 0 && Math.abs(total - grandTotal) <= 0.01,
+    receiptReconciles:
+      subtotal !== null && subtotal > 0 && tax !== null && grandTotal !== null && grandTotal > 0 &&
+      Math.abs(round2(allSum - taxLineSum) - subtotal) <= 0.02 &&
+      Math.abs(round2(subtotal + tax) - grandTotal) <= 0.02,
     unreconciledDespiteTotals,
     unparsableLines,
     budLightLineCount,
@@ -888,11 +909,11 @@ export function classifyReceipt(input: ClassifyInput): ClassifyOutput {
      * Nothing announces an over-cap receipt. Robin gets the shortfall alert and asked for
      * no equivalent here, because the cap is a rule rather than an exception to chase.
      */
-    if (atOrOverCap && rc.matchesPrintedTotal && !farOverCap) {
+    if (atOrOverCap && (rc.matchesPrintedTotal || rc.receiptReconciles) && !farOverCap) {
       return out(
         'auto_pass',
         `overspend: spent $${total.toFixed(2)}, over the $${cap.toFixed(2)} monthly cap. ` +
-        `The receipt's own printed total confirms it, and the cap is what is reimbursed`
+        `The receipt adds up on its own, and the cap is what is reimbursed`
       )
     }
 

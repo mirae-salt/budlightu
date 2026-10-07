@@ -38,6 +38,11 @@ function readFilters(): Filters {
   }
 }
 
+/** Pre-set the saved filter, for a link that should land on one cohort with test accounts hidden. */
+export function presetCohortFilter(cohortFilter: string) {
+  try { localStorage.setItem(KEY, JSON.stringify({ cohortFilter, hideTest: true })) } catch { /* storage may be disabled */ }
+}
+
 export function useCohortFilter() {
   const [filters, setFiltersState] = useState<Filters>(DEFAULTS)
   const [cohortOptions, setCohortOptions] = useState<CohortOption[]>([])

@@ -38,6 +38,13 @@ function recentPeriods(now: Date): string[] {
   return [periodOf(prev), periodOf(now)]
 }
 
+function joinedAfterMonthEnded(createdAt: unknown, period: string): boolean {
+  const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN
+  if (Number.isNaN(created)) return false
+  const [y, m] = period.split('-').map(Number)
+  return created >= Date.UTC(y, m, 1)
+}
+
 export async function GET() {
   const auth = await requireAdmin()
   if (!auth.ok) return denied(auth)
@@ -46,7 +53,7 @@ export async function GET() {
 
   const [cohortsRes, bamsRes, invRes, recRes] = await Promise.all([
     db.from('cohorts').select('id, name, start_date, end_date'),
-    db.from('bams').select('id, first_name, last_name, status, is_test, cohort_id, street, city, prov, postal, bank_name')
+    db.from('bams').select('id, first_name, last_name, status, is_test, created_at, cohort_id, street, city, prov, postal, bank_name')
       .in('status', ['active', 'pending']).eq('is_test', false),
     db.from('invoices').select('bam_id, period, invoice_number, status, payload_json').in('period', periods),
     db.from('receipts').select('bam_id, period').in('period', periods)
@@ -68,6 +75,9 @@ export async function GET() {
       if (!c || period < String(c.start_date) || period > String(c.end_date)) continue
       const key = `${b.id}|${period}`
       const n = receipts.get(key) ?? 0
+      // Joined after that month ended and has nothing in it: there was no work to pay for.
+      // Hannah and Alivia joined on Oct 5 and 6 and were listed for September.
+      if (n === 0 && !has.has(key) && joinedAfterMonthEnded(b.created_at, period)) continue
       if (has.has(key)) {
         // An invoice exists. Listed only when something will stop it being sent, so an
         // ordinary draft waiting for the 17th does not fill this box every month.

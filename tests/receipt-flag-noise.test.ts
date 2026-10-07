@@ -168,3 +168,45 @@ describe('isTaxLine: the receipt\'s own tax listed as an item', () => {
     expect(recomputeBudLightTotal(ticked as never).total).toBe(54.37)
   })
 })
+
+describe('a deposit the model did not tag as Bud Light', () => {
+  const ryan = {
+    store: 'LIQUOR', subtotal: 165.95, tax: 20.79, grand_total: 186.74, bud_light_total_incl_tax: 180.74,
+    overall_confidence: 1,
+    lines: [
+      { desc: 'BUD LIGHT 473ML 12PK', qty: 5, unit: 31.99, total: 159.95, is_bud_light: true, confidence: 1 },
+      other('CONTAINER DEPOSIT12PKA', 6)
+    ]
+  }
+
+  it('Ryan Cook: $186.74 is over the cap and the printed total confirms it, so it passes on its own', () => {
+    const rc = recomputeBudLightTotal(ryan as never)
+    expect(rc.total).toBe(186.74)
+    expect(rc.matchesPrintedTotal).toBe(true)
+    expect(classify(ryan).status).toBe('auto_pass')
+  })
+
+  it('a gap that is not the deposit still goes to a person', () => {
+    const off = { ...ryan, grand_total: 199.74 }
+    expect(classify(off).status).toBe('review')
+  })
+})
+
+describe('the model reads more than the receipt cost', () => {
+  // LCBO 30x355, 2026-09. The price already carried HST; the model added it again, 64.35
+  // on a receipt whose total is 59.95 and whose line totals add to 59.95.
+  const lcbo = {
+    store: 'LCBO', subtotal: 56.95, tax: 7.4, grand_total: 59.95, bud_light_total_incl_tax: 64.35,
+    overall_confidence: 1,
+    lines: [bl('BUD LIGHT 30X355', 56.95), other('Deposit (DEP) 3.00 ea.', 3)]
+  }
+
+  it('is not a reason to look when our figure is the printed total', () => {
+    expect(recomputeBudLightTotal(lcbo as never).mismatch).toBe(false)
+    expect(classify(lcbo).status).toBe('auto_pass')
+  })
+
+  it('a model figure BELOW ours still counts: that can be a product ticked by mistake', () => {
+    expect(recomputeBudLightTotal({ ...lcbo, bud_light_total_incl_tax: 50 } as never).mismatch).toBe(true)
+  })
+})

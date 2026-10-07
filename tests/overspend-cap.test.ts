@@ -56,29 +56,46 @@ describe('over the cap, and the printed total says so', () => {
   })
 })
 
-describe('over the cap with nothing corroborating the figure', () => {
-  it("Thomas Ambrosio's Costco run still goes to a person", () => {
-    // $65 membership renewal on the same receipt, so the model had to choose which lines
-    // were beer, and the printed total ($288.83) does not confirm our $203.38.
-    const costco = {
-      store: 'COSTCO WHOLESALE',
-      subtotal: 256.98,
-      tax: 31.85,
-      grand_total: 288.83,
-      bud_light_total_incl_tax: 203.38,
-      overall_confidence: 1,
-      lines: [
-        { desc: '1012471 BUD LIGHT', qty: 1, unit: 89.99, total: 89.99, is_bud_light: true, confidence: 1 },
-        { desc: 'DEPOSIT VL', qty: 1, unit: 6, total: 6, is_bud_light: false, confidence: 1 },
-        { desc: 'GLDSTRRNWL', qty: 1, unit: 65, total: 65, is_bud_light: false, confidence: 1 },
-        { desc: '1012471 BUD LIGHT', qty: 1, unit: 89.99, total: 89.99, is_bud_light: true, confidence: 1 },
-        { desc: 'DEPOSIT VL', qty: 1, unit: 6, total: 6, is_bud_light: false, confidence: 1 }
-      ]
-    }
+describe('over the cap on a receipt that adds up by itself', () => {
+  // Thomas Ambrosio's Costco run, 2026-09-05. A $65 membership renewal is on the same
+  // receipt, so our $203.38 is not the printed $288.83. It used to go to a person for that.
+  // Mirae, 2026-10-07: every line, the subtotal, the tax and the total agree, so the split
+  // into beer and not-beer cannot be hiding a misread, and the cap is paid whatever the
+  // figure turns out to be.
+  const costco = {
+    store: 'COSTCO WHOLESALE',
+    subtotal: 256.98,
+    tax: 31.85,
+    grand_total: 288.83,
+    bud_light_total_incl_tax: 203.38,
+    overall_confidence: 1,
+    lines: [
+      { desc: '1012471 BUD LIGHT', qty: 1, unit: 89.99, total: 89.99, is_bud_light: true, confidence: 1 },
+      { desc: 'DEPOSIT VL', qty: 1, unit: 6, total: 6, is_bud_light: false, confidence: 1 },
+      { desc: 'GLDSTRRNWL', qty: 1, unit: 65, total: 65, is_bud_light: false, confidence: 1 },
+      { desc: '1012471 BUD LIGHT', qty: 1, unit: 89.99, total: 89.99, is_bud_light: true, confidence: 1 },
+      { desc: 'DEPOSIT VL', qty: 1, unit: 6, total: 6, is_bud_light: false, confidence: 1 }
+    ]
+  }
+
+  it('clears on its own when the lines, subtotal, tax and total all agree', () => {
     expect(recomputeBudLightTotal(costco).matchesPrintedTotal).toBe(false)
+    expect(recomputeBudLightTotal(costco).receiptReconciles).toBe(true)
     const out = decide(costco)
+    expect(out.status).toBe('auto_pass')
+    expect(out.reason).toMatch(/the cap is what is reimbursed/i)
+  })
+
+  it('still goes to a person when the lines do not add up to the subtotal', () => {
+    const off = { ...costco, subtotal: 246.98, grand_total: 278.83 }
+    expect(recomputeBudLightTotal(off as never).receiptReconciles).toBe(false)
+    const out = decide(off)
     expect(out.status).toBe('review')
-    expect(out.reason).toMatch(/does not confirm that figure/)
+  })
+
+  it('still goes to a person when subtotal plus tax is not the total', () => {
+    const off = { ...costco, grand_total: 300 }
+    expect(decide(off).status).toBe('review')
   })
 })
 
