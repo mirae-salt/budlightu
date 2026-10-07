@@ -159,10 +159,21 @@ export function explainOcrFailure(raw: string, storageBytes?: number | null): st
   return 'The reader could not process this file. Try again, or ask them to re-upload it.'
 }
 
-/** Shown for every delivery_app finding. Keep the wording in step with app/api/receipts/ocr/route.ts. */
-export const DELIVERY_APP_DETAIL =
-  'A delivery app order (Uber Eats, Instacart, etc.). The total usually includes delivery, service and bag fees and a tip, ' +
-  'which are not Bud Light and are not reimbursed. Check that only the Bud Light items and their tax are counted.'
+/**
+ * Shown for every delivery_app finding. The label already says it is a delivery app order, so the
+ * line says only what the reviewer has to do. Keep the wording in step with app/api/receipts/ocr/route.ts.
+ */
+export const DELIVERY_APP_DETAIL = 'Fees and tip are not reimbursed. Count only the Bud Light items and their tax.'
+
+/** "2 line total(s) could not be read as a number -- admin must confirm the amount", said as a task. */
+function unreadableAmountsDetail(stored: string): string | null {
+  const m = stored.match(/(\d+) line total\(s\) could not be read as a number/)
+  if (!m) return null
+  const n = Number(m[1])
+  return n === 1
+    ? '1 line amount could not be read. Check it against the photo.'
+    : `${n} line amounts could not be read. Check them against the photo.`
+}
 
 /**
  * Splits a stored reason into its findings.
@@ -202,6 +213,10 @@ export function parseReason(
       // the fees: on the seven real delivery receipts held on 2026-10-07 the total ran $4 to
       // $25 past the items plus tax. Said at read time so the rows already stored get it too.
       if (code === 'delivery_app') return { code, label, detail: DELIVERY_APP_DETAIL }
+      if (code === 'unreadable_amounts') {
+        const said = unreadableAmountsDetail(m[2])
+        if (said) return { code, label, detail: said }
+      }
       return { code, label, detail: cleanDetail(m[2]) }
     })
     .filter(p => p.detail.length > 0 || p.label.length > 0)

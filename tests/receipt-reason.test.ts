@@ -151,12 +151,12 @@ describe('delivery app orders', () => {
   it('says what to check: the fees and the tip are not reimbursed', () => {
     const [p] = parseReason(OLD)
     expect(p.label).toBe('Delivery app')
-    expect(p.detail).toMatch(/delivery, service and bag fees and a tip/)
-    expect(p.detail).toMatch(/not reimbursed/)
+    expect(p.detail).toBe('Fees and tip are not reimbursed. Count only the Bud Light items and their tax.')
+    expect(p.detail.split(' ').length).toBeLessThanOrEqual(16)
   })
 
   it('rows stored before the wording changed read the same as new ones', () => {
-    const NEW = 'delivery_app: this is a delivery app order (Uber Eats, Instacart, etc.). The total usually includes delivery, service and bag fees and a tip, which are not reimbursed -- check that only the Bud Light items and their tax are counted'
+    const NEW = 'delivery_app: delivery app order -- fees and tip are not reimbursed, so count only the Bud Light items and their tax'
     expect(parseReason(OLD)[0].detail).toBe(parseReason(NEW)[0].detail)
   })
 
@@ -173,5 +173,17 @@ describe('the auto-approved clause beside a real finding', () => {
   })
   it('stands alone when it is the only thing said', () => {
     expect(parseReason('auto_approved: the Bud Light items on this receipt add up to $43.23').map(p => p.code)).toEqual(['auto_approved'])
+  })
+})
+
+describe('unreadable amounts', () => {
+  it('says what to do, in the singular and the plural', () => {
+    expect(parseReason('unreadable_amounts: 2 line total(s) could not be read as a number -- admin must confirm the amount')[0].detail)
+      .toBe('2 line amounts could not be read. Check them against the photo.')
+    expect(parseReason('unreadable_amounts: 1 line total(s) could not be read as a number -- admin must confirm the amount')[0].detail)
+      .toBe('1 line amount could not be read. Check it against the photo.')
+  })
+  it('keeps the stored text when it is not the sentence we know', () => {
+    expect(parseReason('unreadable_amounts: something else happened')[0].detail).toBe('Something else happened')
   })
 })

@@ -96,7 +96,7 @@ function checkOcrPatterns(ocr: Record<string, unknown>, mixedLines: boolean): st
     flags.push('bar_restaurant: this bar or restaurant bill has items that are not Bud Light, so the Bud Light share needs checking')
 
   if (receiptType === 'delivery_app')
-    flags.push('delivery_app: this is a delivery app order (Uber Eats, Instacart, etc.). The total usually includes delivery, service and bag fees and a tip, which are not reimbursed -- check that only the Bud Light items and their tax are counted')
+    flags.push('delivery_app: delivery app order -- fees and tip are not reimbursed, so count only the Bud Light items and their tax')
 
   if (!store || store.length < 2) flags.push('no_store: no identifiable store name on receipt')
 
