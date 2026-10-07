@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '../../../../../supabase/functions/_shared/supabase-admin'
 import { requireAdmin, denied } from '../../../../../lib/admin-auth'
 import { periodOf } from '../../../../../lib/seed-period-invoice'
+import { joinedAfterMonthEnded } from '../../../../../lib/joined-after-month'
 import { seedIfMissing, missingConfirmations, CONFIRMATION_COLUMNS, type ConfirmationRow } from '../../../../../lib/roster-activation'
 import { missingAddressFields, addressPendingProblem } from '../../../../../lib/invoice-address-placeholder'
 
@@ -36,13 +37,6 @@ function monthLabel(period: string): string {
 function recentPeriods(now: Date): string[] {
   const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
   return [periodOf(prev), periodOf(now)]
-}
-
-function joinedAfterMonthEnded(createdAt: unknown, period: string): boolean {
-  const created = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN
-  if (Number.isNaN(created)) return false
-  const [y, m] = period.split('-').map(Number)
-  return created >= Date.UTC(y, m, 1)
 }
 
 export async function GET() {
