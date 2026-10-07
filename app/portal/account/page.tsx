@@ -150,7 +150,7 @@ export default function AccountPage() {
         <div className="crumbs"><span className="now">My account</span></div>
       </div>
 
-      <div style={{ maxWidth: 680 }}>
+      <div style={{ maxWidth: 960 }}>
         <h1>Banking details</h1>
         <p className="subtle">
           Check where your pay is sent. To make a change, request a correction below.
@@ -162,12 +162,12 @@ export default function AccountPage() {
           number invisible once already (see /portal/verify-account).
         */}
         <div className="hero-card" style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 12, marginBottom: 10, color: 'rgba(255,255,255,0.85)' }}>On file</div>
-          <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, marginBottom: 10, color: 'var(--bl-navy)' }}>On file</div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 10 }}>
             {loading ? 'Loading...' : (bankOnFile ?? 'Bank not set')}
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)' }}>Account ending in</span>
+            <span style={{ fontSize: 14, color: 'var(--bl-navy)' }}>Account ending in</span>
             <span style={{
               fontFamily: 'monospace', fontSize: 30, fontWeight: 700, letterSpacing: '0.12em',
               color: 'var(--bl-navy)', background: '#fff',
@@ -177,7 +177,7 @@ export default function AccountPage() {
             </span>
           </div>
           {tailNote && !tail && (
-            <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.85)', marginTop: 10 }}>{tailNote}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--bl-navy)', marginTop: 10 }}>{tailNote}</div>
           )}
         </div>
 

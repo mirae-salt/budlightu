@@ -262,7 +262,7 @@ export default function UploadPage() {
         <div className="crumbs"><span className="now">Upload receipts</span></div>
       </div>
 
-      <div className="upload-page" style={{ maxWidth: 680 }}>
+      <div className="upload-page" style={{ maxWidth: 960 }}>
         <h1>Upload receipts</h1>
 
         <div className="surface stack" style={{ marginTop: 20 }}>
@@ -440,7 +440,8 @@ export default function UploadPage() {
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
             <p style={{ margin: '8px 0 0', fontWeight: 600, color: 'var(--bl-navy)' }}>
-              Drop receipts here or <span style={{ color: 'var(--bl-blue-ink)', textDecoration: 'underline' }}>browse</span>
+              <span className="drop-hint--mouse">Drop receipts here or <span style={{ color: 'var(--bl-blue-ink)', textDecoration: 'underline' }}>browse</span></span>
+              <span className="drop-hint--touch" style={{ color: 'var(--bl-blue-ink)' }}>Tap to add photos of your receipts</span>
             </p>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
               JPG, PNG, WebP, or PDF. Up to {MAX_LABEL} each

@@ -233,7 +233,7 @@ export function QuestionHistory({
                 onClick={() => { setReplyingTo(r.id); setReplyText(''); setSendError(null) }}
                 style={{
                   marginTop: 12, background: 'none', border: 'none', padding: '4px 0',
-                  fontSize: 13, fontWeight: 600, color: 'var(--bl-blue, #0073cf)', cursor: 'pointer'
+                  fontSize: 13, fontWeight: 600, color: 'var(--bl-blue-ink)', cursor: 'pointer'
                 }}
               >
                 Reply

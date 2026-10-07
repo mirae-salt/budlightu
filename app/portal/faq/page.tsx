@@ -10,7 +10,7 @@ export default function FaqPage() {
 
       <h1>Frequently asked questions</h1>
 
-      <div style={{ maxWidth: 680 }}>
+      <div style={{ maxWidth: 960 }}>
         <div className="surface" style={{ marginTop: 20 }}>
           <h3 style={{ marginTop: 0 }}>How much can I claim?</h3>
           <p className="subtle" style={{ margin: 0 }}>

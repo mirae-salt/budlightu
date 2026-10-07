@@ -154,15 +154,15 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
 }
 .stack > * + * { margin-top: 12px; }
 .hero-card {
-  background: var(--bl-blue-ink);
+  background: var(--bl-blue);
   border-radius: var(--r-lg);
   padding: 22px 24px;
   border: none;
-  color: var(--paper);
+  color: var(--bl-navy);   /* navy on the sky blue is 7.8:1, white on it is 2.44:1 */
 }
-.hero-card .eyebrow { color: rgba(255,255,255,0.6); }
-.hero-card .muted { color: rgba(255,255,255,0.6); }
-.hero-card .btn, .hero-card button { background: #fff; color: var(--bl-blue-ink); }
+.hero-card .eyebrow { color: rgba(10,15,30,0.7); }
+.hero-card .muted { color: rgba(10,15,30,0.7); }
+.hero-card .btn, .hero-card button { background: #fff; color: var(--bl-navy); }
 .hero-card .btn:hover, .hero-card button:hover { background: rgba(255,255,255,0.85); }
 .card {
   background: var(--paper);
@@ -267,7 +267,18 @@ label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px; c
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
-  object-position: center 20%;
+  /* The can sits right of centre inside the photo itself. 64% brings it to the middle of a phone
+     (the photo is cropped at the sides there). */
+  object-position: 64% 20%;
+  /* The photo is nearly square, so on a wide window it fills the width and the can stays small
+     with grey on both sides. Scaling from the can's own centre (not the middle of the frame)
+     makes it larger without sliding it. The file is 1470px wide: past about 1.35 it softens. */
+  transform-origin: 68% 30%;   /* 68, not 50: scaling about this point is what lands the can mid-frame */
+}
+/* Only on a wide window. On a phone the hero is taller than it is wide, the photo already
+   fills it edge to edge, and scaling would crop the can's sides. */
+@media (min-width: 769px) {
+  .blu-hero-img { transform: scale(1.25); }
 }
 .blu-hero-overlay {
   position: absolute; inset: 0;
@@ -1023,3 +1034,52 @@ table.admin-table.one-line td.wrap { white-space: normal; }
 .row-menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
 .row-menu-danger { color: #A31212 !important; border-top: 1px solid var(--stone, #d9dbe3); border-radius: 0 0 6px 6px; margin-top: 4px; }
 
+
+/* ── Student portal on a phone ───────────────────────────────────────────────
+ * Most BAMs open the portal on a phone. Measured at 375px on /portal/upload (2026-10-07):
+ * the page gutter (16px) plus the card's own padding (24px) left 293px of 375 for the
+ * content, the note under the drop zone touched its border, and the checkbox row was 20px
+ * tall. Scoped to .portal-main so the admin screens keep their own spacing.
+ *
+ * One rhythm: 16px gutter, 16px inside a card, 16px between blocks, 44px minimum touch
+ * target (WCAG 2.5.8 asks for 24; Apple and Google both say 44 for a thumb).
+ */
+@media (max-width: 640px) {
+  .portal-main .topbar { display: none; }   /* the crumb repeats the h1 right below it */
+  .portal-main h1 { margin-top: 4px; }
+  .portal-main .surface { padding: 16px; margin-bottom: 16px; }
+  .portal-main .stack > * + * { margin-top: 16px; }
+  .portal-main .upload-policy-line { margin-top: 12px; }
+  .portal-main .upload-special-release { min-height: 44px; align-items: center; padding: 4px 0; }
+  .portal-main .upload-special-release input[type="checkbox"] { width: 22px; height: 22px; flex: none; margin: 0 !important; }
+  .portal-main .upload-photo-tip { padding: 0; }
+  .portal-main .upload-page .drop-zone { padding: 24px 16px; }
+  .portal-main .upload-guidance { margin-top: 24px; }
+  .portal-main .upload-guidance summary { padding: 8px 0; }
+  .portal-main .upload-page p a { display: inline-block; padding: 10px 0; }
+  .portal-main .btn, .portal-main button:not(.chart-tab) { min-height: 44px; }
+  /* My invoices: the list sat in a bordered surface and every invoice was a bordered card inside it,
+     a card in a card that cost 32px of width. The cards are the surface on a phone. */
+  .portal-main .surface:has(.invoice-cards) { padding: 0; border: 0; background: transparent; }
+  .portal-main .invoice-card { background: var(--paper); padding: 16px; }
+  .portal-main .invoice-card + .invoice-card { margin-top: 12px; }
+  /* Four actions share a card here, so 44px each made the card mostly button. 36px still clears
+     WCAG 2.5.8 (24px) and the gap between them keeps a thumb from hitting the neighbour. */
+  .portal-main .invoice-card .btn-ghost,
+  .portal-main .invoice-card button { min-height: 36px; padding: 6px 12px; }
+}
+
+/* A phone has no drag and drop, so it gets its own words (Nielsen 2, the user's language). Chosen by
+   the input device, not the screen width: a narrow desktop window still has a mouse. */
+.drop-hint--touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .drop-hint--mouse { display: none; }
+  .drop-hint--touch { display: inline; }
+}
+
+/* iPhone Safari zooms the page when an input under 16px takes focus, and does not zoom back out.
+   Support questions, onboarding (bank details) and correction requests are all typed on a phone.
+   Known Safari behaviour, not measured here. */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+}

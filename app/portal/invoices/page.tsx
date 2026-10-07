@@ -283,7 +283,7 @@ export default function MyInvoices() {
           target="_blank"
           rel="noopener noreferrer"
           className="btn-ghost"
-          style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none', display: 'inline-block' }}
+          style={{ padding: '5px 12px', fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', fontWeight: 700 }}
         >
           View PDF
         </a>
@@ -355,11 +355,6 @@ export default function MyInvoices() {
             {confirmBusy === inv.id ? 'Saving…' : 'Confirm it is correct'}
           </button>
         )}
-        {inv.accepted_at && inv.status === 'draft' && (
-          <span className="muted" style={{ fontSize: 12, alignSelf: 'center' }}>
-            You confirmed this
-          </span>
-        )}
       </div>
     )
   }
@@ -430,7 +425,7 @@ export default function MyInvoices() {
       : [{ id: t.id, author: 'bam', body: t.question, created_at: t.submitted_at }]
 
     return (
-      <div style={{ marginTop: 8, padding: 14, background: 'var(--bl-fog)', borderRadius: 8 }}>
+      <div style={{ marginTop: 8, padding: 14, background: '#fff', border: '1px solid var(--stone)', borderRadius: 8 }}>
         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
           About this invoice
           <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
@@ -550,6 +545,7 @@ export default function MyInvoices() {
         <div className="crumbs"><span className="now">My invoices</span></div>
       </div>
 
+      <div style={{ maxWidth: 960 }}>
       <h1>My invoices</h1>
 
       {emailMsg && (
@@ -637,7 +633,7 @@ export default function MyInvoices() {
                     </tr>
                     {detail.length > 0 && (
                       <tr>
-                        <td colSpan={4} style={{ paddingTop: 0 }}>{detail}</td>
+                        <td colSpan={4} style={{ paddingTop: 0 }}>{detail.map((d, i) => <Fragment key={i}>{d}</Fragment>)}</td>
                       </tr>
                     )}
                   </Fragment>
@@ -675,6 +671,7 @@ export default function MyInvoices() {
           </div>
           </>
         )}
+      </div>
       </div>
     </>
   )

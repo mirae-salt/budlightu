@@ -82,17 +82,17 @@ export default function VerifyAccountPage() {
       <div className="hero-card" style={{ marginTop: 20 }}>
         <div style={{
           fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em',
-          marginBottom: 10, color: 'rgba(255,255,255,0.85)'
+          marginBottom: 10, color: 'var(--bl-navy)'
         }}>
           Your account on file
         </div>
 
-        <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 10 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--bl-navy)', marginBottom: 10 }}>
           {bank ?? 'Bank not set'}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)' }}>Account ending in</span>
+          <span style={{ fontSize: 14, color: 'var(--bl-navy)' }}>Account ending in</span>
           <span style={{
             fontFamily: 'monospace', fontSize: 30, fontWeight: 700, letterSpacing: '0.12em',
             color: 'var(--bl-navy)', background: '#fff',

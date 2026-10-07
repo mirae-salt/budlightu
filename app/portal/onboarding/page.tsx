@@ -168,7 +168,7 @@ export default function OnboardingPage() {
         <div className="crumbs"><span className="now">Onboarding</span></div>
       </div>
 
-      <div style={{ maxWidth: 680 }}>
+      <div style={{ maxWidth: 960 }}>
         <p className="eyebrow">WELCOME TO BUD LIGHT U</p>
         <h1>Set up your account</h1>
         <p className="subtle">Takes about 3 minutes. Your banking info is encrypted before it&rsquo;s stored.</p>

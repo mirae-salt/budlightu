@@ -24,7 +24,7 @@ export default function TermsPage() {
 
       <h1>Bud Light U program terms</h1>
 
-      <div style={{ maxWidth: 680 }}>
+      <div style={{ maxWidth: 960 }}>
         <p className="subtle" style={{ marginTop: 8 }}>
           Version {TERMS_VERSION}. These are the terms you agree to when you set up your
           account. Your acceptance is recorded with the version above.

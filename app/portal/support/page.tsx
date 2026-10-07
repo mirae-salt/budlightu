@@ -69,7 +69,7 @@ export default function SupportPage() {
         <div className="crumbs"><span className="now">Support</span></div>
       </div>
 
-      <div style={{ maxWidth: 680 }}>
+      <div style={{ maxWidth: 960 }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
           gap: 16, flexWrap: 'wrap'
