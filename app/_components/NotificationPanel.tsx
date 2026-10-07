@@ -285,6 +285,9 @@ export function NotificationBell<T extends NotifItem>({
         }}
         style={{
           position: 'relative', background: 'none', border: 'none', cursor: 'pointer',
+          // Inherit from the sidebar row. The global `button` rule sets navy text, and without this
+          // the bell drew navy on a navy sidebar and disappeared (2026-10-07).
+          color: 'inherit',
           padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center',
         }}
         title="Notifications"

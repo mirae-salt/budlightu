@@ -251,12 +251,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     the dev bypass there is no session, so the bell never rendered and nobody
                     testing locally would ever have seen it. The bell asks the API and removes
                     itself when the API says this viewer has no notifications of their own. */}
-                <div style={{ color: 'rgba(255,255,255,0.45)', display: 'flex', flexShrink: 0 }}>
+                <div style={{ color: 'rgba(255,255,255,0.75)', display: 'flex', flexShrink: 0 }}>
                   <PortalNotificationBell />
                 </div>
                 <button onClick={logout} title="Log out" style={{
                   background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: 'rgba(255,255,255,0.35)', padding: 4, display: 'flex', flexShrink: 0
+                  color: 'rgba(255,255,255,0.65)', padding: 4, display: 'flex', flexShrink: 0
                 }}>
                   <IcoLogout />
                 </button>

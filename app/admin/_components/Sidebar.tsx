@@ -142,12 +142,12 @@ export function Sidebar({ open, onNavigate }: { open?: boolean; onNavigate?: () 
           {/* The bell sits with the account, not the logo. It is about YOU -- what is
               waiting for you to look at -- which is the same thing the avatar and the log
               out button are about. Next to the wordmark it read as decoration. */}
-          <div style={{ color: 'rgba(255,255,255,0.45)', display: 'flex', flexShrink: 0 }}>
+          <div style={{ color: 'rgba(255,255,255,0.75)', display: 'flex', flexShrink: 0 }}>
             <NotificationBell />
           </div>
           <button onClick={async () => { const sb = browserClient(); await sb.auth.signOut(); window.location.href = '/portal/login' }} style={{
             background: 'transparent', border: 'none', cursor: 'pointer',
-            color: 'rgba(255,255,255,0.3)', padding: 4, display: 'flex'
+            color: 'rgba(255,255,255,0.65)', padding: 4, display: 'flex'
           }} title="Log out">
             <svg {...iconProps} style={{ width: 15, height: 15 }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>
