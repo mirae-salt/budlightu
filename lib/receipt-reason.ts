@@ -35,6 +35,7 @@ export type ReasonPart = {
  */
 const LABELS: Record<string, string> = {
   bar_restaurant: 'Bar or restaurant',
+  delivery_app: 'Delivery app',
   no_store: 'No store name',
   total_mismatch: 'Totals do not add up',
   unreconciled_totals: 'Totals do not reconcile',
@@ -158,6 +159,11 @@ export function explainOcrFailure(raw: string, storageBytes?: number | null): st
   return 'The reader could not process this file. Try again, or ask them to re-upload it.'
 }
 
+/** Shown for every delivery_app finding. Keep the wording in step with app/api/receipts/ocr/route.ts. */
+export const DELIVERY_APP_DETAIL =
+  'A delivery app order (Uber Eats, Instacart, etc.). The total usually includes delivery, service and bag fees and a tip, ' +
+  'which are not Bud Light and are not reimbursed. Check that only the Bud Light items and their tax are counted.'
+
 /**
  * Splits a stored reason into its findings.
  *
@@ -192,9 +198,17 @@ export function parseReason(
       if (code.startsWith('ocr_')) {
         return { code, label, detail: explainOcrFailure(m[2], opts?.storageBytes) }
       }
+      // The stored sentence only says "needs admin review". What the reviewer has to look for is
+      // the fees: on the seven real delivery receipts held on 2026-10-07 the total ran $4 to
+      // $25 past the items plus tax. Said at read time so the rows already stored get it too.
+      if (code === 'delivery_app') return { code, label, detail: DELIVERY_APP_DETAIL }
       return { code, label, detail: cleanDetail(m[2]) }
     })
     .filter(p => p.detail.length > 0 || p.label.length > 0)
+    // "Auto-approved" is the classifier's own verdict, not a finding. Beside a real finding it
+    // reads as the row's status and contradicts the Review badge (Eesha Nandha's Uber Eats
+    // receipt, 2026-10-07). The amount it quotes is already in the Bud Light total column.
+    .filter((p, _i, all) => !(p.code === 'auto_approved' && all.some(o => o.code !== 'auto_approved')))
 }
 
 /** A one-line version, for places with no room for a list. */

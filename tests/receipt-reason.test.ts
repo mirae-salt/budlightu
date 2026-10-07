@@ -144,3 +144,34 @@ describe('the amount note an admin approval leaves', () => {
   })
 })
 
+
+describe('delivery app orders', () => {
+  const OLD = 'delivery_app: this is a delivery app order (Uber Eats, Instacart, etc.) -- needs admin review'
+
+  it('says what to check: the fees and the tip are not reimbursed', () => {
+    const [p] = parseReason(OLD)
+    expect(p.label).toBe('Delivery app')
+    expect(p.detail).toMatch(/delivery, service and bag fees and a tip/)
+    expect(p.detail).toMatch(/not reimbursed/)
+  })
+
+  it('rows stored before the wording changed read the same as new ones', () => {
+    const NEW = 'delivery_app: this is a delivery app order (Uber Eats, Instacart, etc.). The total usually includes delivery, service and bag fees and a tip, which are not reimbursed -- check that only the Bud Light items and their tax are counted'
+    expect(parseReason(OLD)[0].detail).toBe(parseReason(NEW)[0].detail)
+  })
+
+  it('a delivery clause beside another finding keeps both', () => {
+    const parts = parseReason(`${OLD} | unreadable_amounts: 2 line total(s) could not be read as a number`)
+    expect(parts.map(p => p.code)).toEqual(['delivery_app', 'unreadable_amounts'])
+  })
+})
+
+describe('the auto-approved clause beside a real finding', () => {
+  it('is left out, so a Review row does not open with "Auto-approved"', () => {
+    const parts = parseReason('auto_approved: the Bud Light items on this receipt add up to $43.23 | delivery_app: x -- y')
+    expect(parts.map(p => p.code)).toEqual(['delivery_app'])
+  })
+  it('stands alone when it is the only thing said', () => {
+    expect(parseReason('auto_approved: the Bud Light items on this receipt add up to $43.23').map(p => p.code)).toEqual(['auto_approved'])
+  })
+})
