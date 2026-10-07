@@ -31,16 +31,46 @@ function currentPeriod(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
 }
 
-function PeriodBanner() {
-  const now = new Date()
-  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  const day = now.getDate()
+/** The first month with data. The stepper stops here instead of walking into empty years. */
+const FIRST_PERIOD = '2026-08-01'
+
+function periodLabel(period: string): string {
+  return new Date(`${period}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+
+function shiftPeriod(period: string, offset: number): string {
+  const [y, m] = period.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1 + offset, 1)).toISOString().slice(0, 10)
+}
+
+function PeriodBanner({ period }: { period: string }) {
+  const isCurrent = period === currentPeriod()
+  const day = new Date().getDate()
   return (
     <p className="overview-period">
-      <strong>{monthLabel}</strong>
-      <span>Receipts {day > RECEIPT_DEADLINE_DAY ? 'closed' : `due ${RECEIPT_DEADLINE_DAY}th`}</span>
+      <strong>{periodLabel(period)}</strong>
+      {isCurrent
+        ? <span>Receipts {day > RECEIPT_DEADLINE_DAY ? 'closed' : `due ${RECEIPT_DEADLINE_DAY}th`}</span>
+        : <span>Receipts closed</span>}
       <span>Draft invoices {INVOICE_GENERATE_DAY}th</span>
     </p>
+  )
+}
+
+/** Same arrows as the invoices screen. The next arrow stops at the current month: nothing exists after it. */
+function MonthStepper({ period, onChange }: { period: string; onChange: (p: string) => void }) {
+  const current = currentPeriod()
+  return (
+    <div className="invoice-month-group" role="group" aria-label="Dashboard month" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px' }}>
+      <button className="invoice-month-arrow" aria-label="Previous month" title="Previous month"
+        disabled={period <= FIRST_PERIOD} onClick={() => onChange(shiftPeriod(period, -1))}>‹</button>
+      <span className="invoice-month-current" aria-live="polite">{periodLabel(period)}</span>
+      <button className="invoice-month-arrow" aria-label="Next month" title="Next month"
+        disabled={period >= current} onClick={() => onChange(shiftPeriod(period, 1))}>›</button>
+      {period !== current && (
+        <button className="invoice-month-quick" onClick={() => onChange(current)}>This month</button>
+      )}
+    </div>
   )
 }
 
@@ -406,9 +436,12 @@ export default function AdminDashboard() {
   const [budgetSource, setBudgetSource] = useState<'ledger' | 'receipts_capped' | null>(null)
   const [dataWarnings, setDataWarnings] = useState<string[]>([])
   const router = useRouter()
+  const [period, setPeriod] = useState<string>(currentPeriod())
+  const isCurrentMonth = period === currentPeriod()
 
   useEffect(() => {
-    const period = currentPeriod()
+    setStatsState('loading')
+    let cancelled = false
 
     // P1-14: load errors are surfaced, not swallowed. A dashboard that shows
     // zeros because a fetch failed is indistinguishable from a real zero.
@@ -421,6 +454,7 @@ export default function AdminDashboard() {
         return json.data
       })
       .then(data => {
+        if (cancelled) return
         const { activeBams, pendingBams, receiptsSubmitted, reviewQueue, reviewCohortId: rqCohort, invoicesSent,
           invoicesByMonth: ibm, reimbByMonth: rbm, receiptBreakdown: rb,
           budgetCap, budgetSpent, budgetPct, budgetSource: src } = data
@@ -440,14 +474,21 @@ export default function AdminDashboard() {
         if (rbm) setReimbByMonth(rbm)
         if (src === 'ledger' || src === 'receipts_capped') setBudgetSource(src)
         if (Array.isArray(data.warnings) && data.warnings.length > 0) {
-          setDataWarnings(prev => [...prev, ...(data.warnings as string[])])
+          setDataWarnings(prev => [...new Set([...prev, ...(data.warnings as string[])])])
         }
         setStatsState('ok')
       })
       .catch((e: Error) => {
+        if (cancelled) return
         setStatsError(e.message)
         setStatsState('error')
       })
+
+    return () => { cancelled = true }
+  }, [period])
+
+  // Not month-based: it is the whole program, so it loads once.
+  useEffect(() => {
 
     fetch('/api/admin/data?table=bam_spending')
       .then(async res => {
@@ -497,7 +538,8 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {statsState === 'ok' && (
+      {/* The queue and the onboarding list are live, not per month, so they belong to this month's view only. */}
+      {statsState === 'ok' && isCurrentMonth && (
         <section className="overview-worklist" aria-label="Needs attention">
           <div className="overview-worklist-heading">
             <strong>Needs attention</strong>
@@ -517,11 +559,12 @@ export default function AdminDashboard() {
         </section>
       )}
 
-      <PeriodBanner />
+      <MonthStepper period={period} onChange={setPeriod} />
+      <PeriodBanner period={period} />
 
       <div className="surface">
         <div className="surface-header">
-          <div className="surface-title">This month at a glance</div>
+          <div className="surface-title">{isCurrentMonth ? 'This month at a glance' : `${periodLabel(period)} at a glance`}</div>
         </div>
         {statsState === 'loading' && (
           <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Loading current figures...</div>
@@ -533,9 +576,9 @@ export default function AdminDashboard() {
         )}
         <div className="kpi-row" style={statsState === 'error' ? { opacity: 0.35 } : undefined}>
           <KpiCell label="Active BAMs"       value={String(s.activeBams)}        trend="neutral" onClick={() => router.push('/admin/roster')} />
-          <KpiCell label="Receipts uploaded" value={String(s.receiptsSubmitted)} hint="This cycle" onClick={() => router.push('/admin/receipts')} />
-          <KpiCell label="Budget used this month" value={s.budgetUsed}           delta={`${s.budgetPct}%`} trend={s.budgetPct > 0 ? 'up' : 'neutral'} onClick={() => router.push('/admin/cohorts')} />
-          <KpiCell label="Invoices sent"     value={String(s.invoicesSent)}      hint="This cycle" onClick={() => router.push('/admin/invoices')} />
+          <KpiCell label="Receipts uploaded" value={String(s.receiptsSubmitted)} hint={isCurrentMonth ? 'This cycle' : periodLabel(period)} onClick={() => router.push('/admin/receipts')} />
+          <KpiCell label={isCurrentMonth ? 'Budget used this month' : 'Budget used'} value={s.budgetUsed}           delta={`${s.budgetPct}%`} trend={s.budgetPct > 0 ? 'up' : 'neutral'} onClick={() => router.push('/admin/cohorts')} />
+          <KpiCell label="Invoices sent"     value={String(s.invoicesSent)}      hint={isCurrentMonth ? 'This cycle' : periodLabel(period)} onClick={() => router.push('/admin/invoices')} />
         </div>
       </div>
 
@@ -563,7 +606,7 @@ export default function AdminDashboard() {
         <div className="surface" style={{ marginBottom: 0 }}>
           <div className="surface-header">
             <div className="surface-title">Receipt status</div>
-            <span className="muted" style={{ fontSize: 12 }}>this month</span>
+            <span className="muted" style={{ fontSize: 12 }}>{isCurrentMonth ? 'this month' : periodLabel(period)}</span>
           </div>
           <ReceiptStatusSummary breakdown={receiptBreakdown} />
         </div>
@@ -576,7 +619,7 @@ export default function AdminDashboard() {
         </div>
         {statsState === 'ok' && budgetSource === 'receipts_capped' && (
           <div style={{ fontSize: 11, color: 'var(--midgray)', marginBottom: 8 }}>
-            Estimate from approved receipts. The reimbursement ledger has no entries for this month yet.
+            Estimate from approved receipts. The reimbursement ledger has no entries for {isCurrentMonth ? 'this month' : periodLabel(period)} yet.
           </div>
         )}
         {statsState === 'ok' && budgetSource === 'ledger' && (
