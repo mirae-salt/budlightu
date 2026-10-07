@@ -27,6 +27,8 @@ type Row = ReceiptRow & {
   ocrJson?: OcrData | null
   /** the stored amount as a number, for the correction preview delta */
   totalCad?: number | null
+  /** When it was decided, else when it was uploaded. History is ordered on this, newest first. */
+  sortMs: number
 }
 
 type OcrData = {
@@ -108,6 +110,7 @@ function mapDbReceipt(r: DbReceipt): Row {
     id: r.id,
     cohortId: r.cohort_id ?? null,
     isTest: r.bams?.is_test === true,
+    sortMs: Date.parse(r.decided_at ?? r.uploaded_at),
     bam: r.bams ? `${r.bams.first_name} ${r.bams.last_name}` : '—',
     uploadedAt: new Date(r.uploaded_at).toLocaleString('en-US', {
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
@@ -312,7 +315,11 @@ export default function ReceiptsQueue() {
   const { cohortFilter, hideTest, setFilters, cohortOptions, matches } = useCohortFilter()
   const visible = allRows.filter(r => matches({ cohortId: r.cohortId, isTest: r.isTest }))
   const queue   = visible.filter(r => r.status === 'pending' || r.status === 'review' || r.status === 'ocr_failed')
-  const history = visible.filter(r => r.status === 'approved' || r.status === 'rejected' || r.status === 'auto_pass')
+  // Newest decision first. It used to follow the upload date, so a receipt uploaded on the 2nd and
+  // rejected today sat 18 rows down and looked as if the rejection had not been recorded.
+  const history = visible
+    .filter(r => r.status === 'approved' || r.status === 'rejected' || r.status === 'auto_pass')
+    .sort((a, b) => b.sortMs - a.sortMs)
 
   const pendingCount   = queue.filter(r => r.status === 'pending').length
   const reviewCount    = queue.filter(r => r.status === 'review').length
@@ -428,6 +435,7 @@ export default function ReceiptsQueue() {
       const decided: Row = {
         ...row,
         status: action === 'approve' ? 'approved' : 'rejected',
+        sortMs: Date.now(),
         decidedAt: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
         decidedReason: reason.trim() || (action === 'approve' ? 'Approved by admin' : 'Rejected by admin')
       }
