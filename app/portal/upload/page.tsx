@@ -82,6 +82,14 @@ export default function UploadPage() {
   const [err, setErr] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const msgRef = useRef<HTMLParagraphElement>(null)
+  // A small preview of each photo, so a student can see the right receipt is attached
+  // before sending it. Released when the list changes or the page closes.
+  const previews = useMemo(
+    () => files.map(f => (f.type.startsWith('image/') ? URL.createObjectURL(f) : null)),
+    [files]
+  )
+  useEffect(() => () => previews.forEach(u => { if (u) URL.revokeObjectURL(u) }), [previews])
   const isLate = selectedPeriod !== currentMonth.value
   /*
    * The BAM's own claim that this receipt is for a special or limited release bought
@@ -254,6 +262,8 @@ export default function UploadPage() {
     setFiles([])
     setMsg(`${files.length} receipt${files.length > 1 ? 's' : ''} submitted. You'll hear from your program manager if we need anything.`)
     loadReceipts(selectedPeriod)
+    // The Submit button sits at the bottom of a tall card on a phone; bring the answer into view.
+    setTimeout(() => msgRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
   }
 
   return (
@@ -441,7 +451,7 @@ export default function UploadPage() {
             </svg>
             <p style={{ margin: '8px 0 0', fontWeight: 600, color: 'var(--bl-navy)' }}>
               <span className="drop-hint--mouse">Drop receipts here or <span style={{ color: 'var(--bl-blue-ink)', textDecoration: 'underline' }}>browse</span></span>
-              <span className="drop-hint--touch" style={{ color: 'var(--bl-blue-ink)' }}>Tap to add photos of your receipts</span>
+              <span className="drop-hint--touch drop-btn">Add receipt photos</span>
             </p>
             <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
               JPG, PNG, WebP, or PDF. Up to {MAX_LABEL} each
@@ -457,6 +467,10 @@ export default function UploadPage() {
                   display: 'flex', alignItems: 'center', gap: 10,
                   padding: '8px 12px', background: 'var(--bl-fog)', borderRadius: 8, fontSize: 13
                 }}>
+                  {previews[i]
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={previews[i]!} alt="" className="upload-thumb" />
+                    : <span className="upload-thumb upload-thumb--pdf" aria-hidden>PDF</span>}
                   <span style={{ fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                   <span className="muted">{(f.size / 1024).toFixed(0)} KB</span>
                   <button
@@ -493,7 +507,7 @@ export default function UploadPage() {
             )}
           </div>
         )}
-        {msg && <p style={{ color: 'var(--green)', marginTop: 16 }}>{msg}</p>}
+        {msg && <p ref={msgRef} role="status" className="upload-success">{msg}</p>}
 
         {/* Submitted receipts for this month */}
         {pastReceipts.length > 0 && (

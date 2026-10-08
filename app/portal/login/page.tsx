@@ -50,6 +50,8 @@ export default function LoginPage() {
     next[idx] = val.slice(-1)
     setOtp(next)
     if (val && idx < 5) inputRefs.current[idx + 1]?.focus()
+    // The sixth digit is the last thing the student has to do, so send it.
+    if (val && next.join('').length === 6) verifyOtp(next.join(''))
   }
 
   function handleOtpKeyDown(idx: number, e: React.KeyboardEvent) {
@@ -67,11 +69,12 @@ export default function LoginPage() {
     setOtp(next)
     const focusIdx = Math.min(pasted.length, 5)
     inputRefs.current[focusIdx]?.focus()
+    if (pasted.length === 6) verifyOtp(pasted)
   }
 
-  async function verifyOtp() {
-    const code = otp.join('')
-    if (code.length !== 6) return
+  async function verifyOtp(typed?: string) {
+    const code = typed ?? otp.join('')
+    if (code.length !== 6 || busy) return
     setBusy(true); setError(null)
 
     const sb = browserClient()
@@ -92,7 +95,11 @@ export default function LoginPage() {
     if (verifyErr) {
       setBusy(false)
       const msg = verifyErr.message || 'Verification failed'
-      setError(msg.includes('expired') ? 'Code expired. Click "Resend code" to get a new one.' : msg)
+      setError(
+        msg.includes('expired')
+          ? 'That code has expired. Tap "Resend code" to get a new one.'
+          : 'That code did not work. Use the newest email, or tap "Resend code".'
+      )
       setOtp(['', '', '', '', '', ''])
       inputRefs.current[0]?.focus()
       return
@@ -143,9 +150,18 @@ export default function LoginPage() {
           display: grid; grid-template-columns: 1fr 1fr;
           min-height: 100vh; width: 100%;
         }
+        .login-brand-mobile { display: none; }
         @media (max-width: 860px) {
+          /* Prefixed with .login-split on purpose: the plain .login-hero and .login-form-panel
+             rules further down are the same specificity and come later, so without the prefix
+             this block lost to them and the full-height hero stayed on a phone, pushing the
+             sign-in form below the first screen. */
           .login-split { grid-template-columns: 1fr; }
-          .login-hero { display: none; }
+          .login-split .login-hero { display: none; }
+          /* The hero is hidden here, which also hid the only logo. */
+          .login-split .login-brand-mobile { display: block; width: 112px; margin: 0 0 28px; }
+          .login-split .login-form-panel { justify-content: flex-start; align-items: stretch; padding: 32px 20px; }
+          .login-split .login-form-inner { max-width: none; }
         }
 
         /* ── Hero panel ── */
@@ -205,7 +221,7 @@ export default function LoginPage() {
           color: var(--bl-navy); margin-bottom: 6px;
         }
         .login-email-field input {
-          width: 100%; padding: 12px 14px; font-size: 15px;
+          width: 100%; padding: 12px 14px; font-size: 16px; min-height: 48px;
           border: 1.5px solid var(--stone); border-radius: 10px;
           background: var(--bl-silver); color: var(--bl-navy);
           transition: border-color 0.15s, box-shadow 0.15s;
@@ -227,7 +243,7 @@ export default function LoginPage() {
         .login-submit:active:not(:disabled) { transform: scale(0.985); }
         .login-submit:disabled { opacity: 0.45; cursor: not-allowed; }
         .login-help-details { margin-top: 16px; color: var(--slate); font-size: 12px; line-height: 1.55; }
-        .login-help-details summary { color: var(--bl-blue-ink); font-weight: 600; cursor: pointer; }
+        .login-help-details summary { color: var(--bl-blue-ink); font-weight: 600; cursor: pointer; padding: 12px 0; font-size: 13px; }
         .login-help-details p { margin: 8px 0 0; }
         .login-help-details ul { margin: 6px 0; padding-left: 20px; }
 
@@ -288,7 +304,7 @@ export default function LoginPage() {
           align-items: center; margin-top: 20px;
         }
         .link-btn {
-          font-size: 13px; padding: 6px 0; background: none; border: none;
+          font-size: 14px; padding: 6px 0; min-height: 44px; background: none; border: none;
           color: var(--midgray); cursor: pointer; text-decoration: underline;
           text-underline-offset: 3px;
         }
@@ -305,7 +321,7 @@ export default function LoginPage() {
          */
         .link-btn:hover { color: #111827; background: none; }
         .resend-btn {
-          font-size: 13px; padding: 8px 18px; background: var(--bl-silver);
+          font-size: 14px; padding: 8px 18px; min-height: 44px; background: var(--bl-silver);
           border: 1.5px solid var(--stone); border-radius: 8px;
           color: var(--bl-navy); cursor: pointer; font-weight: 600;
         }
@@ -334,6 +350,7 @@ export default function LoginPage() {
         {/* ── Right: form ── */}
         <div className="login-form-panel">
           <div className="login-form-inner">
+            <img className="login-brand-mobile" src="/brand/BudLightU-logo.png" alt="Bud Light U" />
             {phase === 'email' && (
               <>
                 <h1>Sign in</h1>
@@ -350,6 +367,11 @@ export default function LoginPage() {
                     onKeyDown={e => e.key === 'Enter' && email.includes('@') && sendOtp()}
                     placeholder="you@school.edu"
                     autoComplete="email"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    enterKeyHint="send"
                   />
                 </div>
 
@@ -362,7 +384,7 @@ export default function LoginPage() {
                 </button>
 
                 <details className="login-help-details">
-                  <summary>Code not arriving at your work email?</summary>
+                  <summary>Code not arriving?</summary>
                   <p>Check your junk folder or add these senders to your safe list:</p>
                   <ul>
                     <li>noreply@budlightu.com</li>
@@ -386,6 +408,8 @@ export default function LoginPage() {
                       className="otp-input"
                       type="text"
                       inputMode="numeric"
+                      autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                      aria-label={`Code digit ${i + 1} of 6`}
                       maxLength={1}
                       value={d}
                       onChange={e => handleOtpChange(i, e.target.value)}
@@ -396,7 +420,7 @@ export default function LoginPage() {
                 </div>
                 <button
                   className="login-submit"
-                  onClick={verifyOtp}
+                  onClick={() => verifyOtp()}
                   disabled={busy || otp.join('').length !== 6}
                 >
                   {busy ? 'Verifying...' : 'Sign in'}
@@ -410,40 +434,19 @@ export default function LoginPage() {
                   </button>
                 </div>
 
-                <div style={{
-                  marginTop: 16, padding: '12px 14px', borderRadius: 10,
-                  background: 'rgba(0,180,224,0.06)', border: '1px solid rgba(0,180,224,0.12)',
-                  fontSize: 13, lineHeight: 1.6, color: 'var(--bl-navy)'
-                }}>
-                  <strong>Not seeing the code?</strong> Check your spam or junk folder.
-                </div>
-
-                <div style={{
-                  marginTop: 8, padding: '12px 14px', borderRadius: 10,
-                  background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)',
-                  fontSize: 12.5, lineHeight: 1.6, color: '#92400e'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </svg>
-                    <strong style={{ color: '#b45309' }}>Still nothing on a work email?</strong>
-                  </div>
-                  <p style={{ margin: '0 0 6px' }}>
-                    Add these two senders to your safe list, then resend:
-                  </p>
-                  <ul style={{ margin: '0 0 6px', paddingLeft: 18 }}>
-                    <li><strong style={{ color: '#b45309' }}>noreply@budlightu.com</strong></li>
-                    <li><strong style={{ color: '#b45309' }}>onboarding@budlightu.com</strong></li>
+                <details className="login-help-details">
+                  <summary>Code not arriving?</summary>
+                  <p>Check your spam or junk folder, then add these senders to your safe list and resend:</p>
+                  <ul>
+                    <li>noreply@budlightu.com</li>
+                    <li>onboarding@budlightu.com</li>
                   </ul>
-                  <p style={{ margin: 0, fontSize: 12 }}>
-                    In Outlook: Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders
-                  </p>
-                </div>
+                  <p>Outlook: Settings &rarr; Mail &rarr; Junk email &rarr; Safe senders</p>
+                </details>
               </>
             )}
 
-            {error && <div className="login-error">{error}</div>}
+            {error && <div className="login-error" role="alert">{error}</div>}
           </div>
         </div>
       </div>

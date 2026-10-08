@@ -101,6 +101,22 @@ export default function Dashboard() {
             <div className="dashboard-summary-value">
               {loading ? '—' : `$${state.spentCad.toFixed(2)}`}
             </div>
+            {/* The $150 is the point of the month, so show how far along it is. */}
+            {!loading && state.capCad > 0 && (
+              <>
+                <div
+                  className="dashboard-progress"
+                  role="progressbar"
+                  aria-label="Bud Light spend toward this month's limit"
+                  aria-valuemin={0}
+                  aria-valuemax={state.capCad}
+                  aria-valuenow={Math.min(state.spentCad, state.capCad)}
+                >
+                  <span style={{ width: `${Math.min(100, (state.spentCad / state.capCad) * 100)}%` }} />
+                </div>
+                <div className="dashboard-progress-note">of ${state.capCad.toFixed(0)} this month</div>
+              </>
+            )}
         </div>
         <Link href="/portal/upload" className="btn" style={{ textDecoration: 'none' }}>Upload receipt</Link>
       </div>

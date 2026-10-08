@@ -1056,7 +1056,7 @@ table.admin-table.one-line td.wrap { white-space: normal; }
   .portal-main .upload-page .drop-zone { padding: 24px 16px; }
   .portal-main .upload-guidance { margin-top: 24px; }
   .portal-main .upload-guidance summary { padding: 8px 0; }
-  .portal-main .upload-page p a { display: inline-block; padding: 10px 0; }
+  .portal-main .upload-page p a { display: inline-block; padding: 10px 0; color: var(--bl-blue-ink); font-weight: 600; text-underline-offset: 3px; }
   .portal-main .btn, .portal-main button:not(.chart-tab) { min-height: 44px; }
   /* My invoices: the list sat in a bordered surface and every invoice was a bordered card inside it,
      a card in a card that cost 32px of width. The cards are the surface on a phone. */
@@ -1082,4 +1082,24 @@ table.admin-table.one-line td.wrap { white-space: normal; }
    Known Safari behaviour, not measured here. */
 @media (max-width: 640px) {
   input, select, textarea { font-size: 16px; }
+}
+
+
+/* ── Student portal, phone UX pass (2026-10-08) ───────────────────────────── */
+.dashboard-progress { height: 8px; margin-top: 12px; background: var(--bl-silver); border-radius: 999px; overflow: hidden; max-width: 320px; }
+.dashboard-progress > span { display: block; height: 100%; background: var(--bl-blue); border-radius: 999px; transition: width 0.3s ease; }
+.dashboard-progress-note { margin-top: 6px; font-size: 13px; color: var(--slate); }
+.upload-thumb { width: 44px; height: 44px; flex: none; object-fit: cover; border-radius: 6px; border: 1px solid var(--stone); background: #fff; }
+.upload-thumb--pdf { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--slate); }
+.upload-success { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #14532d; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.25); }
+.drop-btn { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  /* On a phone the add-photos area is the main action, so it reads as a button, not a dashed box. */
+  .drop-zone .drop-btn { display: inline-block; margin-top: 4px; padding: 13px 22px; min-height: 48px; box-sizing: border-box; background: var(--bl-blue); color: var(--bl-navy); font-weight: 700; font-size: 16px; border-radius: 10px; }
+}
+@media (max-width: 640px) {
+  .dashboard-summary { flex-direction: column; align-items: stretch; }
+  .dashboard-summary .btn { width: 100%; text-align: center; box-sizing: border-box; min-height: 48px; display: flex; align-items: center; justify-content: center; }
+  /* Submit stays under the thumb once photos are attached, instead of at the bottom of a long card. */
+  .portal-main .upload-submit { position: sticky; bottom: 12px; width: 100%; min-height: 52px; font-size: 16px; box-shadow: 0 6px 18px rgba(10,15,30,0.18); z-index: 5; }
 }
