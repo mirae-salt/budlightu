@@ -6,6 +6,7 @@ import { TopBar } from '../_components/TopBar'
 import { Toast, type ToastNotice } from '../_components/Toast'
 import { useCohortFilter, CohortFilterBar } from '../_components/CohortFilter'
 import { parseReason } from '@/lib/receipt-reason'
+import { formatLineTotal } from '@/lib/format-line-total'
 import { REVIEW_QUEUE, DECIDED_RECEIPTS, type ReceiptRow } from '../_lib/dummy'
 import { reasonProblem, MIN_REASON_LENGTH } from '@/lib/reason'
 /**
@@ -876,7 +877,7 @@ export default function ReceiptsQueue() {
                                             </span>
                                           )}
                                         </td>
-                                        <td style={{ textAlign: 'right', padding: '3px 8px', fontVariantNumeric: 'tabular-nums' }}>{typeof l.total === 'number' ? `$${l.total.toFixed(2)}` : 'unreadable'}</td>
+                                        <td style={{ textAlign: 'right', padding: '3px 8px', fontVariantNumeric: 'tabular-nums' }}>{formatLineTotal(l.total)}</td>
                                         <td style={{ textAlign: 'center', padding: '3px 8px' }}>
                                           {editable ? (
                                             <button
