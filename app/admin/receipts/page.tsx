@@ -34,7 +34,7 @@ type Row = ReceiptRow & {
 type OcrData = {
   store?: string
   date?: string
-  lines?: Array<{ desc: string; qty: number; unit: number; total: number; is_bud_light: boolean; confidence: number; ambiguous?: boolean; reason?: string }>
+  lines?: Array<{ desc: string; qty: number | null; unit: number | null; total: number | null; is_bud_light: boolean; confidence: number; ambiguous?: boolean; reason?: string }>
   subtotal?: number
   tax?: number
   grand_total?: number
@@ -876,7 +876,7 @@ export default function ReceiptsQueue() {
                                             </span>
                                           )}
                                         </td>
-                                        <td style={{ textAlign: 'right', padding: '3px 8px', fontVariantNumeric: 'tabular-nums' }}>${l.total.toFixed(2)}</td>
+                                        <td style={{ textAlign: 'right', padding: '3px 8px', fontVariantNumeric: 'tabular-nums' }}>{typeof l.total === 'number' ? `$${l.total.toFixed(2)}` : 'unreadable'}</td>
                                         <td style={{ textAlign: 'center', padding: '3px 8px' }}>
                                           {editable ? (
                                             <button
