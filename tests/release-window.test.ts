@@ -25,10 +25,10 @@ describe('the BAM objection window', () => {
     expect(sendEligibleAt(windowStartedAt(released)!).toISOString()).toBe('2026-09-17T13:00:00.000Z')
   })
 
-  it('a Friday release waits for Monday, so the window can only ever get longer', () => {
+  it('a Friday release opens Monday 00:00 Toronto, so the window never gets shorter', () => {
     const friday = '2026-09-18T13:00:00Z'
     const eligible = sendEligibleAt(windowStartedAt(friday)!)
-    expect(eligible.toISOString()).toBe('2026-09-21T13:00:00.000Z')
+    expect(eligible.toISOString()).toBe('2026-09-21T04:00:00.000Z')
     expect(eligible.getTime() - Date.parse(friday)).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000)
   })
 })
