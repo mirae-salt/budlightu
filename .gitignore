@@ -32,3 +32,7 @@ CAREER-NOTES.md
 # Portfolio capture material, not part of the product
 _NOTE/
 docs/industry-terms.md
+
+# local tool state and generated output
+.omc/
+output/
