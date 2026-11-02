@@ -21,11 +21,11 @@ Receipt reading, reimbursement math, invoice numbering and rendering, the AP ema
 
 | Thing | Where | Account |
 |---|---|---|
-| App (Next.js) | Vercel | Mirae's Vercel |
+| App (Next.js) | Vercel | Current owner: Mirae; ownership to be assigned by Salt |
 | DB · auth · storage | Supabase | Shane's Supabase |
 | Email | Resend | Salt |
 | Receipt reading (AI) | OpenRouter | Salt |
-| Code | github.com/mirae-salt/budlightu (private) | Mirae |
+| Code | github.com/mirae-salt/budlightu (private) | Ownership to be assigned by Salt |
 
 Login and domain details are in the shared credentials spreadsheet, not in this repo. Invoice PDFs are stored in the Supabase `invoices` bucket.
 
