@@ -1,3 +1,4 @@
+// Authorship: Mirae Lee, BLU-MRL-20260720
 /**
  * Reimbursement + rollover ledger computation (pure function).
  * Contract from ARCHITECTURE.md §A.3.

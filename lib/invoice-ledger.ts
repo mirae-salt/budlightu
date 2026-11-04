@@ -1,3 +1,4 @@
+// Authorship: Mirae Lee, BLU-MRL-20260720
 /**
  * Single source of truth for the reimbursement dollar figure on an invoice
  * (P0-D, audit 2026-08-07 · ENGINEERING-RULES §7.2).

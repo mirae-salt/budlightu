@@ -26,13 +26,15 @@ next-env.d.ts
 supabase/.temp/
 supabase/.branches/
 
-# Personal career material, not part of the product
-CAREER-NOTES.md
-
-# Portfolio capture material, not part of the product
+# Working notes, docs and personal material, kept local (one folder)
 _NOTE/
-docs/industry-terms.md
 
 # local tool state and generated output
 .omc/
 output/
+
+# Files the AI tools read from fixed locations, kept local
+AGENTS.md
+.claude/CLAUDE.md
+.claude/agents/
+.codex/agents/

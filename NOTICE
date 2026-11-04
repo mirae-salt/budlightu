@@ -1,0 +1,14 @@
+Bud Light U invoice automation (BLU Invoice)
+
+Designed, written and maintained by Mirae Lee <miraeleeee@gmail.com>
+(work address at the time: mirae.lee@ilovesalt.com)
+First commit 2026-07-20. Authorship is recorded in the git history of this
+repository (every commit carries the author's name and date).
+
+Built for Salt XC. Ownership of the project is assigned by Salt.
+
+Copying, republishing or presenting this code or its history under another
+author's name, or with the author's name or the commit history removed, is a
+misrepresentation of its origin. If this code appears elsewhere without this
+notice or without its original history, compare it against the original
+repository's commit history.

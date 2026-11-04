@@ -1,3 +1,4 @@
+// Authorship: Mirae Lee, BLU-MRL-20260720
 /**
  * Touchpoint 1, second half: correcting WHICH lines are Bud Light.
  *

@@ -1,0 +1,8 @@
+# Changes to these files ask Mirae Lee for review (authorship marks and the rules that protect them).
+/NOTICE                       @mirae-salt
+/package.json                 @mirae-salt
+/AGENTS.md                    @mirae-salt
+/.claude/CLAUDE.md            @mirae-salt
+/tests/authorship.test.ts     @mirae-salt
+/public/humans.txt            @mirae-salt
+/.github/CODEOWNERS           @mirae-salt

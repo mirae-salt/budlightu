@@ -1,5 +1,6 @@
 {
   "name": "blu-invoice",
+  "author": "Mirae Lee <miraeleeee@gmail.com>",
   "version": "0.1.0",
   "private": true,
   "description": "Bud Light U — BAM invoice automation (portal + admin + Supabase backend)",

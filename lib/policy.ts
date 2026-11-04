@@ -1,3 +1,4 @@
+// Authorship: Mirae Lee, BLU-MRL-20260720
 /**
  * Policy shape + defaults. Materialized values live in the `policy` table
  * (see supabase/migrations/0006_seed_policy.sql) and can be overridden

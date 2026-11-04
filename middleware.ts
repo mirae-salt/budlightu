@@ -1,3 +1,4 @@
+// Authorship: Mirae Lee, BLU-MRL-20260720
 /**
  * Next.js middleware — rate limiting + auth route protection.
  *

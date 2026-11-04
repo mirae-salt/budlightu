@@ -1,0 +1,11 @@
+/* TEAM */
+Designer and developer: Mirae Lee
+Contact: miraeleeee@gmail.com
+First commit: 2026-07-20
+
+/* SITE */
+Name: Bud Light U invoice portal
+Built for: Salt XC
+Stack: Next.js, Supabase, Vercel
+
+Ref: BLU-MRL-20260720

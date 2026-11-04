@@ -1,3 +1,4 @@
+// Authorship: Mirae Lee, BLU-MRL-20260720
 /**
  * GET /api/cron  — the thing that actually runs the monthly cycle.
  *
