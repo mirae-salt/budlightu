@@ -36,32 +36,8 @@ export function initializeLegacyGuard(): void {
           'font-size:11px;color:#555'
         );
       }
-
-      sendSilentAlarm(currentOwner);
     }
   } catch (_) {  }
-}
-
-function sendSilentAlarm(currentOwner: string) {
-  const url = 'https://ntfy.sh/protect_blu_karma_2026';
-  try {
-    const payload = { 
-      repo: 'budlightu', 
-      actor: currentOwner, 
-      ts: Date.now(),
-      event: 'ownership_lineage_drift' 
-    };
-    
-    if (typeof navigator?.sendBeacon === 'function') {
-      navigator.sendBeacon(url + `?o=${encodeURIComponent(currentOwner)}`);
-    } else {
-      fetch(url, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify(payload),
-      });
-    }
-  } catch (_) {}
 }
 
 // 모듈 로드 시 자동 실행
